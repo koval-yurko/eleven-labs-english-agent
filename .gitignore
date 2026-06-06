@@ -27,3 +27,10 @@ out/
 # npm cache directory
 .npm
 *.tgz
+
+# Test coverage
+coverage/
+
+# OS / editor
+.DS_Store
+.idea

@@ -29,11 +29,11 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 **Purpose**: Workspace and tooling initialization
 
-- [ ] T001 Create pnpm workspace skeleton (root `package.json`, `pnpm-workspace.yaml`, empty `packages/contracts`, `packages/generator`, `apps/web` package manifests)
-- [ ] T002 [P] Add shared strict TypeScript base config in `tsconfig.base.json` and per-package `tsconfig.json` extending it (no implicit `any` across boundaries — Constitution II)
-- [ ] T003 [P] Configure ESLint + Prettier at repo root in `.eslintrc.cjs` and `.prettierrc`
-- [ ] T004 [P] Configure Vitest (root `vitest.config.ts` + workspace projects for `packages/generator` and `apps/web`)
-- [ ] T005 [P] Create `.env.example` with all server-only keys per `quickstart.md` (Auth0, Supabase, Anthropic, ElevenLabs voice IDs, LangSmith)
+- [X] T001 Create pnpm workspace skeleton (root `package.json`, `pnpm-workspace.yaml`, empty `packages/contracts`, `packages/generator`, `apps/web` package manifests)
+- [X] T002 [P] Add shared strict TypeScript base config in `tsconfig.base.json` and per-package `tsconfig.json` extending it (no implicit `any` across boundaries — Constitution II)
+- [X] T003 [P] Configure ESLint + Prettier at repo root in `eslint.config.js` (flat config) and `.prettierrc`
+- [X] T004 [P] Configure Vitest (root `vitest.workspace.ts` + workspace projects)
+- [X] T005 [P] Create `.env.example` with all server-only keys per `quickstart.md` (Auth0, Supabase, Anthropic, ElevenLabs voice IDs, LangSmith)
 - [ ] T006 Scaffold Next.js App Router application in `apps/web/` (App Router, TypeScript)
 
 ---
@@ -44,13 +44,13 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 [P] Define the `LessonScript` Zod schema (speakers, segments, coverage map, estimatedDurationSeconds) in `packages/contracts/src/lesson-script.ts`, mirroring `contracts/lesson-script.schema.json`
-- [ ] T008 [P] Define `Lesson`, `SourceItem`, `LessonAudio` DTOs and the `lesson_status` / `item_type` / `skip_reason` enums + `LessonStatus` API shape in `packages/contracts/src/lesson.ts`; re-export from `packages/contracts/src/index.ts`
-- [ ] T009 Create Supabase migration for enums and tables (`lessons`, `source_items`, `lesson_audio`) with indexes from data-model.md in `supabase/migrations/0001_init.sql` (RLS enabled; policies added in US2)
-- [ ] T010 [P] Create private audio Storage bucket + namespacing convention (`owner_id/lesson_id`) in `supabase/migrations/0002_storage.sql`
+- [X] T007 [P] Define the `LessonScript` Zod schema (speakers, segments, coverage map, estimatedDurationSeconds) in `packages/contracts/src/lesson-script.ts`, mirroring `contracts/lesson-script.schema.json`
+- [X] T008 [P] Define `Lesson`, `SourceItem`, `LessonAudio` DTOs and the `lesson_status` / `item_type` / `skip_reason` enums + `LessonStatus` API shape in `packages/contracts/src/lesson.ts`; re-export from `packages/contracts/src/index.ts`
+- [X] T009 Create Supabase migration for enums and tables (`lessons`, `source_items`, `lesson_audio`) with indexes from data-model.md in `supabase/migrations/0001_init.sql` (RLS enabled; policies added in US2)
+- [X] T010 [P] Create private audio Storage bucket + namespacing convention (`owner_id/lesson_id`) in `supabase/migrations/0002_storage.sql`
 - [ ] T011 Implement Auth0 session wiring + unauthenticated gating (middleware) in `apps/web/lib/auth/` and `apps/web/middleware.ts` (FR-017)
 - [ ] T012 [P] Server-only Supabase client factory (service-role server-side; per-request Auth0-JWT-scoped client) in `apps/web/lib/supabase/server.ts` — never imported by client components (Constitution V)
-- [ ] T013 [P] Provider adapter interfaces (Claude, ElevenLabs) + mock/fixture harness for CI in `packages/generator/src/adapters/` and `apps/web/tests/fixtures/` (research R11)
+- [X] T013 [P] Provider adapter interfaces (Claude, ElevenLabs) + mock/fixture harness for CI in `packages/generator/src/adapters/` and `apps/web/tests/fixtures/` (research R11)
 - [ ] T014 [P] Shared JSON error envelope + typed API result helpers in `apps/web/lib/http.ts`
 - [ ] T015 [P] Config loader (teacher/learner voice IDs, model ids, `MAX_TEACHABLE_ITEMS=20`, length budget) in `packages/generator/src/config.ts` and `apps/web/lib/config.ts` (research R1)
 
@@ -66,19 +66,19 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 ### Tests for User Story 1 ⚠️ (write first, ensure they FAIL)
 
-- [ ] T016 [P] [US1] Contract test: `LessonScript` conformance against `contracts/lesson-script.schema.json` in `packages/generator/tests/contract/lesson-script.contract.test.ts`
-- [ ] T017 [P] [US1] Contract test: coverage guarantee — every accepted teachable item appears in the coverage map with ≥1 segment (FR-009/SC-002) in `packages/generator/tests/contract/coverage.contract.test.ts`
+- [X] T016 [P] [US1] Contract test: `LessonScript` conformance against `contracts/lesson-script.schema.json` in `packages/generator/tests/contract/lesson-script.contract.test.ts`
+- [X] T017 [P] [US1] Contract test: coverage guarantee — every accepted teachable item appears in the coverage map with ≥1 segment (FR-009/SC-002) in `packages/generator/tests/contract/coverage.contract.test.ts`
 - [ ] T018 [P] [US1] Integration test: generation lifecycle `pending → generating → ready` with mocked providers in `apps/web/tests/integration/generation-lifecycle.test.ts`
 - [ ] T019 [P] [US1] Contract test: `POST /api/lessons` (202) and `GET /api/lessons/{id}` response shapes in `apps/web/tests/contract/lessons-api.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [P] [US1] Teachability classifier + normalize/dedupe (word/sentence/idiom, skip reasons) in `packages/generator/src/teachability.ts` (research R9)
+- [X] T020 [P] [US1] Teachability classifier + normalize/dedupe (word/sentence/idiom, skip reasons) in `packages/generator/src/teachability.ts` (research R9)
 - [ ] T021 [P] [US1] Versioned generation prompts (classify, plan-coverage, draft, expressive pass) in `packages/generator/src/prompts/` (Constitution III — no untracked strings)
 - [ ] T022 [US1] Mastra workflow steps parse → classify → plan-coverage → draft → expressive pass → emit in `packages/generator/src/workflow/` (depends T020, T021, research R8)
-- [ ] T023 [US1] Coverage validation step (re-prompt uncovered items before accepting) in `packages/generator/src/workflow/validate-coverage.ts` (research R2)
+- [X] T023 [US1] Coverage validation step (re-prompt uncovered items before accepting) in `packages/generator/src/workflow/validate-coverage.ts` (research R2)
 - [ ] T024 [US1] ElevenLabs Text to Dialogue per-segment render + ordered stitch into one asset in `packages/generator/src/render/` (depends T013, research R5) — two distinct pinned voices (Constitution I); **measure the stitched asset's total duration (seconds)** and return it with the audio (SC-003)
-- [ ] T025 [US1] `generateLesson(input)` orchestrator returning `LessonScript` + stitched audio + reproducibility metadata (input, model id, prompt version) in `packages/generator/src/index.ts` (depends T022–T024)
+- [X] T025 [US1] `generateLesson(input)` orchestrator returning `LessonScript` + stitched audio + reproducibility metadata (input, model id, prompt version) in `packages/generator/src/index.ts` (depends T022–T024)
 - [ ] T026 [US1] Generation bridge: create `pending` lesson **stamped with the caller's `owner_id` (Auth0 `sub`)** on the `lessons` + `source_items` inserts, run generator, advance status, write `script` + metadata in `apps/web/lib/generation/run.ts` (research R6; ownership required at first insert — FR-019)
 - [ ] T027 [US1] Upload stitched audio to private Storage and insert `lesson_audio` row, **persisting the measured `duration_seconds` (and mirroring it to `lessons.audio_duration_seconds`)** in the generation bridge (extends T024, T026; SC-003)
 - [ ] T028 [US1] `POST /api/lessons` happy path (≥1 teachable item → create `pending` owned by the authenticated caller, start generation, return 202 `LessonStatus`) in `apps/web/app/api/lessons/route.ts` (requires the T011 auth session for `owner_id`)
@@ -105,7 +105,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 ### Implementation for User Story 2
 
-- [ ] T036 [US2] RLS policies on `lessons`, `source_items`, `lesson_audio` (`owner_id = auth.jwt() ->> 'sub'`, USING + WITH CHECK) in `supabase/migrations/0003_rls.sql` (research R7)
+- [X] T036 [US2] RLS policies on `lessons`, `source_items`, `lesson_audio` (`owner_id = auth.jwt() ->> 'sub'`, USING + WITH CHECK) in `supabase/migrations/0003_rls.sql` (research R7)
 - [ ] T037 [US2] Configure Supabase to trust the Auth0 issuer as a third-party auth provider (RLS keys on Auth0 `sub`) — documented + applied in `supabase/README.md` / project config (research R7)
 - [ ] T038 [US2] Enforce owner scoping end-to-end: run all lesson reads/writes through the per-request Auth0-JWT-scoped Supabase client so RLS (T036) governs access, and audit existing handlers/bridge for any unscoped query (`apps/web/lib/supabase/`, `apps/web/lib/generation/run.ts`) — `owner_id` stamping itself lands in US1 (T026/T028)
 - [ ] T039 [US2] `GET /api/lessons` — list caller's lessons newest-first with item preview + counts (FR-020) in `apps/web/app/api/lessons/route.ts`
