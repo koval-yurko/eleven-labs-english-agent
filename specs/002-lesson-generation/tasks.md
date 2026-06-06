@@ -68,7 +68,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 - [X] T016 [P] [US1] Contract test: `LessonScript` conformance against `contracts/lesson-script.schema.json` in `packages/generator/tests/contract/lesson-script.contract.test.ts`
 - [X] T017 [P] [US1] Contract test: coverage guarantee — every accepted teachable item appears in the coverage map with ≥1 segment (FR-009/SC-002) in `packages/generator/tests/contract/coverage.contract.test.ts`
-- [ ] T018 [P] [US1] Integration test: generation lifecycle `pending → generating → ready` with mocked providers in `apps/web/tests/integration/generation-lifecycle.test.ts`
+- [X] T018 [P] [US1] Integration test: generation lifecycle `pending → generating → ready` with mocked providers in `apps/web/tests/integration/generation-lifecycle.test.ts`
 - [ ] T019 [P] [US1] Contract test: `POST /api/lessons` (202) and `GET /api/lessons/{id}` response shapes in `apps/web/tests/contract/lessons-api.test.ts`
 
 ### Implementation for User Story 1
@@ -100,7 +100,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T034 [P] [US2] Integration test: cross-account access denied — Learner B gets 404 on Learner A's lesson/audio (FR-019/SC-005) in `apps/web/tests/integration/privacy.test.ts`
+- [X] T034 [P] [US2] Integration test: cross-account access denied — Learner B gets 404 on Learner A's lesson/audio (FR-019/SC-005) in `apps/web/tests/integration/privacy.test.ts`
 - [ ] T035 [P] [US2] Integration test: cross-session replay after re-login lists and plays prior lessons (FR-018/SC-006) in `apps/web/tests/integration/replay.test.ts`
 
 ### Implementation for User Story 2
@@ -125,8 +125,8 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 ### Tests for User Story 3 ⚠️
 
 - [ ] T042 [P] [US3] Contract tests: empty → 400 `empty_input`, none-teachable → 400 `no_teachable_items`, over-limit → 413 `too_many_items` (FR-004/005/007) in `apps/web/tests/contract/lessons-guardrails.test.ts`
-- [ ] T043 [P] [US3] Integration test: mixed valid+unteachable input → lesson generated from valid items + skip report (FR-006) in `apps/web/tests/integration/mixed-input.test.ts`
-- [ ] T044 [P] [US3] Integration test: generation failure → status `failed` + `error_reason`; retry transitions to `generating` (FR-016) in `apps/web/tests/integration/retry.test.ts`
+- [X] T043 [P] [US3] Integration test: mixed valid+unteachable input → lesson generated from valid items + skip report (FR-006) in `apps/web/tests/integration/mixed-input.test.ts`
+- [X] T044 [P] [US3] Integration test: generation failure → status `failed` + `error_reason`; retry transitions to `generating` (FR-016) in `apps/web/tests/integration/retry.test.ts`
 
 ### Implementation for User Story 3
 

@@ -30,6 +30,18 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.19)
 
+  apps/web:
+    dependencies:
+      '@idiomatic/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@idiomatic/generator':
+        specifier: workspace:*
+        version: link:../../packages/generator
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/contracts:
     dependencies:
       zod:
