@@ -38,11 +38,13 @@ export function getLessonService(): LessonService {
   const deps = buildGenerateLessonDeps();
   const runner = new GenerationRunner(repo, storage, deps);
 
+  const signedUrlTtl = Number.parseInt(process.env.SIGNED_URL_TTL_SECONDS ?? "", 10);
   service = new LessonService(repo, runner, storage, fireAndForgetScheduler, {
     maxTeachableItems: deps.config.maxTeachableItems,
     targetMinSeconds: deps.config.targetMinSeconds,
     targetMaxSeconds: deps.config.targetMaxSeconds,
-    signedUrlTtlSeconds: 600,
+    // Short-lived playback URLs; tighten/loosen via env (default 5 min).
+    signedUrlTtlSeconds: Number.isNaN(signedUrlTtl) ? 300 : signedUrlTtl,
   });
   return service;
 }

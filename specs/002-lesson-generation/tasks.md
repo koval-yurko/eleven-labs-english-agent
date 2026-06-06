@@ -106,7 +106,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 ### Implementation for User Story 2
 
 - [X] T036 [US2] RLS policies on `lessons`, `source_items`, `lesson_audio` (`owner_id = auth.jwt() ->> 'sub'`, USING + WITH CHECK) in `supabase/migrations/0003_rls.sql` (research R7)
-- [ ] T037 [US2] Configure Supabase to trust the Auth0 issuer as a third-party auth provider (RLS keys on Auth0 `sub`) — documented + applied in `supabase/README.md` / project config (research R7)
+- [X] T037 [US2] Configure Supabase to trust the Auth0 issuer as a third-party auth provider (RLS keys on Auth0 `sub`) — documented + applied in `supabase/README.md` / project config (research R7)
 - [X] T038 [US2] Enforce owner scoping end-to-end: run all lesson reads/writes through the per-request Auth0-JWT-scoped Supabase client so RLS (T036) governs access, and audit existing handlers/bridge for any unscoped query (`apps/web/lib/supabase/`, `apps/web/lib/generation/run.ts`) — `owner_id` stamping itself lands in US1 (T026/T028)
 - [X] T039 [US2] `GET /api/lessons` — list caller's lessons newest-first with item preview + counts (FR-020) in `apps/web/app/api/lessons/route.ts`
 - [X] T040 [P] [US2] Library list UI (identify each lesson by item preview + creation time) in `apps/web/app/lessons/page.tsx`
@@ -148,7 +148,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 - [ ] T051 [P] LangSmith generation eval suite (coverage, length, story-not-definition, two-voice) + `pnpm eval:generation` gate in `packages/generator/src/evals/` (Constitution III)
 - [ ] T052 [P] Wire `@mastra/langsmith` exporter for generation traceability in `packages/generator/src/workflow/`
 - [ ] T053 [P] Update `README.md` / `CLAUDE.md` with run + verification instructions
-- [ ] T054 Security hardening: assert no provider secrets in the client bundle, signed-URL TTL, RLS smoke test (Constitution V)
+- [X] T054 Security hardening: assert no provider secrets in the client bundle, signed-URL TTL, RLS smoke test (Constitution V)
 - [ ] T055 Run the `quickstart.md` verification matrix end-to-end
 
 ---
