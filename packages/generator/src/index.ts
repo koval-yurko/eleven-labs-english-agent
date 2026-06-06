@@ -1,16 +1,16 @@
 import type { LessonScript } from "@idiomatic/contracts";
 import { LessonScript as LessonScriptSchema } from "@idiomatic/contracts";
-import type { GeneratorConfig } from "./config.js";
-import type { ClassifiedItem } from "./teachability.js";
-import type { LlmAdapter, RenderedAudio, TtsAdapter } from "./adapters/types.js";
-import { validateCoverage } from "./workflow/validate-coverage.js";
+import type { GeneratorConfig } from "./config";
+import type { ClassifiedItem } from "./teachability";
+import type { LlmAdapter, RenderedAudio, TtsAdapter } from "./adapters/types";
+import { validateCoverage } from "./workflow/validate-coverage";
 
-export * from "./config.js";
-export * from "./teachability.js";
-export * from "./submission.js";
-export * from "./workflow/validate-coverage.js";
-export * from "./adapters/types.js";
-export * from "./adapters/mock.js";
+export * from "./config";
+export * from "./teachability";
+export * from "./submission";
+export * from "./workflow/validate-coverage";
+export * from "./adapters/types";
+export * from "./adapters/mock";
 
 export interface GenerateLessonDeps {
   llm: LlmAdapter;

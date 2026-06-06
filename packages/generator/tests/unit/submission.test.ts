@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideSubmission } from "../../src/index.js";
+import { decideSubmission } from "../../src/index";
 
 /** Input-guardrail decisions (FR-004/005/006/007). */
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LessonStatusDTO } from "@idiomatic/contracts";
-import { makeHarness } from "../helpers.js";
+import { makeHarness } from "../helpers";
 
 /** T018 — generation lifecycle pending → generating → ready with measured audio. */
 

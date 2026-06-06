@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeHarness } from "../helpers.js";
+import { makeHarness } from "../helpers";
 
 /** T019/T043 — submit guardrails + mixed-input skip report (FR-004/005/006/007). */
 

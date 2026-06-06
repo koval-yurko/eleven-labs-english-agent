@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LessonScript } from "@idiomatic/contracts";
 import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
-import { validateCoverage } from "../../src/index.js";
+import { validateCoverage } from "../../src/index";
 
 /**
  * T017 — Contract test: the coverage guarantee (FR-009/SC-002). Every accepted

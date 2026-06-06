@@ -7,7 +7,7 @@ import {
   MockTtsAdapter,
   validateCoverage,
   type GeneratorConfig,
-} from "../../src/index.js";
+} from "../../src/index";
 
 /** End-to-end orchestrator with mock providers (research R11): coverage + duration. */
 

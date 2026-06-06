@@ -1,10 +1,10 @@
-import type { IdGenerator, Clock } from "../ports.js";
+import type { IdGenerator, Clock } from "../ports";
 import type {
   CreatePendingLessonInput,
   LessonRepository,
   ReadyLessonUpdate,
-} from "./repository.js";
-import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types.js";
+} from "./repository";
+import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types";
 
 /**
  * In-memory LessonRepository for tests. Enforces the SAME owner scoping as the

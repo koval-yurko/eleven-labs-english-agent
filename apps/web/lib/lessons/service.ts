@@ -6,11 +6,11 @@ import type {
 } from "@idiomatic/contracts";
 import { decideSubmission } from "@idiomatic/generator";
 import type { ClassifiedItem } from "@idiomatic/generator";
-import type { GenerationRunner } from "../generation/runner.js";
-import type { AudioStorage } from "../generation/storage.js";
-import type { LessonRepository } from "./repository.js";
-import type { TaskScheduler } from "./scheduler.js";
-import type { LessonRecord, SourceItemRecord } from "./types.js";
+import type { GenerationRunner } from "../generation/runner";
+import type { AudioStorage } from "../generation/storage";
+import type { LessonRepository } from "./repository";
+import type { TaskScheduler } from "./scheduler";
+import type { LessonRecord, SourceItemRecord } from "./types";
 
 export interface LessonServiceConfig {
   maxTeachableItems: number;

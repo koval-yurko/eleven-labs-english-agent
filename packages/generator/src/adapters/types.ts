@@ -1,5 +1,5 @@
 import type { LessonScript } from "@idiomatic/contracts";
-import type { ClassifiedItem } from "../teachability.js";
+import type { ClassifiedItem } from "../teachability";
 
 /**
  * Provider adapter boundaries (research R11). Business logic depends on these

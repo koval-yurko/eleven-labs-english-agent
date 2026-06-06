@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyInput, parseEntries } from "../../src/index.js";
+import { classifyInput, parseEntries } from "../../src/index";
 
 /** Teachability classifier + normalize/dedupe (FR-002, FR-003, research R9). */
 

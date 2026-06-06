@@ -1,5 +1,5 @@
 import type { LessonScript } from "@idiomatic/contracts";
-import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types.js";
+import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types";
 
 /**
  * Persistence boundary. All reads/writes are OWNER-SCOPED — the repository never

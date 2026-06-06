@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LessonScript } from "@idiomatic/contracts";
-import { MockLlmAdapter } from "../../src/index.js";
-import type { ClassifiedItem } from "../../src/index.js";
+import { MockLlmAdapter } from "../../src/index";
+import type { ClassifiedItem } from "../../src/index";
 
 /**
  * T016 — Contract test: a generated LessonScript conforms to the shared schema, and

@@ -18,6 +18,7 @@ build/Release
 .next
 out/
 .nuxt
+next-env.d.ts
 
 # dotenv environment variable files
 .env

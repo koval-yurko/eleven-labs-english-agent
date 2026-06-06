@@ -5,7 +5,7 @@ import type {
   RenderedAudio,
   ScriptDraftRequest,
   TtsAdapter,
-} from "./types.js";
+} from "./types";
 
 /**
  * Deterministic mock adapters for CI/tests (research R11). They produce a valid,

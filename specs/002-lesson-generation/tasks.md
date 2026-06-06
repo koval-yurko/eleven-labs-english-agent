@@ -34,7 +34,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 - [X] T003 [P] Configure ESLint + Prettier at repo root in `eslint.config.js` (flat config) and `.prettierrc`
 - [X] T004 [P] Configure Vitest (root `vitest.workspace.ts` + workspace projects)
 - [X] T005 [P] Create `.env.example` with all server-only keys per `quickstart.md` (Auth0, Supabase, Anthropic, ElevenLabs voice IDs, LangSmith)
-- [ ] T006 Scaffold Next.js App Router application in `apps/web/` (App Router, TypeScript)
+- [X] T006 Scaffold Next.js App Router application in `apps/web/` (App Router, TypeScript)
 
 ---
 
@@ -48,11 +48,11 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 - [X] T008 [P] Define `Lesson`, `SourceItem`, `LessonAudio` DTOs and the `lesson_status` / `item_type` / `skip_reason` enums + `LessonStatus` API shape in `packages/contracts/src/lesson.ts`; re-export from `packages/contracts/src/index.ts`
 - [X] T009 Create Supabase migration for enums and tables (`lessons`, `source_items`, `lesson_audio`) with indexes from data-model.md in `supabase/migrations/0001_init.sql` (RLS enabled; policies added in US2)
 - [X] T010 [P] Create private audio Storage bucket + namespacing convention (`owner_id/lesson_id`) in `supabase/migrations/0002_storage.sql`
-- [ ] T011 Implement Auth0 session wiring + unauthenticated gating (middleware) in `apps/web/lib/auth/` and `apps/web/middleware.ts` (FR-017)
-- [ ] T012 [P] Server-only Supabase client factory (service-role server-side; per-request Auth0-JWT-scoped client) in `apps/web/lib/supabase/server.ts` — never imported by client components (Constitution V)
+- [X] T011 Implement Auth0 session wiring + unauthenticated gating (middleware) in `apps/web/lib/auth/` and `apps/web/middleware.ts` (FR-017)
+- [X] T012 [P] Server-only Supabase client factory (service-role server-side; per-request Auth0-JWT-scoped client) in `apps/web/lib/supabase/server.ts` — never imported by client components (Constitution V)
 - [X] T013 [P] Provider adapter interfaces (Claude, ElevenLabs) + mock/fixture harness for CI in `packages/generator/src/adapters/` and `apps/web/tests/fixtures/` (research R11)
-- [ ] T014 [P] Shared JSON error envelope + typed API result helpers in `apps/web/lib/http.ts`
-- [ ] T015 [P] Config loader (teacher/learner voice IDs, model ids, `MAX_TEACHABLE_ITEMS=20`, length budget) in `packages/generator/src/config.ts` and `apps/web/lib/config.ts` (research R1)
+- [X] T014 [P] Shared JSON error envelope + typed API result helpers in `apps/web/lib/http.ts`
+- [X] T015 [P] Config loader (teacher/learner voice IDs, model ids, `MAX_TEACHABLE_ITEMS=20`, length budget) in `packages/generator/src/config.ts` and `apps/web/lib/config.ts` (research R1)
 
 **Checkpoint**: Foundation ready — user stories can begin.
 
@@ -79,14 +79,14 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 - [X] T023 [US1] Coverage validation step (re-prompt uncovered items before accepting) in `packages/generator/src/workflow/validate-coverage.ts` (research R2)
 - [ ] T024 [US1] ElevenLabs Text to Dialogue per-segment render + ordered stitch into one asset in `packages/generator/src/render/` (depends T013, research R5) — two distinct pinned voices (Constitution I); **measure the stitched asset's total duration (seconds)** and return it with the audio (SC-003)
 - [X] T025 [US1] `generateLesson(input)` orchestrator returning `LessonScript` + stitched audio + reproducibility metadata (input, model id, prompt version) in `packages/generator/src/index.ts` (depends T022–T024)
-- [ ] T026 [US1] Generation bridge: create `pending` lesson **stamped with the caller's `owner_id` (Auth0 `sub`)** on the `lessons` + `source_items` inserts, run generator, advance status, write `script` + metadata in `apps/web/lib/generation/run.ts` (research R6; ownership required at first insert — FR-019)
-- [ ] T027 [US1] Upload stitched audio to private Storage and insert `lesson_audio` row, **persisting the measured `duration_seconds` (and mirroring it to `lessons.audio_duration_seconds`)** in the generation bridge (extends T024, T026; SC-003)
-- [ ] T028 [US1] `POST /api/lessons` happy path (≥1 teachable item → create `pending` owned by the authenticated caller, start generation, return 202 `LessonStatus`) in `apps/web/app/api/lessons/route.ts` (requires the T011 auth session for `owner_id`)
-- [ ] T029 [US1] `GET /api/lessons/{id}` status + detail (items, covered flags, audio when ready), scoped to the caller's `owner_id` in `apps/web/app/api/lessons/[id]/route.ts`
-- [ ] T030 [US1] `GET /api/lessons/{id}/audio` returning a short-lived signed URL in `apps/web/app/api/lessons/[id]/audio/route.ts` (FR-014)
-- [ ] T031 [P] [US1] Submit form UI (paste list, submit) in `apps/web/app/lessons/new/page.tsx`
-- [ ] T032 [US1] Lesson page: status display (pending/generating/ready) via Supabase Realtime + polling fallback in `apps/web/app/lessons/[id]/page.tsx` (FR-015)
-- [ ] T033 [US1] In-browser audio player on the lesson page (depends T030, T032)
+- [X] T026 [US1] Generation bridge: create `pending` lesson **stamped with the caller's `owner_id` (Auth0 `sub`)** on the `lessons` + `source_items` inserts, run generator, advance status, write `script` + metadata in `apps/web/lib/generation/run.ts` (research R6; ownership required at first insert — FR-019)
+- [X] T027 [US1] Upload stitched audio to private Storage and insert `lesson_audio` row, **persisting the measured `duration_seconds` (and mirroring it to `lessons.audio_duration_seconds`)** in the generation bridge (extends T024, T026; SC-003)
+- [X] T028 [US1] `POST /api/lessons` happy path (≥1 teachable item → create `pending` owned by the authenticated caller, start generation, return 202 `LessonStatus`) in `apps/web/app/api/lessons/route.ts` (requires the T011 auth session for `owner_id`)
+- [X] T029 [US1] `GET /api/lessons/{id}` status + detail (items, covered flags, audio when ready), scoped to the caller's `owner_id` in `apps/web/app/api/lessons/[id]/route.ts`
+- [X] T030 [US1] `GET /api/lessons/{id}/audio` returning a short-lived signed URL in `apps/web/app/api/lessons/[id]/audio/route.ts` (FR-014)
+- [X] T031 [P] [US1] Submit form UI (paste list, submit) in `apps/web/app/lessons/new/page.tsx`
+- [X] T032 [US1] Lesson page: status display (pending/generating/ready) via Supabase Realtime + polling fallback in `apps/web/app/lessons/[id]/page.tsx` (FR-015)
+- [X] T033 [US1] In-browser audio player on the lesson page (depends T030, T032)
 
 **Checkpoint**: US1 fully functional — a learner can submit a valid list and play the generated lesson within the session. MVP.
 
@@ -107,10 +107,10 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 - [X] T036 [US2] RLS policies on `lessons`, `source_items`, `lesson_audio` (`owner_id = auth.jwt() ->> 'sub'`, USING + WITH CHECK) in `supabase/migrations/0003_rls.sql` (research R7)
 - [ ] T037 [US2] Configure Supabase to trust the Auth0 issuer as a third-party auth provider (RLS keys on Auth0 `sub`) — documented + applied in `supabase/README.md` / project config (research R7)
-- [ ] T038 [US2] Enforce owner scoping end-to-end: run all lesson reads/writes through the per-request Auth0-JWT-scoped Supabase client so RLS (T036) governs access, and audit existing handlers/bridge for any unscoped query (`apps/web/lib/supabase/`, `apps/web/lib/generation/run.ts`) — `owner_id` stamping itself lands in US1 (T026/T028)
-- [ ] T039 [US2] `GET /api/lessons` — list caller's lessons newest-first with item preview + counts (FR-020) in `apps/web/app/api/lessons/route.ts`
-- [ ] T040 [P] [US2] Library list UI (identify each lesson by item preview + creation time) in `apps/web/app/lessons/page.tsx`
-- [ ] T041 [US2] Harden audio signed-URL minting to be owner-scoped against the private bucket (extends T030, FR-019)
+- [X] T038 [US2] Enforce owner scoping end-to-end: run all lesson reads/writes through the per-request Auth0-JWT-scoped Supabase client so RLS (T036) governs access, and audit existing handlers/bridge for any unscoped query (`apps/web/lib/supabase/`, `apps/web/lib/generation/run.ts`) — `owner_id` stamping itself lands in US1 (T026/T028)
+- [X] T039 [US2] `GET /api/lessons` — list caller's lessons newest-first with item preview + counts (FR-020) in `apps/web/app/api/lessons/route.ts`
+- [X] T040 [P] [US2] Library list UI (identify each lesson by item preview + creation time) in `apps/web/app/lessons/page.tsx`
+- [X] T041 [US2] Harden audio signed-URL minting to be owner-scoped against the private bucket (extends T030, FR-019)
 
 **Checkpoint**: US1 + US2 work — lessons are private, durable, and replayable across sessions.
 
@@ -124,17 +124,17 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T042 [P] [US3] Contract tests: empty → 400 `empty_input`, none-teachable → 400 `no_teachable_items`, over-limit → 413 `too_many_items` (FR-004/005/007) in `apps/web/tests/contract/lessons-guardrails.test.ts`
+- [X] T042 [P] [US3] Contract tests: empty → 400 `empty_input`, none-teachable → 400 `no_teachable_items`, over-limit → 413 `too_many_items` (FR-004/005/007) in `apps/web/tests/contract/lessons-guardrails.test.ts`
 - [X] T043 [P] [US3] Integration test: mixed valid+unteachable input → lesson generated from valid items + skip report (FR-006) in `apps/web/tests/integration/mixed-input.test.ts`
 - [X] T044 [P] [US3] Integration test: generation failure → status `failed` + `error_reason`; retry transitions to `generating` (FR-016) in `apps/web/tests/integration/retry.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Input guardrail branches in `POST /api/lessons`: empty → 400, no teachable → 400, > `MAX_TEACHABLE_ITEMS` → 413 (no silent drop) in `apps/web/app/api/lessons/route.ts` (extends T028)
-- [ ] T046 [US3] Persist + return per-entry skipped report (reason) on submit and in lesson detail (FR-006) in route handlers + `apps/web/app/lessons/[id]/page.tsx`
-- [ ] T047 [US3] `POST /api/lessons/{id}/retry` (only when `failed`, else 409) in `apps/web/app/api/lessons/[id]/retry/route.ts`
-- [ ] T048 [US3] Generation failure path: catch errors → set status `failed` + `error_reason` (no silent/indefinite wait) in `apps/web/lib/generation/run.ts` (extends T026)
-- [ ] T049 [US3] Guardrail + failure + retry messaging UI (inline errors on submit; failed state with retry affordance) in `apps/web/app/lessons/new/page.tsx` and `apps/web/app/lessons/[id]/page.tsx`
+- [X] T045 [US3] Input guardrail branches in `POST /api/lessons`: empty → 400, no teachable → 400, > `MAX_TEACHABLE_ITEMS` → 413 (no silent drop) in `apps/web/app/api/lessons/route.ts` (extends T028)
+- [X] T046 [US3] Persist + return per-entry skipped report (reason) on submit and in lesson detail (FR-006) in route handlers + `apps/web/app/lessons/[id]/page.tsx`
+- [X] T047 [US3] `POST /api/lessons/{id}/retry` (only when `failed`, else 409) in `apps/web/app/api/lessons/[id]/retry/route.ts`
+- [X] T048 [US3] Generation failure path: catch errors → set status `failed` + `error_reason` (no silent/indefinite wait) in `apps/web/lib/generation/run.ts` (extends T026)
+- [X] T049 [US3] Guardrail + failure + retry messaging UI (inline errors on submit; failed state with retry affordance) in `apps/web/app/lessons/new/page.tsx` and `apps/web/app/lessons/[id]/page.tsx`
 
 **Checkpoint**: All three user stories independently functional.
 

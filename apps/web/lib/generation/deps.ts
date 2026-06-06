@@ -10,7 +10,7 @@ import {
  * plug in here when keys are present; absent keys fall back to deterministic mocks so
  * the app runs locally and CI runs without live keys (Constitution Dev Workflow).
  */
-export function buildGeneratorConfig(env: NodeJS.ProcessEnv = process.env): GeneratorConfig {
+export function buildGeneratorConfig(env: Record<string, string | undefined> = process.env): GeneratorConfig {
   const int = (key: string, fallback: number): number => {
     const raw = env[key];
     const n = raw ? Number.parseInt(raw, 10) : NaN;
@@ -28,7 +28,7 @@ export function buildGeneratorConfig(env: NodeJS.ProcessEnv = process.env): Gene
 }
 
 export function buildGenerateLessonDeps(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): GenerateLessonDeps {
   const config = buildGeneratorConfig(env);
   // TODO(real adapters): when ANTHROPIC_API_KEY / ELEVENLABS_API_KEY are set, swap in

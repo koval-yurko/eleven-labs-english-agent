@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { LessonScript } from "@idiomatic/contracts";
 import type { GenerateLessonDeps, TtsAdapter } from "@idiomatic/generator";
 import { MockLlmAdapter } from "@idiomatic/generator";
-import { buildGeneratorConfig } from "../../lib/generation/deps.js";
-import { makeHarness } from "../helpers.js";
+import { buildGeneratorConfig } from "../../lib/generation/deps";
+import { makeHarness } from "../helpers";
 
 /** T044/T048 — generation failure → status failed + reason; retry re-runs (FR-016). */
 

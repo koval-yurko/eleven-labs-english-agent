@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeHarness } from "../helpers.js";
+import { makeHarness } from "../helpers";
 
 /** T034 — cross-account access is denied: another learner cannot see a lesson (FR-019/SC-005). */
 

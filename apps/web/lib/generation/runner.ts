@@ -1,7 +1,7 @@
 import { generateLesson, type GenerateLessonDeps } from "@idiomatic/generator";
 import type { ClassifiedItem } from "@idiomatic/generator";
-import type { LessonRepository } from "../lessons/repository.js";
-import type { AudioStorage } from "./storage.js";
+import type { LessonRepository } from "../lessons/repository";
+import type { AudioStorage } from "./storage";
 
 /**
  * Generation bridge (T026/T027). Advances a lesson `pending → generating → ready|failed`,

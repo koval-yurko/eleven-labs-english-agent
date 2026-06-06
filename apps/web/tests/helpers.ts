@@ -1,11 +1,11 @@
 import type { GenerateLessonDeps } from "@idiomatic/generator";
-import type { Clock, IdGenerator } from "../lib/ports.js";
-import { GenerationRunner } from "../lib/generation/runner.js";
-import { buildGenerateLessonDeps } from "../lib/generation/deps.js";
-import { InMemoryAudioStorage } from "../lib/generation/storage.js";
-import { InMemoryLessonRepository } from "../lib/lessons/in-memory-repository.js";
-import { LessonService } from "../lib/lessons/service.js";
-import { CollectingScheduler } from "../lib/lessons/scheduler.js";
+import type { Clock, IdGenerator } from "../lib/ports";
+import { GenerationRunner } from "../lib/generation/runner";
+import { buildGenerateLessonDeps } from "../lib/generation/deps";
+import { InMemoryAudioStorage } from "../lib/generation/storage";
+import { InMemoryLessonRepository } from "../lib/lessons/in-memory-repository";
+import { LessonService } from "../lib/lessons/service";
+import { CollectingScheduler } from "../lib/lessons/scheduler";
 
 /** Deterministic test harness wiring the service over in-memory infra + mock generator. */
 
@@ -25,7 +25,9 @@ export function fixedClock(startIso = "2026-06-06T10:00:00.000Z"): Clock {
   };
 }
 
-export function makeHarness(options: { env?: NodeJS.ProcessEnv; deps?: GenerateLessonDeps } = {}) {
+export function makeHarness(
+  options: { env?: Record<string, string | undefined>; deps?: GenerateLessonDeps } = {},
+) {
   const ids = counterIdGenerator();
   const clock = fixedClock();
   const repo = new InMemoryLessonRepository(ids, clock);

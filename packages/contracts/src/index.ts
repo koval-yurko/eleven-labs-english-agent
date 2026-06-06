@@ -1,2 +1,2 @@
-export * from "./lesson-script.js";
-export * from "./lesson.js";
+export * from "./lesson-script";
+export * from "./lesson";

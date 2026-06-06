@@ -1,5 +1,5 @@
 import type { SkippedEntry } from "@idiomatic/contracts";
-import { classifyInput, type TeachabilityResult } from "./teachability.js";
+import { classifyInput, type TeachabilityResult } from "./teachability";
 
 /**
  * Decide whether a submission can become a lesson, mapping the input-guardrail
