@@ -32,6 +32,12 @@ next-env.d.ts
 # Test coverage
 coverage/
 
+# Playwright (T050)
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
 # OS / editor
 .DS_Store
 .idea

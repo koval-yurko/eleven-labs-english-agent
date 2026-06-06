@@ -9,6 +9,7 @@ export * from "./config";
 export * from "./teachability";
 export * from "./submission";
 export * from "./workflow/validate-coverage";
+export * from "./workflow/tracing";
 export * from "./adapters/types";
 export * from "./adapters/mock";
 export * from "./adapters/claude";

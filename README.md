@@ -40,9 +40,52 @@ Word / idiom list
   → Supabase                                 → notes + progress, reused next session
 ```
 
+## Develop, run & verify
+
+pnpm workspace (Node 20 LTS). Packages: `packages/contracts` (shared Zod schemas — the
+subsystem boundary), `packages/generator` (lesson generation + evals), `apps/web` (Next.js
+app + API + persistence).
+
+```bash
+pnpm install
+
+# Configure env (server-only keys; never exposed to the browser — Constitution V).
+cp .env.example .env                  # Anthropic, ElevenLabs voices, LangSmith, Supabase
+cp apps/web/.env.example apps/web/.env.local   # Auth0 + Supabase for the web app
+
+pnpm db:migrate                       # apply Postgres schema + RLS (lessons, source_items, lesson_audio)
+pnpm --filter @idiomatic/web dev      # Next.js app at http://localhost:3000
+```
+
+### Quality gates
+
+| Command | What it checks |
+|---|---|
+| `pnpm test` | Unit + contract + integration (Vitest); providers mocked, **no live keys needed** |
+| `pnpm typecheck` | Strict TS across all packages |
+| `pnpm lint` | ESLint (flat config) |
+| `pnpm eval:generation` | Generation-quality gate — coverage, two-voice, story-not-definition, length. Runs LIVE with `ANTHROPIC_API_KEY` + `ELEVENLABS_API_KEY`, else deterministic mocks (length reported but not gated). Uploads runs to LangSmith when `LANGSMITH_API_KEY` is set. |
+| `pnpm test:e2e` | Playwright submit → generate → replay across desktop + mobile viewports (SC-009). One-time `npx playwright install chromium`. |
+| `pnpm smoke:generate` | One real Claude + ElevenLabs lesson written to `/tmp/idiomatic-smoke.mp3` |
+| `pnpm check:bundle` / `pnpm rls:smoke` | Security hardening: no provider secrets in the client bundle; RLS smoke test |
+
+**E2E auth:** the unauthenticated gating checks run anywhere. The full authenticated flow
+needs a signed-in Auth0 session — supply a Playwright `storageState` file via
+`E2E_STORAGE_STATE` (otherwise that test self-skips). Point at an already-running app with
+`E2E_BASE_URL=http://localhost:3000 pnpm test:e2e`.
+
+**Generation tracing:** `generateLesson` is wrapped by `generateLessonTraced`
+(`packages/generator/src/workflow/tracing.ts`), which records a LangSmith trace per run when
+`LANGSMITH_API_KEY` is set and is a transparent pass-through otherwise.
+
 ## Status
 
 Early development. Full requirements, data model, API surface, and build phases are in [`PRD-base.md`](./spec/PRD-base.md).
+
+> **Generation architecture note:** plan.md described the generator as a Mastra workflow with
+> the `@mastra/langsmith` exporter. It is implemented as a plain, testable `generateLesson`
+> orchestrator instead, so traceability is wired directly with the `langsmith` SDK (see
+> "Generation tracing" above) rather than a Mastra trace stream.
 
 ### Follow-ups (before production)
 

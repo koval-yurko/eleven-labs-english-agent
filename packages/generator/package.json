@@ -16,6 +16,7 @@
     "@anthropic-ai/sdk": "^0.101.0",
     "@elevenlabs/elevenlabs-js": "^2.21.0",
     "@idiomatic/contracts": "workspace:*",
+    "langsmith": "^0.7.5",
     "zod": "^3.24.1"
   }
 }

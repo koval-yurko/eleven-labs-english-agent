@@ -129,7 +129,7 @@ These came from the original mega-spec and must land somewhere. Assignment:
 
 | Story | Slug | Priority | Spec | Plan | Tasks | Implemented |
 |-------|------|----------|------|------|-------|-------------|
-| S1 | lesson-generation | P1 | ☑ | ☑ | ☑ | ☐ |
+| S1 | lesson-generation | P1 | ☑ | ☑ | ☑ | ☑ |
 | S2 | live-tutor-qa | P2 | ☐ | ☐ | ☐ | ☐ |
 | S3 | lesson-notes | P3 | ☐ | ☐ | ☐ | ☐ |
 | S4 | adaptive-progress | P4 | ☐ | ☐ | ☐ | ☐ |

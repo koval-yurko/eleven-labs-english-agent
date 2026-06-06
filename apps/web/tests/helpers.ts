@@ -25,14 +25,16 @@ export function fixedClock(startIso = "2026-06-06T10:00:00.000Z"): Clock {
   };
 }
 
-export function makeHarness(
-  options: { env?: Record<string, string | undefined>; deps?: GenerateLessonDeps } = {},
+/**
+ * A single "session": a fresh LessonService + scheduler over the given shared infra
+ * and generator deps. Two sessions over the same repo/storage simulate the same learner
+ * signing out and back in (T035 — cross-session replay, FR-018/SC-006).
+ */
+export function makeSession(
+  repo: InMemoryLessonRepository,
+  storage: InMemoryAudioStorage,
+  deps: GenerateLessonDeps,
 ) {
-  const ids = counterIdGenerator();
-  const clock = fixedClock();
-  const repo = new InMemoryLessonRepository(ids, clock);
-  const storage = new InMemoryAudioStorage();
-  const deps = options.deps ?? buildGenerateLessonDeps(options.env ?? {});
   const runner = new GenerationRunner(repo, storage, deps);
   const scheduler = new CollectingScheduler();
   const service = new LessonService(repo, runner, storage, scheduler, {
@@ -41,5 +43,17 @@ export function makeHarness(
     targetMaxSeconds: deps.config.targetMaxSeconds,
     signedUrlTtlSeconds: 600,
   });
-  return { service, scheduler, repo, storage };
+  return { service, scheduler };
+}
+
+export function makeHarness(
+  options: { env?: Record<string, string | undefined>; deps?: GenerateLessonDeps } = {},
+) {
+  const ids = counterIdGenerator();
+  const clock = fixedClock();
+  const repo = new InMemoryLessonRepository(ids, clock);
+  const storage = new InMemoryAudioStorage();
+  const deps = options.deps ?? buildGenerateLessonDeps(options.env ?? {});
+  const { service, scheduler } = makeSession(repo, storage, deps);
+  return { service, scheduler, repo, storage, deps };
 }

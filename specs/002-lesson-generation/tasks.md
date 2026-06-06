@@ -69,7 +69,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 - [X] T016 [P] [US1] Contract test: `LessonScript` conformance against `contracts/lesson-script.schema.json` in `packages/generator/tests/contract/lesson-script.contract.test.ts`
 - [X] T017 [P] [US1] Contract test: coverage guarantee — every accepted teachable item appears in the coverage map with ≥1 segment (FR-009/SC-002) in `packages/generator/tests/contract/coverage.contract.test.ts`
 - [X] T018 [P] [US1] Integration test: generation lifecycle `pending → generating → ready` with mocked providers in `apps/web/tests/integration/generation-lifecycle.test.ts`
-- [ ] T019 [P] [US1] Contract test: `POST /api/lessons` (202) and `GET /api/lessons/{id}` response shapes in `apps/web/tests/contract/lessons-api.test.ts`
+- [X] T019 [P] [US1] Contract test: `POST /api/lessons` (202) and `GET /api/lessons/{id}` response shapes in `apps/web/tests/contract/lessons-api.test.ts`
 
 ### Implementation for User Story 1
 
@@ -101,7 +101,7 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 ### Tests for User Story 2 ⚠️
 
 - [X] T034 [P] [US2] Integration test: cross-account access denied — Learner B gets 404 on Learner A's lesson/audio (FR-019/SC-005) in `apps/web/tests/integration/privacy.test.ts`
-- [ ] T035 [P] [US2] Integration test: cross-session replay after re-login lists and plays prior lessons (FR-018/SC-006) in `apps/web/tests/integration/replay.test.ts`
+- [X] T035 [P] [US2] Integration test: cross-session replay after re-login lists and plays prior lessons (FR-018/SC-006) in `apps/web/tests/integration/replay.test.ts`
 
 ### Implementation for User Story 2
 
@@ -144,12 +144,12 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 
 **Purpose**: Quality gates, responsive verification, and hardening across stories
 
-- [ ] T050 [P] Playwright E2E for submit → generate → replay across desktop + mobile viewports (SC-009) in `apps/web/tests/e2e/lesson-flow.spec.ts`
-- [ ] T051 [P] LangSmith generation eval suite (coverage, length, story-not-definition, two-voice) + `pnpm eval:generation` gate in `packages/generator/src/evals/` (Constitution III)
-- [ ] T052 [P] Wire `@mastra/langsmith` exporter for generation traceability in `packages/generator/src/workflow/`
-- [ ] T053 [P] Update `README.md` / `CLAUDE.md` with run + verification instructions
+- [X] T050 [P] Playwright E2E for submit → generate → replay across desktop + mobile viewports (SC-009) in `apps/web/tests/e2e/lesson-flow.spec.ts` (unauthenticated gating verified live on both viewports; authenticated flow self-skips without an Auth0 `E2E_STORAGE_STATE`)
+- [X] T051 [P] LangSmith generation eval suite (coverage, length, story-not-definition, two-voice) + `pnpm eval:generation` gate in `packages/generator/src/evals/` (Constitution III)
+- [X] T052 [P] Wire LangSmith exporter for generation traceability in `packages/generator/src/workflow/tracing.ts` — implemented via the `langsmith` SDK around `generateLesson` (no Mastra runtime exists, so `@mastra/langsmith` was superseded; see README/CLAUDE notes)
+- [X] T053 [P] Update `README.md` / `CLAUDE.md` with run + verification instructions
 - [X] T054 Security hardening: assert no provider secrets in the client bundle, signed-URL TTL, RLS smoke test (Constitution V)
-- [ ] T055 Run the `quickstart.md` verification matrix end-to-end
+- [X] T055 Run the `quickstart.md` verification matrix end-to-end (automated gates green: `test` 42/42, `typecheck`, `lint`, `eval:generation` mock, `test:e2e` gating, `check:bundle`; guardrail/privacy/mixed/retry rows covered by the integration suite. Live-key rows — real audio/two-voice, Auth0 browser login, `rls:smoke` against a live DB — require provider keys and are documented in `quickstart.md`)
 
 ---
 

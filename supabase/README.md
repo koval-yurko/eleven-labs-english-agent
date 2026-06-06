@@ -17,13 +17,15 @@ Applied in order (`supabase/migrations/`):
 | Client | Key | RLS | Used for |
 | --- | --- | --- | --- |
 | `getServiceSupabase()` (`apps/web/lib/supabase/server.ts`) | `SUPABASE_SERVICE_ROLE_KEY` | **bypassed** | Trusted server writes/reads. Ownership enforced **in code** — every query filters/stamps `owner_id` explicitly. |
-| _(planned)_ user-token client | anon key + Auth0 access token | **enforced** | Any token-scoped path. Requires the Auth0 trust below. |
+| `getUserSupabase()` (`apps/web/lib/supabase/user-client.ts`) | anon key + Auth0 access token | **enforced** | Token-scoped path. Code is in place; only **dormant** until the manual Auth0 trust below is finished. |
 
 > ⚠️ Today the app uses **only** the service-role client, so the `0003_rls.sql`
 > policies are dormant (RLS is bypassed). Privacy currently relies on the
-> repository's explicit `owner_id` filtering, which is in place. RLS becomes a
-> live second layer once the Auth0 trust (T037) is configured **and** a
-> user-token client is introduced.
+> repository's explicit `owner_id` filtering, which is in place. The
+> `getUserSupabase()` client exists and is wired, but it only *enforces* RLS once
+> the manual Auth0 trust (T037) below is completed (so Auth0 issues a JWT and
+> Supabase trusts the issuer). Until then it carries an opaque token that Supabase
+> won't resolve to a `sub`. Check status in code via `isThirdPartyAuthConfigured()`.
 
 > 🗂️ **Storage key note:** Storage object keys can't contain `|`, so the owner
 > segment of the audio path is sanitized (`auth0|abc` → `auth0_abc`, see
@@ -38,72 +40,81 @@ Goal: make `auth.jwt() ->> 'sub'` in the RLS policies resolve to the learner's
 Auth0 subject, so a Supabase client carrying an Auth0 access token is scoped to
 that learner.
 
-### 1. Auth0 — issue a JWT access token with a `role` claim
+### What's already done (code side) ✅
 
-Auth0 access tokens are opaque unless an **API audience** is requested, and
-Supabase third-party auth expects a `role: "authenticated"` claim.
+The application changes for T037 are implemented and committed — nothing more to
+write:
 
-1. **Create an API** (Auth0 dashboard → Applications → APIs), e.g. identifier
-   `https://supabase/encmuprissgvomvkdlbb`.
-2. **Post-Login Action** (Actions → Triggers → post-login) to inject the role:
+- **Token-scoped client** — `getUserSupabase()` in
+  `apps/web/lib/supabase/user-client.ts` forwards the Auth0 access token via
+  `accessToken: async () => (await getAuthToken()) ?? ""`.
+- **Conditional audience** — `apps/web/lib/auth0.ts` requests the API audience
+  (so Auth0 issues a JWT instead of an opaque token) **only when** `AUTH0_AUDIENCE`
+  is set: `new Auth0Client({ authorizationParameters: { audience, scope: "..." } })`.
+  Leaving the env var unset keeps login working exactly as before.
+- **Config probe** — `isThirdPartyAuthConfigured()` reports whether the audience
+  env is present.
+- **RLS migrations** — `0003_rls.sql` is applied; verify with `pnpm rls:smoke`
+  (asserts RLS enabled + ≥1 policy on every owned table).
 
-   ```js
-   exports.onExecutePostLogin = async (event, api) => {
-     api.accessToken.setCustomClaim("role", "authenticated");
-   };
-   ```
+What remains is **dashboard configuration only** — see the checklist below.
 
-3. **Request the audience** so the SDK gets a JWT (not an opaque token):
+### Manual steps to finalize (one-time, in dashboards) 🔧
 
-   ```ts
-   // apps/web/lib/auth0.ts
-   new Auth0Client({
-     authorizationParams: { audience: process.env.AUTH0_AUDIENCE },
-   });
-   ```
+These cannot be applied via SQL/migrations or code; do them in order. Until all
+are complete, `getUserSupabase()` carries an opaque token Supabase can't resolve,
+so RLS stays dormant and privacy relies on the service-role repository's
+explicit `owner_id` filtering (already enforced).
 
-   Set `AUTH0_AUDIENCE=https://supabase/encmuprissgvomvkdlbb` in env.
+- [ ] **1. Auth0 — create an API (audience).**
+  Auth0 dashboard → **Applications → APIs → Create API**. Identifier (audience),
+  e.g. `https://supabase/encmuprissgvomvkdlbb`. This identifier becomes
+  `AUTH0_AUDIENCE`.
 
-### 2. Supabase — register the issuer
+- [ ] **2. Auth0 — add the `role` claim via a Post-Login Action.**
+  Auth0 dashboard → **Actions → Triggers → post-login**. Supabase third-party
+  auth expects `role: "authenticated"`:
 
-Dashboard → **Authentication → Sign In / Providers → Third-Party Auth** →
-**Add provider** (Custom / Auth0). Supply the Auth0 issuer:
+  ```js
+  exports.onExecutePostLogin = async (event, api) => {
+    api.accessToken.setCustomClaim("role", "authenticated");
+  };
+  ```
 
-```
-https://yurko-kovalchuk.eu.auth0.com/
-```
+  Deploy the Action and ensure it's attached to the post-login flow.
 
-Supabase validates incoming JWTs against this issuer's JWKS and exposes their
-claims to `auth.jwt()`. The `sub` then matches the `owner_id` columns.
+- [ ] **3. Supabase — register Auth0 as a third-party auth provider.**
+  Supabase dashboard → **Authentication → Sign In / Providers → Third-Party Auth**
+  → **Add provider** (Custom / Auth0). Issuer URL (note the trailing slash):
 
-> This is a project-level setting — it cannot be applied via SQL/migrations.
-> Configure it in the dashboard (or via the Supabase Management API).
+  ```
+  https://yurko-kovalchuk.eu.auth0.com/
+  ```
 
-### 3. App — add a token-scoped client
+  Supabase validates incoming JWTs against this issuer's JWKS and exposes their
+  claims to `auth.jwt()`, so `sub` matches the `owner_id` columns. (Alternatively
+  apply via the Supabase Management API — it is a project-level setting.)
 
-Keep `getServiceSupabase()` for trusted server work; add a parallel client that
-forwards the Auth0 token so RLS is exercised:
+- [ ] **4. App env — set the audience.**
+  Add to `apps/web/.env.local` (and the deployment env), matching step 1:
 
-```ts
-import { createClient } from "@supabase/supabase-js";
-import { getAuthToken } from "../auth/session"; // returns the Auth0 access token
+  ```bash
+  AUTH0_AUDIENCE=https://supabase/encmuprissgvomvkdlbb
+  ```
 
-export function getUserSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { accessToken: async () => (await getAuthToken()) ?? "" },
-  );
-}
-```
-
-`getAuthToken()` already exists in `apps/web/lib/auth/session.ts`.
+  Restart the app. On next login Auth0 issues a JWT access token (not an opaque
+  one), `isThirdPartyAuthConfigured()` returns `true`, and `getUserSupabase()`
+  becomes a live RLS-enforced client.
 
 ### Verifying
 
-With the trust in place and a user token attached, this should return only the
-caller's rows (and `auth.jwt() ->> 'sub'` should be non-null):
+After the four steps, log in to mint a fresh token, then query through a
+user-token client (`getUserSupabase()`). It should return only the caller's rows
+and a non-null subject:
 
 ```sql
 select auth.jwt() ->> 'sub' as caller, count(*) from lessons;
 ```
+
+`caller` being non-null confirms Supabase is trusting the Auth0 JWT; row counts
+scoped to that learner confirm the `0003_rls.sql` policies are now live.

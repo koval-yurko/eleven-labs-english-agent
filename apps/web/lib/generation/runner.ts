@@ -1,4 +1,4 @@
-import { generateLesson, type GenerateLessonDeps } from "@idiomatic/generator";
+import { generateLessonTraced, type GenerateLessonDeps } from "@idiomatic/generator";
 import type { ClassifiedItem } from "@idiomatic/generator";
 import type { LessonRepository } from "../lessons/repository";
 import type { AudioStorage } from "./storage";
@@ -18,7 +18,7 @@ export class GenerationRunner {
   async run(lessonId: string, ownerId: string, acceptedItems: ClassifiedItem[]): Promise<void> {
     await this.repo.setStatus(lessonId, "generating");
     try {
-      const result = await generateLesson(acceptedItems, this.deps);
+      const result = await generateLessonTraced(acceptedItems, this.deps, { lessonId, ownerId });
       const { storagePath } = await this.storage.upload(
         ownerId,
         lessonId,
