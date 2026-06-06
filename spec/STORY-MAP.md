@@ -113,6 +113,54 @@ These came from the original mega-spec and must land somewhere. Assignment:
 
 ---
 
+## Technical enhancements (cross-cutting backlog)
+
+Not user-facing stories — engineering enhancements that improve an existing story
+(mostly S1). Each can become its own small Spec Kit feature or fold into an S1
+polish pass. Tracked here so they aren't lost.
+
+### TE1 — Parallelize batch TTS rendering  (Tech, enhances S1)
+
+**Slug**: `tts-parallel-render` · **Depends on**: S1
+
+**Value**: The ElevenLabs Text-to-Dialogue render currently processes segment
+batches **sequentially**; audio-synthesis time dominates, so a multi-batch lesson
+waits batch-after-batch. Bounded-parallel rendering cuts wall-clock to roughly
+`TTS_time ÷ concurrency`. Gain scales with lesson length (modest for tiny inputs,
+meaningful for real 5–10 item lessons).
+
+**In scope**: a bounded-concurrency pool for the per-batch renders (cap configurable
+via env, set under the ElevenLabs plan's concurrency limit to avoid 429s); preserve
+stitch order; extract a reusable `mapWithConcurrency` utility; a "generation can take
+a few minutes" note in the UI so the wait is expected.
+
+**Out of scope**: progressive / streaming playback (start playing batch 1 while batch 2
+renders — a bigger latency win but a much larger change, deferred); the realtime S2
+live-tutor path (a different streaming API — this enhancement does not apply there).
+
+**Note**: the reusable concurrency primitive is useful beyond TTS (e.g. parallel item
+classification if teachability becomes LLM-based, or bulk regeneration in S4).
+
+### TE2 — Internal structured logging  (Tech, cross-cutting)
+
+**Slug**: `internal-logging` · **Depends on**: S1
+
+**Value**: Today logging is effectively limited to REST/request edges. Internal
+functionality — the generation pipeline steps, teachability decisions, coverage
+validation, TTS batch timings, and lesson status transitions — is opaque when
+debugging a failed or low-quality lesson. Structured internal logs make the system
+observable and support the reproducibility principle (Constitution III).
+
+**In scope**: structured logging (levelled, JSON) across the generator workflow steps,
+the generation bridge/runner status transitions (`pending→generating→ready|failed`),
+teachability classification, coverage validation, and TTS batch render timings;
+correlate entries by lesson id; redact secrets. Beyond HTTP request logging.
+
+**Out of scope**: a third-party APM vendor and log-shipping infrastructure; LangSmith
+eval-trace export (already tracked as an S1 task, T052).
+
+---
+
 ## Shared assumptions (apply to all stories)
 
 - Single authenticated learner per account; no collaborative/classroom features.
