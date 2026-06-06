@@ -43,3 +43,21 @@ Word / idiom list
 ## Status
 
 Early development. Full requirements, data model, API surface, and build phases are in [`PRD-base.md`](./spec/PRD-base.md).
+
+### Follow-ups (before production)
+
+- **Configure a user-JWT-scoped Supabase client to enforce RLS.** Today the app
+  uses only the service-role client, so privacy relies on explicit `owner_id`
+  filtering in code and the `0003_rls.sql` policies stay dormant. Later, add a
+  parallel Auth0-token-scoped client (and the Auth0↔Supabase trust) so
+  Row-Level Security becomes a live second layer. Steps are documented in
+  [`supabase/README.md`](./supabase/README.md) §T037.
+
+## MCP
+
+```
+claude mcp add --scope local --transport http supabase "https://mcp.supabase.com/mcp?read_only=true"
+
+claude mcp remove supabase
+```
+
