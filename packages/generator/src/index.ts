@@ -11,6 +11,9 @@ export * from "./submission";
 export * from "./workflow/validate-coverage";
 export * from "./adapters/types";
 export * from "./adapters/mock";
+export * from "./adapters/claude";
+export * from "./adapters/elevenlabs";
+export * from "./prompts/lesson-script";
 
 export interface GenerateLessonDeps {
   llm: LlmAdapter;

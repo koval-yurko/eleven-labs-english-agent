@@ -19,6 +19,9 @@ const config: GeneratorConfig = {
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
   ttsCharLimit: 3000,
+  modelId: "mock-llm-1",
+  ttsModelId: "eleven_v3",
+  ttsBitrate: 128000,
 };
 
 describe("generateLesson", () => {

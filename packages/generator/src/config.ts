@@ -15,6 +15,12 @@ export interface GeneratorConfig {
   wordsPerMinute: number;
   /** ElevenLabs per-request character ceiling for Text to Dialogue (research R5). */
   ttsCharLimit: number;
+  /** Claude model id for generation (Constitution III reproducibility). */
+  modelId: string;
+  /** ElevenLabs Text to Dialogue model id (Eleven v3). */
+  ttsModelId: string;
+  /** CBR MP3 bitrate (bps) of the TTS output, used to compute duration (SC-003). */
+  ttsBitrate: number;
 }
 
 export const DEFAULT_MAX_TEACHABLE_ITEMS = 20;
@@ -46,5 +52,8 @@ export function loadGeneratorConfig(env: NodeJS.ProcessEnv = process.env): Gener
     targetMaxSeconds: intFromEnv(env, "TARGET_MAX_SECONDS", 600),
     wordsPerMinute: intFromEnv(env, "GENERATION_WPM", 150),
     ttsCharLimit: intFromEnv(env, "TTS_CHAR_LIMIT", 3000),
+    modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
+    ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
+    ttsBitrate: intFromEnv(env, "ELEVENLABS_BITRATE", 128000),
   };
 }

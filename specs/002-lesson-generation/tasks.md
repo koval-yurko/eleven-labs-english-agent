@@ -74,10 +74,10 @@ description: "Task list for Generate a Story-Driven Podcast Lesson from a List"
 ### Implementation for User Story 1
 
 - [X] T020 [P] [US1] Teachability classifier + normalize/dedupe (word/sentence/idiom, skip reasons) in `packages/generator/src/teachability.ts` (research R9)
-- [ ] T021 [P] [US1] Versioned generation prompts (classify, plan-coverage, draft, expressive pass) in `packages/generator/src/prompts/` (Constitution III — no untracked strings)
-- [ ] T022 [US1] Mastra workflow steps parse → classify → plan-coverage → draft → expressive pass → emit in `packages/generator/src/workflow/` (depends T020, T021, research R8)
+- [X] T021 [P] [US1] Versioned generation prompts (classify, plan-coverage, draft, expressive pass) in `packages/generator/src/prompts/` (Constitution III — no untracked strings)
+- [X] T022 [US1] Mastra workflow steps parse → classify → plan-coverage → draft → expressive pass → emit in `packages/generator/src/workflow/` (depends T020, T021, research R8)
 - [X] T023 [US1] Coverage validation step (re-prompt uncovered items before accepting) in `packages/generator/src/workflow/validate-coverage.ts` (research R2)
-- [ ] T024 [US1] ElevenLabs Text to Dialogue per-segment render + ordered stitch into one asset in `packages/generator/src/render/` (depends T013, research R5) — two distinct pinned voices (Constitution I); **measure the stitched asset's total duration (seconds)** and return it with the audio (SC-003)
+- [X] T024 [US1] ElevenLabs Text to Dialogue per-segment render + ordered stitch into one asset in `packages/generator/src/render/` (depends T013, research R5) — two distinct pinned voices (Constitution I); **measure the stitched asset's total duration (seconds)** and return it with the audio (SC-003)
 - [X] T025 [US1] `generateLesson(input)` orchestrator returning `LessonScript` + stitched audio + reproducibility metadata (input, model id, prompt version) in `packages/generator/src/index.ts` (depends T022–T024)
 - [X] T026 [US1] Generation bridge: create `pending` lesson **stamped with the caller's `owner_id` (Auth0 `sub`)** on the `lessons` + `source_items` inserts, run generator, advance status, write `script` + metadata in `apps/web/lib/generation/run.ts` (research R6; ownership required at first insert — FR-019)
 - [X] T027 [US1] Upload stitched audio to private Storage and insert `lesson_audio` row, **persisting the measured `duration_seconds` (and mirroring it to `lessons.audio_duration_seconds`)** in the generation bridge (extends T024, T026; SC-003)
