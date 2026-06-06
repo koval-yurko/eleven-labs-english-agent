@@ -25,6 +25,13 @@ Applied in order (`supabase/migrations/`):
 > live second layer once the Auth0 trust (T037) is configured **and** a
 > user-token client is introduced.
 
+> 🗂️ **Storage key note:** Storage object keys can't contain `|`, so the owner
+> segment of the audio path is sanitized (`auth0|abc` → `auth0_abc`, see
+> `audioObjectKey` in `apps/web/lib/generation/storage.ts`). The dormant storage
+> policy in `0002_storage.sql` compares `foldername[1]` to the raw `auth.jwt() ->>
+> 'sub'`; if user-token Storage access is ever enabled, update that policy to
+> compare against the **sanitized** owner segment (or switch the key scheme).
+
 ## T037 — trust Auth0 as a third-party auth provider
 
 Goal: make `auth.jwt() ->> 'sub'` in the RLS policies resolve to the learner's

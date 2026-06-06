@@ -14,6 +14,17 @@ export interface AudioStorage {
   signedUrl(storagePath: string, expiresInSeconds: number): Promise<string>;
 }
 
+/**
+ * Build a Supabase-Storage-safe object key. Auth0 subjects look like `auth0|abc`,
+ * and the `|` (plus other characters) is rejected by Storage key validation, so the
+ * owner segment is sanitized to `[a-zA-Z0-9_.-]`. The lesson id is a UUID (already safe).
+ */
+export function audioObjectKey(ownerId: string, lessonId: string, mimeType: string): string {
+  const safeOwner = ownerId.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const ext = mimeType === "audio/mpeg" ? "mp3" : "bin";
+  return `${safeOwner}/${lessonId}/lesson.${ext}`;
+}
+
 export class InMemoryAudioStorage implements AudioStorage {
   private objects = new Map<string, { bytes: Uint8Array; mimeType: string }>();
 
@@ -23,8 +34,7 @@ export class InMemoryAudioStorage implements AudioStorage {
     bytes: Uint8Array,
     mimeType: string,
   ): Promise<{ storagePath: string }> {
-    const ext = mimeType === "audio/mpeg" ? "mp3" : "bin";
-    const storagePath = `${ownerId}/${lessonId}/lesson.${ext}`;
+    const storagePath = audioObjectKey(ownerId, lessonId, mimeType);
     this.objects.set(storagePath, { bytes, mimeType });
     return { storagePath };
   }
