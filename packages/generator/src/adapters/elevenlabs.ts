@@ -1,6 +1,6 @@
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import type { LessonScript } from "@idiomatic/contracts";
-import type { RenderedAudio, TtsAdapter } from "./types";
+import type { ProviderHealth, RenderedAudio, TtsAdapter } from "./types";
 
 /**
  * ElevenLabs Text to Dialogue renderer (T024, research R5). Maps each segment to a
@@ -13,7 +13,12 @@ export interface ElevenLabsOptions {
   modelId: string;
   /** CBR MP3 bitrate in bps (ElevenLabs default output is mp3_44100_128 → 128000). */
   bitrate: number;
+  /** Configured voices, validated by the preflight health check. */
+  teacherVoiceId: string;
+  learnerVoiceId: string;
 }
+
+const ELEVENLABS_API = "https://api.elevenlabs.io";
 
 interface DialogueInput {
   text: string;
@@ -24,10 +29,37 @@ export class ElevenLabsTtsAdapter implements TtsAdapter {
   private readonly client: ElevenLabsClient;
 
   constructor(
-    apiKey: string,
+    private readonly apiKey: string,
     private readonly options: ElevenLabsOptions,
   ) {
     this.client = new ElevenLabsClient({ apiKey });
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    const voiceIds = Array.from(
+      new Set([this.options.teacherVoiceId, this.options.learnerVoiceId]),
+    );
+    try {
+      for (const voiceId of voiceIds) {
+        const res = await fetch(`${ELEVENLABS_API}/v1/voices/${voiceId}`, {
+          headers: { "xi-api-key": this.apiKey },
+        });
+        if (res.status === 401) {
+          return { provider: "elevenlabs", ok: false, detail: "invalid API key" };
+        }
+        if (!res.ok) {
+          return {
+            provider: "elevenlabs",
+            ok: false,
+            detail: `voice ${voiceId} not found (HTTP ${res.status})`,
+          };
+        }
+      }
+      return { provider: "elevenlabs", ok: true, detail: `${voiceIds.length} voice(s) reachable` };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown error";
+      return { provider: "elevenlabs", ok: false, detail: message };
+    }
   }
 
   async renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio> {

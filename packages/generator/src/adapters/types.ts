@@ -16,11 +16,20 @@ export interface ScriptDraftRequest {
   wordsPerMinute: number;
 }
 
+/** Result of a provider preflight check (no generation, just reachability/config). */
+export interface ProviderHealth {
+  provider: string;
+  ok: boolean;
+  detail: string;
+}
+
 /** The generation brain (Claude via a Mastra workflow). Produces a LessonScript draft. */
 export interface LlmAdapter {
   readonly modelId: string;
   readonly promptVersion: string;
   draftScript(request: ScriptDraftRequest): Promise<LessonScript>;
+  /** Cheap liveness/config check (e.g. validate the API key + model). */
+  healthCheck?(): Promise<ProviderHealth>;
 }
 
 export interface RenderedAudio {
@@ -34,4 +43,6 @@ export interface RenderedAudio {
 /** ElevenLabs Text to Dialogue: render per-segment under the char limit, then stitch. */
 export interface TtsAdapter {
   renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio>;
+  /** Cheap liveness/config check (e.g. validate the API key + configured voices). */
+  healthCheck?(): Promise<ProviderHealth>;
 }

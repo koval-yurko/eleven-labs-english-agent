@@ -53,6 +53,8 @@ export function buildGenerateLessonDeps(
     tts = new ElevenLabsTtsAdapter(env.ELEVENLABS_API_KEY!, {
       modelId: config.ttsModelId,
       bitrate: config.ttsBitrate,
+      teacherVoiceId: config.teacherVoiceId,
+      learnerVoiceId: config.learnerVoiceId,
     });
   } else {
     llm = new MockLlmAdapter();

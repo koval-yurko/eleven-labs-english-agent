@@ -2,6 +2,7 @@ import type { CoverageEntry, LessonScript, LessonSegment } from "@idiomatic/cont
 import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
 import type {
   LlmAdapter,
+  ProviderHealth,
   RenderedAudio,
   ScriptDraftRequest,
   TtsAdapter,
@@ -20,6 +21,10 @@ function countWords(text: string): number {
 export class MockLlmAdapter implements LlmAdapter {
   readonly modelId = "mock-llm-1";
   readonly promptVersion = "mock-prompt-1";
+
+  async healthCheck(): Promise<ProviderHealth> {
+    return { provider: "claude", ok: true, detail: "mock adapter (no API key configured)" };
+  }
 
   async draftScript(request: ScriptDraftRequest): Promise<LessonScript> {
     const segments: LessonSegment[] = [];
@@ -82,6 +87,10 @@ export class MockLlmAdapter implements LlmAdapter {
 
 export class MockTtsAdapter implements TtsAdapter {
   constructor(private readonly wordsPerMinute = 150) {}
+
+  async healthCheck(): Promise<ProviderHealth> {
+    return { provider: "elevenlabs", ok: true, detail: "mock adapter (no API key configured)" };
+  }
 
   async renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio> {
     // Simulate per-segment rendering under the char limit, then stitching (research R5).

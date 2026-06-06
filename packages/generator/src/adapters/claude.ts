@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { LessonScript } from "@idiomatic/contracts";
 import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
-import type { LlmAdapter, ScriptDraftRequest } from "./types";
+import type { LlmAdapter, ProviderHealth, ScriptDraftRequest } from "./types";
 import { PROMPT_VERSION, buildSystemPrompt, buildUserPrompt } from "../prompts/lesson-script";
 
 /**
@@ -84,6 +84,17 @@ export class ClaudeLlmAdapter implements LlmAdapter {
     readonly modelId: string,
   ) {
     this.client = new Anthropic({ apiKey });
+  }
+
+  async healthCheck(): Promise<ProviderHealth> {
+    try {
+      // Cheap, no-generation check: confirms the API key works and the model exists.
+      const model = await this.client.models.retrieve(this.modelId);
+      return { provider: "claude", ok: true, detail: `model ${model.id} reachable` };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown error";
+      return { provider: "claude", ok: false, detail: message };
+    }
   }
 
   async draftScript(request: ScriptDraftRequest): Promise<LessonScript> {
