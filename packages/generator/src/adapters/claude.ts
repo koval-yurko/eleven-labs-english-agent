@@ -75,6 +75,25 @@ const EMIT_TOOL: Anthropic.Tool = {
   },
 };
 
+/**
+ * Some models occasionally emit array-valued tool inputs as JSON strings. Parse those
+ * back to arrays before schema validation so generation is robust across models.
+ */
+function coerceStringifiedArrays(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const obj = input as Record<string, unknown>;
+  for (const key of ["segments", "coverage"]) {
+    if (typeof obj[key] === "string") {
+      try {
+        obj[key] = JSON.parse(obj[key] as string);
+      } catch {
+        /* leave as-is; Zod will report the type error */
+      }
+    }
+  }
+  return obj;
+}
+
 export class ClaudeLlmAdapter implements LlmAdapter {
   readonly promptVersion = PROMPT_VERSION;
   private readonly client: Anthropic;
@@ -119,7 +138,7 @@ export class ClaudeLlmAdapter implements LlmAdapter {
       throw new Error("Claude did not return a lesson_script tool call");
     }
 
-    const draft = ScriptDraft.parse(toolUse.input);
+    const draft = ScriptDraft.parse(coerceStringifiedArrays(toolUse.input));
 
     return {
       version: LESSON_SCRIPT_VERSION,
