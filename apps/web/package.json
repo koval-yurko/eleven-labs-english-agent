@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",
+    "@elevenlabs/react": "^1.6.4",
     "@idiomatic/contracts": "workspace:*",
     "@idiomatic/generator": "workspace:*",
     "@supabase/supabase-js": "^2.107.0",

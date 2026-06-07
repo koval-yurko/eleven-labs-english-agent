@@ -12,6 +12,7 @@ Create one **Conversational AI Agent** for the live tutor:
 - **System prompt**: paste the versioned template from `apps/web/lib/live-tutor/agent-prompt.ts`. It uses dynamic variables `{{lesson_summary}}`, `{{items_list}}`, `{{current_item}}` and instructs the tutor to answer briefly and grounded in the lesson, ask the learner to repeat/clarify on empty/unintelligible input, and briefly answer-or-redirect off-topic questions.
 - **Dynamic variables**: enable and declare `lesson_summary`, `items_list`, `current_item`.
 - **Auth**: keep the agent **private** (the app mints a conversation token server-side).
+- **Interruptions**: leave the agent **interruptible** (the default) so the learner can barge in over an answer (US2). The client never sends `sendUserActivity` during agent speech, so it never suppresses barge-in. No voice/prompt *override* needs enabling — the voice is bound on the agent and grounding goes through dynamic variables.
 
 Copy the agent id.
 

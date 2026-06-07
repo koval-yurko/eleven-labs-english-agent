@@ -107,6 +107,14 @@ Early development. Full requirements, data model, API surface, and build phases 
 > orchestrator instead, so traceability is wired directly with the `langsmith` SDK (see
 > "Generation tracing" above) rather than a Mastra trace stream.
 
+> **Live tutor Q&A note (005-live-tutor-qa):** during playback of a ready lesson, the learner
+> can speak to interrupt and get a live answer in the same teacher voice, then resume from the
+> exact point. The realtime parts (mic, VAD, barge-in, STT/TTS) are owned by an ElevenLabs
+> Conversational AI **Agent** with a native Claude LLM — set `ELEVENLABS_AGENT_ID` and provision
+> the agent per [`specs/005-live-tutor-qa/quickstart.md`](./specs/005-live-tutor-qa/quickstart.md).
+> Live Q&A is feature-gated: without the agent configured, the player shows a clear fallback and
+> the lesson still plays.
+
 ### Follow-ups (before production)
 
 - **Configure a user-JWT-scoped Supabase client to enforce RLS.** Today the app

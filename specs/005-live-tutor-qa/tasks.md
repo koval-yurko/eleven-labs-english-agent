@@ -26,8 +26,8 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 **Purpose**: Pull in the managed realtime SDK and declare config.
 
-- [ ] T001 Add the `@elevenlabs/react` client SDK to the web app: `pnpm --filter @idiomatic/web add @elevenlabs/react`
-- [ ] T002 [P] Add `ELEVENLABS_AGENT_ID` (and a comment that `ELEVENLABS_API_KEY` / `ELEVENLABS_TEACHER_VOICE_ID` are reused, and that live Q&A is feature-gated on these) to `apps/web/.env.example` and the root `.env.example`
+- [X] T001 Add the `@elevenlabs/react` client SDK to the web app: `pnpm --filter @idiomatic/web add @elevenlabs/react`
+- [X] T002 [P] Add `ELEVENLABS_AGENT_ID` (and a comment that `ELEVENLABS_API_KEY` / `ELEVENLABS_TEACHER_VOICE_ID` are reused, and that live Q&A is feature-gated on these) to `apps/web/.env.example` and the root `.env.example`
 
 ---
 
@@ -37,11 +37,11 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 [P] Create the Q&A boundary schemas in `packages/contracts/src/qa.ts`: Zod `QaTurnRole` (`learner`|`tutor`), `QaTurn`, `QaExchange`, `CreateExchangeRequest`, and `LiveSessionToken` (with inferred TS types), matching `specs/005-live-tutor-qa/contracts/qa.schema.json`
-- [ ] T004 Export the new schemas from `packages/contracts/src/index.ts` (depends on T003)
-- [ ] T005 [P] Add live-tutor `EventId`s to `packages/generator/src/observability/events.ts`: `qa.session`, `qa.turn`, `qa.exchange`, `qa.error`, `qa.unavailable` (logging port only; no generation behavior change)
-- [ ] T006 [P] Create migration `supabase/migrations/0004_qa.sql`: `qa_turn_role` enum, `qa_exchanges` + `qa_turns` tables, indexes, and owner-scoped RLS policies (select/insert keyed on `auth.jwt() ->> 'sub'`) per `data-model.md`
-- [ ] T007 [P] Contract test asserting the `packages/contracts` Zod schemas accept/reject per `contracts/qa.schema.json` (valid exchange/turn round-trips; empty turns, blank text, negative position rejected) in `apps/web/tests/contract/qa-schema.test.ts`
+- [X] T003 [P] Create the Q&A boundary schemas in `packages/contracts/src/qa.ts`: Zod `QaTurnRole` (`learner`|`tutor`), `QaTurn`, `QaExchange`, `CreateExchangeRequest`, and `LiveSessionToken` (with inferred TS types), matching `specs/005-live-tutor-qa/contracts/qa.schema.json`
+- [X] T004 Export the new schemas from `packages/contracts/src/index.ts` (depends on T003)
+- [X] T005 [P] Add live-tutor `EventId`s to `packages/generator/src/observability/events.ts`: `qa.session`, `qa.turn`, `qa.exchange`, `qa.error`, `qa.unavailable` (logging port only; no generation behavior change)
+- [X] T006 [P] Create migration `supabase/migrations/0004_qa.sql`: `qa_turn_role` enum, `qa_exchanges` + `qa_turns` tables, indexes, and owner-scoped RLS policies (select/insert keyed on `auth.jwt() ->> 'sub'`) per `data-model.md`
+- [X] T007 [P] Contract test asserting the `packages/contracts` Zod schemas accept/reject per `contracts/qa.schema.json` (valid exchange/turn round-trips; empty turns, blank text, negative position rejected) in `apps/web/tests/contract/qa-schema.test.ts`
 
 **Checkpoint**: Shared types, log events, and DB schema exist — story work can begin.
 
@@ -55,22 +55,22 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T008 [P] [US1] Contract test for `POST /api/lessons/{id}/live-session` (401 unauth, 404 not-owned, 409 not-ready, 503 unavailable, 200 returns `LiveSessionToken` with `dynamicVariables`) in `apps/web/tests/contract/qa-api.test.ts`
-- [ ] T009 [P] [US1] Integration test: token mint is owner-scoped and `xi-api-key` never returned to client; 409 when lesson not `ready`; 503 when agent not configured — using a faked ElevenLabs token client — in `apps/web/tests/integration/live-tutor-session.test.ts`
-- [ ] T010 [P] [US1] Unit test for the current-item resolver (char-proportional offsets over `LessonScript`; boundary/gap → most-recent item; pre-first → null) in `apps/web/tests/unit/current-item.test.ts`
+- [X] T008 [P] [US1] Contract test for `POST /api/lessons/{id}/live-session` (401 unauth, 404 not-owned, 409 not-ready, 503 unavailable, 200 returns `LiveSessionToken` with `dynamicVariables`) in `apps/web/tests/contract/qa-api.test.ts`
+- [X] T009 [P] [US1] Integration test: token mint is owner-scoped and `xi-api-key` never returned to client; 409 when lesson not `ready`; 503 when agent not configured — using a faked ElevenLabs token client — in `apps/web/tests/integration/live-tutor-session.test.ts`
+- [X] T010 [P] [US1] Unit test for the current-item resolver (char-proportional offsets over `LessonScript`; boundary/gap → most-recent item; pre-first → null) in `apps/web/tests/unit/current-item.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Implement `apps/web/lib/live-tutor/availability.ts`: report live-tutor availability from `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` presence (FR-017, R8)
-- [ ] T012 [P] [US1] Implement `apps/web/lib/live-tutor/current-item.ts`: resolve the active `SourceItem` from `<audio>` position + `LessonScript` segments/coverage (R3)
-- [ ] T013 [US1] Create the versioned agent context template in `apps/web/lib/live-tutor/agent-prompt.ts`: base system prompt using dynamic variables `{{lesson_summary}}`, `{{items_list}}`, `{{current_item}}`, instructing brief, lesson-grounded answers (Constitution III — versioned, no untracked prompt strings)
-- [ ] T014 [US1] Implement `apps/web/lib/live-tutor/context.ts`: build `dynamicVariables` (lesson summary, items list, current item) from a `LessonScript` + source items (R4)
-- [ ] T015 [US1] Implement `apps/web/lib/live-tutor/token.ts`: server-side mint of an ElevenLabs conversation token for `ELEVENLABS_AGENT_ID` (xi-api-key server-only); returns token + connectionType (R1, Principle V)
-- [ ] T016 [US1] Implement `POST /api/lessons/[id]/live-session/route.ts`: auth + ownership (404 pattern), `ready` check (409), availability check (503 → fallback body), mint token (T015), build context (T014); emit `qa.session` / `qa.error` via the child logger bound to `{ lessonId, ownerId }` (depends on T011–T015)
-- [ ] T017 [P] [US1] Implement the playback hook `apps/web/app/lessons/[id]/live-tutor/usePlaybackQa.ts`: pause the lesson `<audio>` on detected speech and capture `currentTime` as the interruption point; resume from that point when the exchange ends; track a manual-pause flag so manual pause is NOT treated as a question (FR-002/FR-003/FR-004/FR-010)
-- [ ] T018 [US1] Implement `apps/web/app/lessons/[id]/live-tutor/LiveTutorProvider.tsx`: wrap `@elevenlabs/react` `ConversationProvider`; `startSession` with the conversation token + `dynamicVariables`; request mic; expose status/mode (R1, R5 — teacher voice comes from the agent config)
-- [ ] T019 [US1] Implement `apps/web/app/lessons/[id]/live-tutor/LiveTutorController.tsx`: orchestrate mic + `useConversationMode` → drive `usePlaybackQa` pause/resume; `sendContextualUpdate(current_item)` when the active item changes; `endSession()` on stop/navigate/lesson-end (R6/R7) (depends on T016–T018)
-- [ ] T020 [US1] Mount the live-tutor controller in `apps/web/app/lessons/[id]/page.tsx` only when the lesson is `ready`, alongside the existing player (depends on T019)
+- [X] T011 [P] [US1] Implement `apps/web/lib/live-tutor/availability.ts`: report live-tutor availability from `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID` presence (FR-017, R8)
+- [X] T012 [P] [US1] Implement `apps/web/lib/live-tutor/current-item.ts`: resolve the active `SourceItem` from `<audio>` position + `LessonScript` segments/coverage (R3)
+- [X] T013 [US1] Create the versioned agent context template in `apps/web/lib/live-tutor/agent-prompt.ts`: base system prompt using dynamic variables `{{lesson_summary}}`, `{{items_list}}`, `{{current_item}}`, instructing brief, lesson-grounded answers (Constitution III — versioned, no untracked prompt strings)
+- [X] T014 [US1] Implement `apps/web/lib/live-tutor/context.ts`: build `dynamicVariables` (lesson summary, items list, current item) from a `LessonScript` + source items (R4)
+- [X] T015 [US1] Implement `apps/web/lib/live-tutor/token.ts`: server-side mint of an ElevenLabs conversation token for `ELEVENLABS_AGENT_ID` (xi-api-key server-only); returns token + connectionType (R1, Principle V)
+- [X] T016 [US1] Implement `POST /api/lessons/[id]/live-session/route.ts`: auth + ownership (404 pattern), `ready` check (409), availability check (503 → fallback body), mint token (T015), build context (T014); emit `qa.session` / `qa.error` via the child logger bound to `{ lessonId, ownerId }` (depends on T011–T015)
+- [X] T017 [P] [US1] Implement the playback hook `apps/web/app/lessons/[id]/live-tutor/usePlaybackQa.ts`: pause the lesson `<audio>` on detected speech and capture `currentTime` as the interruption point; resume from that point when the exchange ends; track a manual-pause flag so manual pause is NOT treated as a question (FR-002/FR-003/FR-004/FR-010)
+- [X] T018 [US1] Implement `apps/web/app/lessons/[id]/live-tutor/LiveTutorProvider.tsx`: wrap `@elevenlabs/react` `ConversationProvider`; `startSession` with the conversation token + `dynamicVariables`; request mic; expose status/mode (R1, R5 — teacher voice comes from the agent config)
+- [X] T019 [US1] Implement `apps/web/app/lessons/[id]/live-tutor/LiveTutorController.tsx`: orchestrate mic + `useConversationMode` → drive `usePlaybackQa` pause/resume; `sendContextualUpdate(current_item)` when the active item changes; `endSession()` on stop/navigate/lesson-end (R6/R7) (depends on T016–T018)
+- [X] T020 [US1] Mount the live-tutor controller in `apps/web/app/lessons/[id]/page.tsx` only when the lesson is `ready`, alongside the existing player (depends on T019)
 
 **Checkpoint**: A learner can interrupt by speaking, hear a teacher-voice answer grounded in the current item, and resume from the exact point. MVP is demoable.
 
@@ -84,13 +84,13 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T021 [P] [US2] Integration test: a multi-turn exchange (question → answer → barge-in → answer) keeps a single fixed interruption point and accumulates all turns in order; resume position equals the original — in `apps/web/tests/integration/live-tutor-bargein.test.ts`
+- [X] T021 [P] [US2] Integration test: a multi-turn exchange (question → answer → barge-in → answer) keeps a single fixed interruption point and accumulates all turns in order; resume position equals the original — in `apps/web/tests/integration/live-tutor-bargein.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] In `usePlaybackQa.ts`, fix the interruption point at the FIRST interruption of an exchange and do NOT overwrite it on subsequent barge-in turns (depends on T017)
-- [ ] T023 [US2] In `LiveTutorController.tsx`, accumulate an ordered in-memory turn buffer across barge-in turns within one exchange (opened at first interruption, closed at resume), so the exchange spans all turns (depends on T019)
-- [ ] T024 [US2] Verify/confirm the agent is configured as interruptible and the client does not suppress barge-in (do NOT call `sendUserActivity` during agent speech); document the agent interruption setting in `quickstart.md` if a config toggle is required (R1)
+- [X] T022 [US2] In `usePlaybackQa.ts`, fix the interruption point at the FIRST interruption of an exchange and do NOT overwrite it on subsequent barge-in turns (depends on T017)
+- [X] T023 [US2] In `LiveTutorController.tsx`, accumulate an ordered in-memory turn buffer across barge-in turns within one exchange (opened at first interruption, closed at resume), so the exchange spans all turns (depends on T019)
+- [X] T024 [US2] Verify/confirm the agent is configured as interruptible and the client does not suppress barge-in (do NOT call `sendUserActivity` during agent speech); document the agent interruption setting in `quickstart.md` if a config toggle is required (R1)
 
 **Checkpoint**: Barge-in produces a natural multi-turn exchange that still resumes correctly.
 
@@ -104,18 +104,18 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T025 [P] [US3] Contract test for `POST /api/lessons/{id}/exchanges` (201 with stored `QaExchange`; 400 empty turns / blank text / negative position / `sourceItemId` not in lesson; 401; 404) and `GET .../exchanges` (ordered list) in `apps/web/tests/contract/qa-api.test.ts`
-- [ ] T026 [P] [US3] Integration test: persistence of exchange + turns, item association (the resolved `source_item_id`), append-only `exchange_index` ordering across multiple exchanges, and privacy (no raw turn text at `info` level) in `apps/web/tests/integration/qa-transcript.test.ts`
+- [X] T025 [P] [US3] Contract test for `POST /api/lessons/{id}/exchanges` (201 with stored `QaExchange`; 400 empty turns / blank text / negative position / `sourceItemId` not in lesson; 401; 404) and `GET .../exchanges` (ordered list) in `apps/web/tests/contract/qa-api.test.ts`
+- [X] T026 [P] [US3] Integration test: persistence of exchange + turns, item association (the resolved `source_item_id`), append-only `exchange_index` ordering across multiple exchanges, and privacy (no raw turn text at `info` level) in `apps/web/tests/integration/qa-transcript.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T027 [P] [US3] Define the owner-scoped `QaRepository` interface (createExchangeWithTurns, listExchanges) in `apps/web/lib/qa/repository.ts`
-- [ ] T028 [P] [US3] Implement `InMemoryQaRepository` (for tests) in `apps/web/lib/qa/in-memory-repository.ts`
-- [ ] T029 [US3] Implement `SupabaseQaRepository` (RLS-scoped client; denormalized `owner_id`) in `apps/web/lib/supabase/qa-repository.ts`
-- [ ] T030 [US3] Implement `QaService` in `apps/web/lib/qa/service.ts`: validate body, enforce `sourceItemId` belongs to the lesson, assign next `exchange_index`, stamp `owner_id`, persist via repo, list (depends on T027)
-- [ ] T031 [US3] Wire `QaRepository` (Supabase vs in-memory by `hasSupabaseEnv()`) + `QaService` into the composition root `apps/web/lib/container.ts` (depends on T027–T030)
-- [ ] T032 [US3] Implement `POST` and `GET /api/lessons/[id]/exchanges/route.ts` (auth, ownership, delegate to `QaService`); emit `qa.exchange` / `qa.turn` with raw text gated to `debug` (Constitution V) (depends on T031)
-- [ ] T033 [US3] In `LiveTutorController.tsx`, on exchange end: resolve the relevant item (T012), assemble `CreateExchangeRequest` from `onMessage` final turns + the fixed interruption point + `conversationId`, and POST it **after resume** (off the latency path) (depends on T019, T032)
+- [X] T027 [P] [US3] Define the owner-scoped `QaRepository` interface (createExchangeWithTurns, listExchanges) in `apps/web/lib/qa/repository.ts`
+- [X] T028 [P] [US3] Implement `InMemoryQaRepository` (for tests) in `apps/web/lib/qa/in-memory-repository.ts`
+- [X] T029 [US3] Implement `SupabaseQaRepository` (RLS-scoped client; denormalized `owner_id`) in `apps/web/lib/supabase/qa-repository.ts`
+- [X] T030 [US3] Implement `QaService` in `apps/web/lib/qa/service.ts`: validate body, enforce `sourceItemId` belongs to the lesson, assign next `exchange_index`, stamp `owner_id`, persist via repo, list (depends on T027)
+- [X] T031 [US3] Wire `QaRepository` (Supabase vs in-memory by `hasSupabaseEnv()`) + `QaService` into the composition root `apps/web/lib/container.ts` (depends on T027–T030)
+- [X] T032 [US3] Implement `POST` and `GET /api/lessons/[id]/exchanges/route.ts` (auth, ownership, delegate to `QaService`); emit `qa.exchange` / `qa.turn` with raw text gated to `debug` (Constitution V) (depends on T031)
+- [X] T033 [US3] In `LiveTutorController.tsx`, on exchange end: resolve the relevant item (T012), assemble `CreateExchangeRequest` from `onMessage` final turns + the fixed interruption point + `conversationId`, and POST it **after resume** (off the latency path) (depends on T019, T032)
 
 **Checkpoint**: Exchanges are durably captured and reviewable, correctly anchored to lesson + item.
 
@@ -129,14 +129,14 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T034 [P] [US4] Integration test: unavailable (503 / connect failure) surfaces the fallback message and the lesson stays playable; an empty/unintelligible turn does NOT create a persisted exchange — in `apps/web/tests/integration/live-tutor-fallback.test.ts`
-- [ ] T035 [P] [US4] Unit test: the clarification-loop guard counts consecutive clarification turns and trips the "return to lesson" escape at the threshold — in `apps/web/tests/unit/clarification-guard.test.ts`
+- [X] T034 [P] [US4] Integration test: unavailable (503 / connect failure) surfaces the fallback message and the lesson stays playable; an empty/unintelligible turn does NOT create a persisted exchange — in `apps/web/tests/integration/live-tutor-fallback.test.ts`
+- [X] T035 [P] [US4] Unit test: the clarification-loop guard counts consecutive clarification turns and trips the "return to lesson" escape at the threshold — in `apps/web/tests/unit/clarification-guard.test.ts`
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Augment `apps/web/lib/live-tutor/agent-prompt.ts`: instruct the tutor to ask the learner to repeat/clarify on empty/unintelligible input (FR-014) and to answer briefly or redirect off-topic questions back to the lesson (FR-016) (depends on T013)
-- [ ] T037 [US4] Implement the clarification-loop guard (count consecutive clarification turns; default threshold 3 → surface "Return to the lesson") in `apps/web/app/lessons/[id]/live-tutor/LiveTutorController.tsx` (FR-015) (depends on T019)
-- [ ] T038 [US4] Implement the unavailability fallback UI: render the 503/`onError`/connect-timeout state as a clear message and keep the lesson fully playable; ensure background/accidental speech with no intelligible turn produces no spurious persisted exchange (FR-017, edge cases) in the player / `LiveTutorController.tsx` (depends on T020, T033)
+- [X] T036 [US4] Augment `apps/web/lib/live-tutor/agent-prompt.ts`: instruct the tutor to ask the learner to repeat/clarify on empty/unintelligible input (FR-014) and to answer briefly or redirect off-topic questions back to the lesson (FR-016) (depends on T013)
+- [X] T037 [US4] Implement the clarification-loop guard (count consecutive clarification turns; default threshold 3 → surface "Return to the lesson") in `apps/web/app/lessons/[id]/live-tutor/LiveTutorController.tsx` (FR-015) (depends on T019)
+- [X] T038 [US4] Implement the unavailability fallback UI: render the 503/`onError`/connect-timeout state as a clear message and keep the lesson fully playable; ensure background/accidental speech with no intelligible turn produces no spurious persisted exchange (FR-017, edge cases) in the player / `LiveTutorController.tsx` (depends on T020, T033)
 
 **Checkpoint**: All four stories are independently functional and robust.
 
@@ -144,10 +144,10 @@ pnpm workspace: shared schemas in `packages/contracts/`, observability port in `
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] Playwright E2E `apps/web/tests/e2e/live-tutor-flow.spec.ts`: full interrupt → answer → barge-in → resume-at-point flow on desktop + mobile viewports, with the realtime transport faked
-- [ ] T040 [P] Update `apps/web/README` / docs with the live-tutor setup pointer and the agent-provisioning note (link `quickstart.md`)
+- [X] T039 [P] Playwright E2E `apps/web/tests/e2e/live-tutor-flow.spec.ts`: full interrupt → answer → barge-in → resume-at-point flow on desktop + mobile viewports, with the realtime transport faked
+- [X] T040 [P] Update `apps/web/README` / docs with the live-tutor setup pointer and the agent-provisioning note (link `quickstart.md`)
 - [ ] T041 Manually validate acoustic-echo behavior (lesson audio ducked/paused within ~300ms of speech) and time-to-first-audio < ~1.5s against a real agent; record results (Constitution I, R6)
-- [ ] T042 Run `pnpm test && pnpm typecheck && pnpm lint` and the `quickstart.md` verification steps; fix any failures
+- [X] T042 Run `pnpm test && pnpm typecheck && pnpm lint` and the `quickstart.md` verification steps; fix any failures
 
 ---
 

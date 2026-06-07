@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
+import { LiveTutorProvider } from "./live-tutor/LiveTutorProvider";
 
 /** Lesson detail: status polling (FR-015) + player (FR-014) + retry (FR-016). */
 
@@ -19,6 +20,7 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/lessons/${id}`, { cache: "no-store" });
@@ -105,10 +107,15 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
 
       {lesson.status === "ready" && lesson.audio && (
         <div className="panel">
-          <audio controls src={lesson.audio.url} style={{ width: "100%" }}>
+          <audio ref={audioRef} controls src={lesson.audio.url} style={{ width: "100%" }}>
             <track kind="captions" />
           </audio>
         </div>
+      )}
+
+      {/* Live, interruptible Q&A — only for a ready lesson (005-live-tutor-qa). */}
+      {lesson.status === "ready" && lesson.audio && (
+        <LiveTutorProvider lessonId={lesson.id} audioRef={audioRef} />
       )}
 
       {lesson.items.length > 0 && (
