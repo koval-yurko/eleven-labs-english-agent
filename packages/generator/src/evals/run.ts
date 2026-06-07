@@ -46,6 +46,7 @@ const deps = live
         bitrate: config.ttsBitrate,
         teacherVoiceId: config.teacherVoiceId,
         learnerVoiceId: config.learnerVoiceId,
+        batchConcurrency: config.ttsBatchConcurrency,
       }),
       config,
     }

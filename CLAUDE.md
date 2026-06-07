@@ -1,10 +1,12 @@
 # eleven-labs-english-agent Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-06-06
+Auto-generated from all feature plans. Last updated: 2026-06-07
 
 ## Active Technologies
 - TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + No new runtime dependency. A minimal in-repo structured logger (interface + JSON-line emitter + redaction) added to `packages/generator`; consumed by `apps/web` (which already depends on `@idiomatic/generator`). Existing stack unchanged (Next.js · Mastra-free `generateLesson` orchestrator · Claude/ElevenLabs adapters · Supabase · Auth0 · Zod · LangSmith soft-dep). (003-internal-logging)
 - N/A. Logs are emitted to the process standard output stream (FR-016); nothing is persisted to Postgres or Storage. The lesson lifecycle states being logged already persist via S1. (003-internal-logging)
+- TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + No new runtime dependency. A minimal in-repo `mapWithConcurrency` (004-tts-parallel-render)
+- N/A. No persistence change. The stitched `RenderedAudio` artifact and the lesson status (004-tts-parallel-render)
 
 - TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · Mastra (generation workflow) · `@anthropic` Claude (generation brain) · ElevenLabs `@elevenlabs/elevenlabs-js` (server, Text to Dialogue / Eleven v3) + `@elevenlabs/react` (client playback) · Supabase JS (`@supabase/supabase-js`, Postgres + Storage) · Auth0 (`@auth0/nextjs-auth0`) · Zod (shared schemas) · LangSmith via `@mastra/langsmith` (eval/observability) (002-lesson-generation)
 
@@ -35,6 +37,7 @@ Before committing feature work: `pnpm test && pnpm typecheck && pnpm lint`.
 TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II): Follow standard conventions
 
 ## Recent Changes
+- 004-tts-parallel-render: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + No new runtime dependency. A minimal in-repo `mapWithConcurrency`
 - 003-internal-logging: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + No new runtime dependency. A minimal in-repo structured logger (interface + JSON-line emitter + redaction) added to `packages/generator`; consumed by `apps/web` (which already depends on `@idiomatic/generator`). Existing stack unchanged (Next.js · Mastra-free `generateLesson` orchestrator · Claude/ElevenLabs adapters · Supabase · Auth0 · Zod · LangSmith soft-dep).
 
 - 002-lesson-generation: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · Mastra (generation workflow) · `@anthropic` Claude (generation brain) · ElevenLabs `@elevenlabs/elevenlabs-js` (server, Text to Dialogue / Eleven v3) + `@elevenlabs/react` (client playback) · Supabase JS (`@supabase/supabase-js`, Postgres + Storage) · Auth0 (`@auth0/nextjs-auth0`) · Zod (shared schemas) · LangSmith via `@mastra/langsmith` (eval/observability)

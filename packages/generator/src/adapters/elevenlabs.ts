@@ -1,6 +1,7 @@
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import type { LessonScript } from "@idiomatic/contracts";
 import { noopLogger, type Logger } from "../observability";
+import { mapWithConcurrency } from "../utils/concurrency";
 import type { ProviderHealth, RenderedAudio, TtsAdapter } from "./types";
 
 /**
@@ -17,6 +18,12 @@ export interface ElevenLabsOptions {
   /** Configured voices, validated by the preflight health check. */
   teacherVoiceId: string;
   learnerVoiceId: string;
+  /**
+   * Max batch renders in flight at once (004-tts-parallel-render). Kept at/under the plan's
+   * concurrency limit to avoid 429s; `1` renders sequentially. Sourced from
+   * `GeneratorConfig.ttsBatchConcurrency`.
+   */
+  batchConcurrency: number;
 }
 
 const ELEVENLABS_API = "https://api.elevenlabs.io";
@@ -32,8 +39,10 @@ export class ElevenLabsTtsAdapter implements TtsAdapter {
   constructor(
     private readonly apiKey: string,
     private readonly options: ElevenLabsOptions,
+    /** Injectable for tests; defaults to a real client built from `apiKey`. */
+    client?: ElevenLabsClient,
   ) {
-    this.client = new ElevenLabsClient({ apiKey });
+    this.client = client ?? new ElevenLabsClient({ apiKey });
   }
 
   async healthCheck(): Promise<ProviderHealth> {
@@ -77,23 +86,34 @@ export class ElevenLabsTtsAdapter implements TtsAdapter {
     }));
 
     const batches = batchUnderLimit(inputs, ttsCharLimit);
-    const chunks: Uint8Array[] = [];
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]!;
-      const chars = batch.reduce((n, input) => n + input.text.length, 0);
-      const startedAt = Date.now();
-      const audio = await this.client.textToDialogue.convert({
-        inputs: batch,
-        modelId: this.options.modelId,
-      });
-      chunks.push(await collectBytes(audio));
-      logger.info("render.batch", `rendered batch ${i + 1}/${batches.length}`, {
-        batchIndex: i,
-        batchCount: batches.length,
-        chars,
-        durationMs: Date.now() - startedAt,
-      });
-    }
+    const batchCount = batches.length;
+
+    // Render batches with bounded parallelism (004-tts-parallel-render). mapWithConcurrency
+    // returns results in batch-index order regardless of completion order, so the stitch below
+    // is unchanged; the cap keeps in-flight syntheses under the plan limit (no 429s). A failed
+    // batch rejects the whole render (fail-fast) — no partial audio is produced.
+    const chunks = await mapWithConcurrency(
+      batches,
+      async (batch, i) => {
+        const chars = batch.reduce((n, input) => n + input.text.length, 0);
+        const startedAt = Date.now();
+        const audio = await this.client.textToDialogue.convert({
+          inputs: batch,
+          modelId: this.options.modelId,
+        });
+        const bytes = await collectBytes(audio);
+        // Per-batch timing still emitted for every batch (FR-010); entries may interleave but
+        // stay correlatable via the stable batchIndex.
+        logger.info("render.batch", `rendered batch ${i + 1}/${batchCount}`, {
+          batchIndex: i,
+          batchCount,
+          chars,
+          durationMs: Date.now() - startedAt,
+        });
+        return bytes;
+      },
+      this.options.batchConcurrency,
+    );
 
     const bytes = concatBytes(chunks);
     const durationSeconds = Math.max(1, Math.round((bytes.byteLength * 8) / this.options.bitrate));

@@ -86,6 +86,9 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
           <p className="warn" style={{ margin: 0 }}>
             ⏳ Creating your lesson… this page will update automatically.
           </p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Generation can take a few minutes — feel free to leave this page and come back.
+          </p>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import {
   JsonLogger,
   MockLlmAdapter,
   MockTtsAdapter,
+  parseBatchConcurrency,
   parseLogLevel,
   parseLogPretty,
   type GenerateLessonDeps,
@@ -34,6 +35,7 @@ export function buildGeneratorConfig(
     targetMaxSeconds: int("TARGET_MAX_SECONDS", 600),
     wordsPerMinute: int("GENERATION_WPM", 150),
     ttsCharLimit: int("TTS_CHAR_LIMIT", 3000),
+    ttsBatchConcurrency: parseBatchConcurrency(env.TTS_BATCH_CONCURRENCY),
     modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
     ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
     ttsBitrate: int("ELEVENLABS_BITRATE", 128000),
@@ -73,6 +75,7 @@ export function buildGenerateLessonDeps(
       bitrate: config.ttsBitrate,
       teacherVoiceId: config.teacherVoiceId,
       learnerVoiceId: config.learnerVoiceId,
+      batchConcurrency: config.ttsBatchConcurrency,
     });
   } else {
     llm = new MockLlmAdapter();

@@ -21,6 +21,7 @@ const baseConfig: GeneratorConfig = {
   modelId: "mock-llm-1",
   ttsModelId: "eleven_v3",
   ttsBitrate: 128000,
+  ttsBatchConcurrency: 3,
 };
 
 describe("render batch logging", () => {

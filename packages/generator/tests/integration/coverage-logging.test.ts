@@ -24,6 +24,7 @@ const config: GeneratorConfig = {
   modelId: "mock-llm-1",
   ttsModelId: "eleven_v3",
   ttsBitrate: 128000,
+  ttsBatchConcurrency: 3,
 };
 
 /** Misses coverage for the last item on the first draft, then covers everything on retry. */

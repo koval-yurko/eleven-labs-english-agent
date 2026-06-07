@@ -17,6 +17,7 @@ export * from "./adapters/claude";
 export * from "./adapters/elevenlabs";
 export * from "./prompts/lesson-script";
 export * from "./observability";
+export * from "./utils/concurrency";
 
 export interface GenerateLessonDeps {
   llm: LlmAdapter;
