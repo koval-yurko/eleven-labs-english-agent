@@ -2,6 +2,8 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { LiveTutorProvider } from "./live-tutor/LiveTutorProvider";
+import { LiveStoryProvider } from "./live-story/LiveStoryProvider";
+import { TranscriptReview } from "./live-story/TranscriptReview";
 
 /** Lesson detail: status polling (FR-015) + player (FR-014) + retry (FR-016). */
 
@@ -117,6 +119,12 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
       {lesson.status === "ready" && lesson.audio && (
         <LiveTutorProvider lessonId={lesson.id} audioRef={audioRef} />
       )}
+
+      {/* Adaptive, interruptible live-narrated lesson — no <audio> (006-adaptive-live-story). */}
+      {lesson.status === "ready" && <LiveStoryProvider lessonId={lesson.id} />}
+
+      {/* Durable transcript of past live-story sessions (006, FR-024) — no audio player. */}
+      {lesson.status === "ready" && <TranscriptReview lessonId={lesson.id} />}
 
       {lesson.items.length > 0 && (
         <div className="panel">

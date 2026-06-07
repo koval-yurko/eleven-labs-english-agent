@@ -22,4 +22,14 @@ export type EventId =
   | "qa.turn" // a captured exchange turn (role, turnIndex; text @debug only)
   | "qa.exchange" // a persisted exchange (exchangeIndex, sourceItemId, turnCount, position)
   | "qa.unavailable" // live tutor not configured/reachable; fallback surfaced (FR-017)
-  | "qa.error"; // live session / persistence failure
+  | "qa.error" // live session / persistence failure
+  // Adaptive live story (006-adaptive-live-story). Emitted by the web app, sharing this
+  // vocabulary + the injected Logger port (003-internal-logging). Coverage and length,
+  // formerly validated at generation time, are observed HERE at narration time (R3/R8).
+  | "story.session" // live-story session lifecycle (opened session, minted token, ended)
+  | "story.beat" // a narrated beat / advanceNarration step (beatIndex, owed items)
+  | "story.coverage" // coverage progress (covered/total; conclude allowed/blocked)
+  | "story.scenario" // a scenario change pinned for the rest of the session (latest wins)
+  | "story.turn" // a captured/persisted session turn (role, kind, turnIndex; text @debug)
+  | "story.error" // live-story session / persistence failure
+  | "story.unavailable"; // live story not configured/reachable; fallback surfaced (FR-026)

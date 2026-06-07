@@ -15,6 +15,12 @@ import { SupabaseQaRepository } from "./supabase/qa-repository";
 import { QaService } from "./qa/service";
 import { LiveTutorService } from "./live-tutor/service";
 import { liveTutorConfig } from "./live-tutor/availability";
+import type { LiveStoryRepository } from "./live-story/repository";
+import { InMemoryLiveStoryRepository } from "./live-story/in-memory-repository";
+import { SupabaseLiveStoryRepository } from "./supabase/live-story-repository";
+import { StartStoryService } from "./live-story/service";
+import { TranscriptService } from "./live-story/transcript-service";
+import { liveStoryConfig } from "./config";
 import type { Logger } from "@idiomatic/generator";
 
 /**
@@ -28,6 +34,7 @@ interface Infra {
   clock: Clock;
   repo: LessonRepository;
   qaRepo: QaRepository;
+  liveStoryRepo: LiveStoryRepository;
   storage: AudioStorage;
   logger: Logger;
 }
@@ -42,20 +49,23 @@ function getInfra(): Infra {
 
   let repo: LessonRepository;
   let qaRepo: QaRepository;
+  let liveStoryRepo: LiveStoryRepository;
   let storage: AudioStorage;
 
   if (hasSupabaseEnv()) {
     const db = getServiceSupabase();
     repo = new SupabaseLessonRepository(db, ids, clock);
     qaRepo = new SupabaseQaRepository(db, ids, clock);
+    liveStoryRepo = new SupabaseLiveStoryRepository(db, ids, clock);
     storage = new SupabaseAudioStorage(db, AUDIO_BUCKET);
   } else {
     repo = new InMemoryLessonRepository(ids, clock);
     qaRepo = new InMemoryQaRepository(ids, clock);
+    liveStoryRepo = new InMemoryLiveStoryRepository(ids, clock);
     storage = new InMemoryAudioStorage();
   }
 
-  infra = { ids, clock, repo, qaRepo, storage, logger };
+  infra = { ids, clock, repo, qaRepo, liveStoryRepo, storage, logger };
   return infra;
 }
 
@@ -93,6 +103,24 @@ export function getLiveTutorService(): LiveTutorService {
   const { repo, logger } = getInfra();
   liveTutorService = new LiveTutorService(repo, liveTutorConfig(), logger);
   return liveTutorService;
+}
+
+let startStoryService: StartStoryService | null = null;
+
+export function getStartStoryService(): StartStoryService {
+  if (startStoryService) return startStoryService;
+  const { repo, liveStoryRepo, logger } = getInfra();
+  startStoryService = new StartStoryService(repo, liveStoryRepo, liveStoryConfig(), logger);
+  return startStoryService;
+}
+
+let transcriptService: TranscriptService | null = null;
+
+export function getTranscriptService(): TranscriptService {
+  if (transcriptService) return transcriptService;
+  const { repo, liveStoryRepo, logger } = getInfra();
+  transcriptService = new TranscriptService(repo, liveStoryRepo, logger);
+  return transcriptService;
 }
 
 let qaService: QaService | null = null;
