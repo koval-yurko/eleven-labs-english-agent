@@ -16,6 +16,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "smoke:generate": "tsx scripts/smoke-generate.ts",
+    "provision:agent": "tsx scripts/create-live-tutor-agent.ts",
     "eval:generation": "tsx packages/generator/src/evals/run.ts",
     "test:e2e": "playwright test",
     "check:bundle": "node scripts/check-bundle-secrets.mjs",

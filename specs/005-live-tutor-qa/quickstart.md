@@ -6,7 +6,7 @@ How to provision, configure, run, and verify the live tutor. Builds on the 002 s
 
 Create one **Conversational AI Agent** for the live tutor:
 
-- **Voice**: set to the **pinned teacher voice** — the same id as `ELEVENLABS_TEACHER_VOICE_ID`. (Constitution I: the live tutor and scripted podcast MUST be the same voice.)
+- **Voice**: set to the **pinned teacher voice** — the same id as `ELEVENLABS_TEACHER_VOICE_ID`. (Constitution I: the live tutor and scripted podcast MUST be the same voice.) For the **TTS model**, pick a real-time model such as **Flash v2** (`eleven_flash_v2`) — Eleven v3 / "expressive" is gated on some plans (`expressive_tts_not_allowed`); the voice id is unchanged either way, so consistency holds.
 - **LLM**: select **Claude Haiku 4.5** natively (no custom LLM proxy). Turn **reasoning off** for conversational latency (research R2).
 - **Pipeline**: cascaded STT → LLM → TTS (default; **not** speech-to-speech — the transcript must stay available).
 - **System prompt**: paste the versioned template from `apps/web/lib/live-tutor/agent-prompt.ts`. It uses dynamic variables `{{lesson_summary}}`, `{{items_list}}`, `{{current_item}}` and instructs the tutor to answer briefly and grounded in the lesson, ask the learner to repeat/clarify on empty/unintelligible input, and briefly answer-or-redirect off-topic questions.
@@ -15,6 +15,22 @@ Create one **Conversational AI Agent** for the live tutor:
 - **Interruptions**: leave the agent **interruptible** (the default) so the learner can barge in over an answer (US2). The client never sends `sendUserActivity` during agent speech, so it never suppresses barge-in. No voice/prompt *override* needs enabling — the voice is bound on the agent and grounding goes through dynamic variables.
 
 Copy the agent id.
+
+### Scriptable alternative
+
+Instead of the dashboard you can run the committed helper, which provisions the agent from
+your env keys using the same versioned prompt (`apps/web/lib/live-tutor/agent-prompt.ts`):
+
+```bash
+pnpm provision:agent                              # uses Claude Haiku 4.5 by default
+LIVE_TUTOR_LLM=claude-sonnet-4-5 pnpm provision:agent   # override the LLM id
+```
+
+It reads `ELEVENLABS_API_KEY` + `ELEVENLABS_TEACHER_VOICE_ID` (api key never leaves your
+machine), creates the agent, and prints the `ELEVENLABS_AGENT_ID` line to paste into
+`apps/web/.env.local`. Run it once and save the id. If the LLM id is rejected, the script
+tells you to check the exact id in the dashboard's LLM dropdown and re-run with
+`LIVE_TUTOR_LLM=<id>`.
 
 ## 2. Environment
 
@@ -33,7 +49,10 @@ Live Q&A is **feature-gated**: if `ELEVENLABS_API_KEY` or `ELEVENLABS_AGENT_ID` 
 ## 3. Database migration
 
 ```bash
-pnpm migrate    # applies supabase/migrations/0004_qa.sql (qa_exchanges, qa_turns + RLS)
+# Requires SUPABASE_DB_URL (Postgres URI from Supabase → Project Settings → Database →
+# Connection string → "URI"; use the Session pooler / port 5432 on IPv4-only networks).
+pnpm db:migrate:status   # preview applied vs pending (no changes)
+pnpm db:migrate          # applies supabase/migrations/0004_qa.sql (qa_exchanges, qa_turns + RLS)
 ```
 
 ## 4. Install the client SDK
