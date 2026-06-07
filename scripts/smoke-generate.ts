@@ -1,11 +1,11 @@
-// Live smoke test: runs the REAL Claude + ElevenLabs adapters against your .env keys,
-// generates a one-item lesson, and writes the MP3 to disk. Verifies the generation path
-// end-to-end without Auth0/Supabase. Makes real (small) API calls.
+// Live smoke test: runs the REAL Claude adapter against your .env key, generates a one-item
+// lesson SCRIPT, and asserts it is valid. Verifies the generation path end-to-end without
+// Auth0/Supabase. Generation is script-only (007-live-only) — it writes NO audio file.
+// Makes one real (small) Claude call.
 //
 //   pnpm smoke:generate            # default item: "break the ice"
 //   pnpm smoke:generate "piece of cake"   # custom item
 
-import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -16,17 +16,12 @@ for (const f of [".env", ".env.local", "apps/web/.env.local"]) {
   dotenv.config({ path: join(root, f) });
 }
 
-const {
-  classifyInput,
-  generateLesson,
-  loadGeneratorConfig,
-  ClaudeLlmAdapter,
-  ElevenLabsTtsAdapter,
-} = await import("../packages/generator/src/index.ts");
+const { classifyInput, generateLesson, loadGeneratorConfig, ClaudeLlmAdapter, LessonScript } =
+  await import("../packages/generator/src/index.ts");
 
 const env = process.env;
-if (!env.ANTHROPIC_API_KEY || !env.ELEVENLABS_API_KEY) {
-  console.error("✗ Missing ANTHROPIC_API_KEY and/or ELEVENLABS_API_KEY in .env");
+if (!env.ANTHROPIC_API_KEY) {
+  console.error("✗ Missing ANTHROPIC_API_KEY in .env");
   process.exit(1);
 }
 
@@ -34,33 +29,28 @@ const item = process.argv[2] ?? "break the ice";
 const config = loadGeneratorConfig(env);
 const { accepted } = classifyInput([item]);
 
-console.log(`▶ generating a lesson for "${item}"`);
-console.log(`  model: ${config.modelId}  |  tts: ${config.ttsModelId}`);
+console.log(`▶ generating a lesson script for "${item}"`);
+console.log(`  model: ${config.modelId}`);
 console.log(`  voices: teacher=${config.teacherVoiceId} learner=${config.learnerVoiceId}`);
 
 const t0 = Date.now();
 try {
   const result = await generateLesson(accepted, {
     llm: new ClaudeLlmAdapter(env.ANTHROPIC_API_KEY, config.modelId),
-    tts: new ElevenLabsTtsAdapter(env.ELEVENLABS_API_KEY, {
-      modelId: config.ttsModelId,
-      bitrate: config.ttsBitrate,
-      teacherVoiceId: config.teacherVoiceId,
-      learnerVoiceId: config.learnerVoiceId,
-      batchConcurrency: config.ttsBatchConcurrency,
-    }),
     config,
   });
 
-  const out = "/tmp/idiomatic-smoke.mp3";
-  writeFileSync(out, result.audio.bytes);
-  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  // Assert the script is structurally valid against the shared contract.
+  LessonScript.parse(result.script);
+  if (result.script.coverage.length === 0) {
+    throw new Error("script covered no items");
+  }
 
-  console.log(`\n✅ success in ${secs}s`);
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`\n✅ success in ${secs}s (script only — no audio written)`);
   console.log(`  segments:   ${result.script.segments.length}`);
   console.log(`  coverage:   ${result.script.coverage.length} item(s)`);
-  console.log(`  audio:      ${result.audio.durationSeconds}s, ${result.audio.bytes.length} bytes`);
-  console.log(`  wrote:      ${out}`);
+  console.log(`  model:      ${result.metadata.modelId}  |  prompt: ${result.metadata.promptVersion}`);
   console.log(`\n  first teacher line:`);
   const teacher = result.script.segments.find((s) => s.speaker === "teacher");
   if (teacher) console.log(`    "${teacher.text.slice(0, 140)}${teacher.text.length > 140 ? "…" : ""}"`);

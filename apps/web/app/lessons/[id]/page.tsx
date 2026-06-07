@@ -1,11 +1,10 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState } from "react";
-import { LiveTutorProvider } from "./live-tutor/LiveTutorProvider";
+import { use, useCallback, useEffect, useState } from "react";
 import { LiveStoryProvider } from "./live-story/LiveStoryProvider";
 import { TranscriptReview } from "./live-story/TranscriptReview";
 
-/** Lesson detail: status polling (FR-015) + player (FR-014) + retry (FR-016). */
+/** Lesson detail: status polling (FR-015) + live-story experience + retry (FR-016). */
 
 interface LessonDetail {
   id: string;
@@ -14,7 +13,6 @@ interface LessonDetail {
   errorReason: string | null;
   skipped: { rawText: string; reason: string }[];
   items: { normalizedText: string; itemType: string; covered: boolean }[];
-  audio: { url: string; durationSeconds: number; mimeType: string } | null;
 }
 
 export default function LessonPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +20,8 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  // Bumped when a live-story session ends so the transcript re-fetches without a reload.
+  const [transcriptRefresh, setTranscriptRefresh] = useState(0);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/lessons/${id}`, { cache: "no-store" });
@@ -107,24 +106,18 @@ export default function LessonPage({ params }: { params: Promise<{ id: string }>
         </div>
       )}
 
-      {lesson.status === "ready" && lesson.audio && (
-        <div className="panel">
-          <audio ref={audioRef} controls src={lesson.audio.url} style={{ width: "100%" }}>
-            <track kind="captions" />
-          </audio>
-        </div>
+      {/* Adaptive, interruptible live-narrated lesson — the sole experience (006/007). */}
+      {lesson.status === "ready" && (
+        <LiveStoryProvider
+          lessonId={lesson.id}
+          onSessionEnd={() => setTranscriptRefresh((n) => n + 1)}
+        />
       )}
-
-      {/* Live, interruptible Q&A — only for a ready lesson (005-live-tutor-qa). */}
-      {lesson.status === "ready" && lesson.audio && (
-        <LiveTutorProvider lessonId={lesson.id} audioRef={audioRef} />
-      )}
-
-      {/* Adaptive, interruptible live-narrated lesson — no <audio> (006-adaptive-live-story). */}
-      {lesson.status === "ready" && <LiveStoryProvider lessonId={lesson.id} />}
 
       {/* Durable transcript of past live-story sessions (006, FR-024) — no audio player. */}
-      {lesson.status === "ready" && <TranscriptReview lessonId={lesson.id} />}
+      {lesson.status === "ready" && (
+        <TranscriptReview lessonId={lesson.id} refreshKey={transcriptRefresh} />
+      )}
 
       {lesson.items.length > 0 && (
         <div className="panel">

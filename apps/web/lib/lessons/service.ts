@@ -7,7 +7,6 @@ import type {
 import { decideSubmission, noopLogger } from "@idiomatic/generator";
 import type { ClassifiedItem, Logger } from "@idiomatic/generator";
 import type { GenerationRunner } from "../generation/runner";
-import type { AudioStorage } from "../generation/storage";
 import type { LessonRepository } from "./repository";
 import type { TaskScheduler } from "./scheduler";
 import type { LessonRecord, SourceItemRecord } from "./types";
@@ -16,7 +15,6 @@ export interface LessonServiceConfig {
   maxTeachableItems: number;
   targetMinSeconds: number;
   targetMaxSeconds: number;
-  signedUrlTtlSeconds: number;
 }
 
 /** Typed outcomes the API route maps to HTTP responses (contracts/http-api.md). */
@@ -38,20 +36,18 @@ export type RetryOutcome =
 
 export interface LessonDetailDTO extends LessonStatusDTO {
   items: Pick<SourceItem, "normalizedText" | "itemType" | "covered">[];
-  audio: { url: string; durationSeconds: number; mimeType: string } | null;
 }
 
 /**
  * Central lesson business logic. Owner-scoped throughout (FR-019). Coordinates input
  * guardrails (FR-004..007), pending-lesson creation owned by the caller (T026/T028),
- * background generation (R6), the library list (FR-020), playback URLs (FR-014), and
- * retry (FR-016).
+ * background generation (R6), the library list (FR-020), and retry (FR-016). A lesson is
+ * ready once it has a valid script — there is no pre-rendered audio (007-live-only).
  */
 export class LessonService {
   constructor(
     private readonly repo: LessonRepository,
     private readonly runner: GenerationRunner,
-    private readonly storage: AudioStorage,
     private readonly scheduler: TaskScheduler,
     private readonly config: LessonServiceConfig,
     private readonly logger: Logger = noopLogger,
@@ -133,21 +129,6 @@ export class LessonService {
     if (!lesson) return null;
     const items = await this.repo.getSourceItems(ownerId, id);
 
-    let audio: LessonDetailDTO["audio"] = null;
-    if (lesson.status === "ready") {
-      const audioRecord = await this.repo.getAudio(ownerId, id);
-      if (audioRecord) {
-        audio = {
-          url: await this.storage.signedUrl(
-            audioRecord.storagePath,
-            this.config.signedUrlTtlSeconds,
-          ),
-          durationSeconds: audioRecord.durationSeconds,
-          mimeType: audioRecord.mimeType,
-        };
-      }
-    }
-
     return {
       ...toStatusDTO(lesson, skippedFromItems(items)),
       items: items
@@ -157,7 +138,6 @@ export class LessonService {
           itemType: i.itemType,
           covered: i.covered,
         })),
-      audio,
     };
   }
 
@@ -171,20 +151,10 @@ export class LessonService {
         status: lesson.status,
         itemPreview: items.filter((i) => i.teachable).map((i) => i.normalizedText),
         acceptedItemCount: lesson.acceptedItemCount,
-        audioDurationSeconds: lesson.audioDurationSeconds,
         createdAt: lesson.createdAt,
       });
     }
     return summaries;
-  }
-
-  /** Owner-scoped signed playback URL, or null when missing/not-owned/not-ready (FR-014). */
-  async getAudioUrl(ownerId: string, id: string): Promise<string | null> {
-    const lesson = await this.repo.getLesson(ownerId, id);
-    if (!lesson || lesson.status !== "ready") return null;
-    const audio = await this.repo.getAudio(ownerId, id);
-    if (!audio) return null;
-    return this.storage.signedUrl(audio.storagePath, this.config.signedUrlTtlSeconds);
   }
 
   async retry(ownerId: string, id: string): Promise<RetryOutcome> {

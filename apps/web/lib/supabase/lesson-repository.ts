@@ -5,7 +5,7 @@ import type {
   LessonRepository,
   ReadyLessonUpdate,
 } from "../lessons/repository";
-import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "../lessons/types";
+import type { LessonRecord, SourceItemRecord } from "../lessons/types";
 
 /**
  * Supabase-backed LessonRepository (T038). Every query filters/stamps `owner_id`, so
@@ -62,7 +62,6 @@ export class SupabaseLessonRepository implements LessonRepository {
       acceptedItemCount: input.acceptedItemCount,
       skippedItemCount: input.skippedItemCount,
       targetDurationSeconds: input.targetDurationSeconds,
-      audioDurationSeconds: null,
       script: null,
       errorReason: null,
       modelId: null,
@@ -120,7 +119,6 @@ export class SupabaseLessonRepository implements LessonRepository {
       .update({
         status: "ready",
         script: update.script,
-        audio_duration_seconds: update.audioDurationSeconds,
         model_id: update.modelId,
         prompt_version: update.promptVersion,
         error_reason: null,
@@ -128,13 +126,6 @@ export class SupabaseLessonRepository implements LessonRepository {
       })
       .eq("id", id);
     if (lessonErr) throw new Error(`markReady: ${lessonErr.message}`);
-
-    const { data: lessonRow } = await this.db
-      .from("lessons")
-      .select("owner_id")
-      .eq("id", id)
-      .maybeSingle();
-    const ownerId = (lessonRow as { owner_id?: string } | null)?.owner_id ?? "";
 
     if (update.coveredOrderIndexes.length > 0) {
       const { error: coverErr } = await this.db
@@ -144,17 +135,6 @@ export class SupabaseLessonRepository implements LessonRepository {
         .in("order_index", update.coveredOrderIndexes);
       if (coverErr) throw new Error(`markReady covered: ${coverErr.message}`);
     }
-
-    const { error: audioErr } = await this.db.from("lesson_audio").insert({
-      id: this.ids.next(),
-      lesson_id: id,
-      owner_id: ownerId,
-      storage_path: update.audio.storagePath,
-      mime_type: update.audio.mimeType,
-      duration_seconds: update.audio.durationSeconds,
-      created_at: ts,
-    });
-    if (audioErr) throw new Error(`markReady audio: ${audioErr.message}`);
   }
 
   async markFailed(id: string, errorReason: string): Promise<void> {
@@ -163,17 +143,6 @@ export class SupabaseLessonRepository implements LessonRepository {
       .update({ status: "failed", error_reason: errorReason, updated_at: this.clock.now().toISOString() })
       .eq("id", id);
     if (error) throw new Error(`markFailed: ${error.message}`);
-  }
-
-  async getAudio(ownerId: string, lessonId: string): Promise<LessonAudioRecord | null> {
-    const { data, error } = await this.db
-      .from("lesson_audio")
-      .select("*")
-      .eq("owner_id", ownerId)
-      .eq("lesson_id", lessonId)
-      .maybeSingle();
-    if (error) throw new Error(`getAudio: ${error.message}`);
-    return data ? mapAudio(data) : null;
   }
 }
 
@@ -188,7 +157,6 @@ function mapLesson(r: Row): LessonRecord {
     acceptedItemCount: r.accepted_item_count as number,
     skippedItemCount: r.skipped_item_count as number,
     targetDurationSeconds: r.target_duration_seconds as number,
-    audioDurationSeconds: (r.audio_duration_seconds as number | null) ?? null,
     script: (r.script as LessonRecord["script"]) ?? null,
     errorReason: (r.error_reason as string | null) ?? null,
     modelId: (r.model_id as string | null) ?? null,
@@ -211,17 +179,5 @@ function mapSourceItem(r: Row): SourceItemRecord {
     skipReason: (r.skip_reason as SourceItemRecord["skipReason"]) ?? null,
     orderIndex: r.order_index as number,
     covered: r.covered as boolean,
-  };
-}
-
-function mapAudio(r: Row): LessonAudioRecord {
-  return {
-    id: r.id as string,
-    lessonId: r.lesson_id as string,
-    ownerId: r.owner_id as string,
-    storagePath: r.storage_path as string,
-    mimeType: r.mime_type as string,
-    durationSeconds: r.duration_seconds as number,
-    createdAt: r.created_at as string,
   };
 }

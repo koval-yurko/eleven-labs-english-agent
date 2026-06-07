@@ -9,8 +9,9 @@ import { json, unauthorized } from "../../../lib/http";
 
 /**
  * Provider preflight. Cheap by default — config presence only (booleans, no secrets).
- * `?live=1` additionally pings Claude + ElevenLabs (validates keys, model, and voices)
- * without generating. Auth-gated so the paid live checks aren't abusable.
+ * `?live=1` additionally pings Claude (validates the key + model) without generating.
+ * Generation is script-only (007-live-only); ElevenLabs is used by the live story, not the
+ * generation path. Auth-gated so the paid live check isn't abusable.
  */
 export async function GET(request: Request) {
   const ownerId = await getOwnerId();
@@ -32,20 +33,17 @@ export async function GET(request: Request) {
   const mode = hasGenerationKeys() ? "real" : "mock";
   const live = new URL(request.url).searchParams.get("live") === "1";
 
-  let providers: { llm: ProviderHealth; tts: ProviderHealth } | undefined;
+  let providers: { llm: ProviderHealth } | undefined;
   if (live) {
     const deps = buildGenerateLessonDeps();
-    const [llm, tts] = await Promise.all([
-      deps.llm.healthCheck?.() ??
-        Promise.resolve({ provider: "claude", ok: true, detail: "no check available" }),
-      deps.tts.healthCheck?.() ??
-        Promise.resolve({ provider: "elevenlabs", ok: true, detail: "no check available" }),
-    ]);
-    providers = { llm, tts };
+    const llm =
+      (await deps.llm.healthCheck?.()) ??
+      ({ provider: "claude", ok: true, detail: "no check available" } satisfies ProviderHealth);
+    providers = { llm };
   }
 
   const configOk = Object.values(config).every(Boolean);
-  const providersOk = !providers || (providers.llm.ok && providers.tts.ok);
+  const providersOk = !providers || providers.llm.ok;
   const ok = configOk && providersOk;
 
   return json({ ok, mode, config, providers }, ok ? 200 : 503);

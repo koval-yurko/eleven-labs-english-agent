@@ -33,7 +33,7 @@ vi.mock("../../lib/container", () => ({
 import { POST } from "../../app/api/lessons/route";
 import { GET as detailGET } from "../../app/api/lessons/[id]/route";
 
-/** The `GET /api/lessons/{id}` detail body: LessonStatus + items + nullable audio. */
+/** The `GET /api/lessons/{id}` detail body: LessonStatus + items (no audio — 007-live-only). */
 const LessonDetailBody = LessonStatusDTO.extend({
   items: z.array(
     z.object({
@@ -42,13 +42,6 @@ const LessonDetailBody = LessonStatusDTO.extend({
       covered: z.boolean(),
     }),
   ),
-  audio: z
-    .object({
-      url: z.string(),
-      durationSeconds: z.number(),
-      mimeType: z.string(),
-    })
-    .nullable(),
 });
 
 function postLessons(body: unknown): Promise<Response> {
@@ -122,12 +115,12 @@ describe("POST /api/lessons contract", () => {
 });
 
 describe("GET /api/lessons/{id} contract", () => {
-  it("returns the detail body shape and reaches a ready lesson with audio", async () => {
+  it("returns the detail body shape and reaches a ready lesson on a valid script", async () => {
     const created = LessonStatusDTO.parse(
       await (await postLessons({ items: ["break the ice", "spill the beans"] })).json(),
     );
 
-    // Shape conforms immediately, before audio exists (pending/generating).
+    // Shape conforms immediately (pending/generating).
     const early = await getLesson(created.id);
     expect(early.status).toBe(200);
     const earlyBody = LessonDetailBody.parse(await early.json());
@@ -142,10 +135,6 @@ describe("GET /api/lessons/{id} contract", () => {
     expect(body.status).toBe("ready");
     expect(body.items).toHaveLength(2);
     expect(body.items.every((i) => i.covered)).toBe(true);
-    expect(body.audio).not.toBeNull();
-    expect(body.audio?.durationSeconds).toBeGreaterThan(0);
-    expect(body.audio?.url).toContain(created.id);
-    expect(body.audio?.mimeType).toBe("audio/mpeg");
   });
 
   it("returns 404 (no existence leak) for an unknown lesson id (SC-005)", async () => {

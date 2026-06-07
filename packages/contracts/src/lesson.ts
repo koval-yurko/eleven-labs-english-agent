@@ -57,7 +57,6 @@ export const LessonSummary = z.object({
   status: LessonStatus,
   itemPreview: z.array(z.string()),
   acceptedItemCount: z.number().int().min(0),
-  audioDurationSeconds: z.number().int().min(0).nullable(),
   createdAt: z.string(),
 });
 export type LessonSummary = z.infer<typeof LessonSummary>;

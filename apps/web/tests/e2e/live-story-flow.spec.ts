@@ -7,8 +7,8 @@ import { test, expect } from "@playwright/test";
  * and cannot be driven from Playwright, so this spec verifies the parts the app owns:
  *  1. Unauthenticated gating (always runs): the live-story, turns, and transcript APIs all
  *     reject anonymous callers (FR-028).
- *  2. Authenticated (only with E2E_STORAGE_STATE): a ready lesson shows the Live Story panel
- *     with its start affordance and NO extra <audio> element for the story mode.
+ *  2. Authenticated (only with E2E_STORAGE_STATE): a ready lesson opens directly into the Live
+ *     Story panel with its start affordance and NO <audio> element at all (007-live-only).
  *
  * The narration → barge-in → resume, scenario-steer → coverage, and barge-in caption
  * correction behaviours are exercised by the pure-state unit tests (narration-state.test.ts)
@@ -40,19 +40,17 @@ test.describe("authenticated live-story surface", () => {
   );
   test.use({ storageState });
 
-  test("a ready lesson offers the Live Story with no story-mode audio element", async ({ page }) => {
+  test("a ready lesson opens directly into the Live Story with no audio element", async ({ page }) => {
     await page.goto("/lessons/new");
     await page.getByRole("textbox").fill(["break the ice", "spill the beans"].join("\n"));
     await page.getByRole("button", { name: /generate lesson/i }).click();
 
     await expect(page).toHaveURL(/\/lessons\/[^/]+$/);
-    // The scripted player's <audio> appears when ready…
-    await expect(page.locator("audio")).toBeVisible({ timeout: 120_000 });
 
-    // …and the Live Story panel offers its own live, hands-free start (US1, no extra <audio>).
-    await expect(page.getByText("Live Story")).toBeVisible();
+    // The ready lesson presents exactly one experience: the live, hands-free story (US2/SC-002).
+    await expect(page.getByText("Live Story")).toBeVisible({ timeout: 120_000 });
     await expect(page.getByRole("button", { name: /start live story/i })).toBeVisible();
-    // Exactly one media element on the page — the live story adds none (no <audio> in that mode).
-    expect(await page.locator("audio").count()).toBe(1);
+    // No pre-rendered audio player anywhere on the page (007-live-only).
+    expect(await page.locator("audio").count()).toBe(0);
   });
 });

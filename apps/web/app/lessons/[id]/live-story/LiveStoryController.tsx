@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { CaptionLog } from "./CaptionLog";
 import { useLiveStory } from "./useLiveStory";
 
@@ -12,13 +12,30 @@ import { useLiveStory } from "./useLiveStory";
  * (US3), captions (US4), transcript persistence (US5), and the unavailable fallback (US6)
  * extend this component and its hook.
  */
-export function LiveStoryController({ lessonId }: { lessonId: string }) {
+export function LiveStoryController({
+  lessonId,
+  onSessionEnd,
+}: {
+  lessonId: string;
+  onSessionEnd?: () => void;
+}) {
   const { status, start, stop, returnToNarration, captions, coverage, scenario, offerReturn, isSpeaking } =
     useLiveStory(lessonId);
 
   // Tear the session down on unmount/navigate (bound the Conversational-AI minutes, R10).
   // `stop` is a stable callback, so the cleanup runs only on unmount.
   useEffect(() => () => stop(), [stop]);
+
+  // When a session reaches "ended", nudge the parent to re-fetch the durable transcript so it
+  // appears without a manual reload (FR-024). Fire once per ended transition.
+  const endedNotifiedRef = useRef(false);
+  useEffect(() => {
+    if (status === "ended" && !endedNotifiedRef.current) {
+      endedNotifiedRef.current = true;
+      onSessionEnd?.();
+    }
+    if (status !== "ended") endedNotifiedRef.current = false;
+  }, [status, onSessionEnd]);
 
   return (
     <div className="panel" aria-live="polite">

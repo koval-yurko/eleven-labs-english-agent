@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { LessonStatusDTO } from "@idiomatic/contracts";
 import { makeHarness } from "../helpers";
 
-/** T018 — generation lifecycle pending → generating → ready with measured audio. */
+/** T018 — generation lifecycle pending → generating → ready on a valid script (007). */
 
 const OWNER = "auth0|alice";
 
 describe("generation lifecycle", () => {
-  it("creates a pending lesson then completes to ready with covered items + audio", async () => {
+  it("creates a pending lesson then completes to ready with covered items", async () => {
     const { service, scheduler, repo } = makeHarness();
 
     const outcome = await service.createLesson(OWNER, [
@@ -28,8 +28,6 @@ describe("generation lifecycle", () => {
 
     const detail = await service.getLesson(OWNER, outcome.lesson.id);
     expect(detail?.status).toBe("ready");
-    expect(detail?.audio?.durationSeconds).toBeGreaterThan(0);
-    expect(detail?.audio?.url).toContain(outcome.lesson.id);
     // Every teachable item is marked covered (FR-009/SC-002).
     expect(detail?.items).toHaveLength(3);
     expect(detail?.items.every((i) => i.covered)).toBe(true);
@@ -37,7 +35,7 @@ describe("generation lifecycle", () => {
     // Persisted lesson carries reproducibility metadata (Constitution III).
     const record = await repo.getLesson(OWNER, outcome.lesson.id);
     expect(record?.modelId).toBe("mock-llm-1");
-    expect(record?.audioDurationSeconds).toBeGreaterThan(0);
+    expect(record?.script).not.toBeNull();
   });
 
   it("survives the learner leaving: lesson is present after generation settles", async () => {

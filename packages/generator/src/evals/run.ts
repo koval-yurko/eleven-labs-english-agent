@@ -2,24 +2,17 @@
  * `pnpm eval:generation` — the generation-quality gate (T051, Constitution III).
  *
  * Runs the eval dataset through the real generation pipeline and scores every case on
- * coverage, two-voice, story-not-definition, and length. Exits non-zero if any gating
- * scorer fails. With ANTHROPIC + ELEVENLABS keys it evaluates LIVE output and gates on all
- * four scorers; without keys it runs the deterministic mocks (length is reported but not
- * gated). With LANGSMITH_API_KEY it also uploads each run + scores to LangSmith.
+ * coverage, two-voice, and story-not-definition. Exits non-zero if any gating scorer fails.
+ * With an ANTHROPIC key it evaluates LIVE Claude script output; without it runs the
+ * deterministic mock. With LANGSMITH_API_KEY it also uploads each run + scores to LangSmith.
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
-import {
-  loadGeneratorConfig,
-  ClaudeLlmAdapter,
-  ElevenLabsTtsAdapter,
-  MockLlmAdapter,
-  MockTtsAdapter,
-} from "../index";
+import { loadGeneratorConfig, ClaudeLlmAdapter, MockLlmAdapter } from "../index";
 import { EVAL_DATASET } from "./dataset";
-import { evaluateSuite, ALL_GATING, MOCK_GATING } from "./harness";
+import { evaluateSuite, ALL_GATING } from "./harness";
 import { uploadEvalRun, isLangSmithEnabled, langSmithProject } from "./langsmith";
 
 // Load env BEFORE reading any provider keys (modules above don't read env at import time).
@@ -29,7 +22,7 @@ for (const f of [".env", ".env.local", "apps/web/.env.local"]) {
 }
 
 const env = process.env;
-const live = Boolean(env.ANTHROPIC_API_KEY && env.ELEVENLABS_API_KEY);
+const live = Boolean(env.ANTHROPIC_API_KEY);
 
 const config = loadGeneratorConfig({
   // Provide harmless defaults for voice IDs so mock runs don't fail config validation.
@@ -39,27 +32,15 @@ const config = loadGeneratorConfig({
 });
 
 const deps = live
-  ? {
-      llm: new ClaudeLlmAdapter(env.ANTHROPIC_API_KEY!, config.modelId),
-      tts: new ElevenLabsTtsAdapter(env.ELEVENLABS_API_KEY!, {
-        modelId: config.ttsModelId,
-        bitrate: config.ttsBitrate,
-        teacherVoiceId: config.teacherVoiceId,
-        learnerVoiceId: config.learnerVoiceId,
-        batchConcurrency: config.ttsBatchConcurrency,
-      }),
-      config,
-    }
-  : { llm: new MockLlmAdapter(), tts: new MockTtsAdapter(config.wordsPerMinute), config };
+  ? { llm: new ClaudeLlmAdapter(env.ANTHROPIC_API_KEY!, config.modelId), config }
+  : { llm: new MockLlmAdapter(), config };
 
-console.log(`▶ generation eval — mode: ${live ? "LIVE (Claude + ElevenLabs)" : "MOCK"}`);
+console.log(`▶ generation eval — mode: ${live ? "LIVE (Claude)" : "MOCK"}`);
 console.log(`  cases: ${EVAL_DATASET.length}  |  model: ${config.modelId}`);
-if (!live) console.log("  (no provider keys — length scorer is reported but not gated)\n");
-else console.log("");
+console.log("");
 
 const evaluations = await evaluateSuite(EVAL_DATASET, deps, {
-  lengthWindow: { minSeconds: config.targetMinSeconds, maxSeconds: config.targetMaxSeconds },
-  gatingKeys: live ? ALL_GATING : MOCK_GATING,
+  gatingKeys: ALL_GATING,
 });
 
 let failed = 0;

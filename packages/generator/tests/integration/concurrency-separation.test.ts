@@ -3,7 +3,6 @@ import {
   classifyInput,
   generateLesson,
   MockLlmAdapter,
-  MockTtsAdapter,
   type GeneratorConfig,
 } from "../../src/index";
 import { CapturingLogger } from "../helpers/capturing-logger";
@@ -17,18 +16,13 @@ const config: GeneratorConfig = {
   targetMinSeconds: 300,
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
-  ttsCharLimit: 3000,
   modelId: "mock-llm-1",
-  ttsModelId: "eleven_v3",
-  ttsBitrate: 128000,
-  ttsBatchConcurrency: 3,
 };
 
 function run(root: CapturingLogger, lessonId: string, items: string[]) {
   const { accepted } = classifyInput(items);
   return generateLesson(accepted, {
     llm: new MockLlmAdapter(),
-    tts: new MockTtsAdapter(config.wordsPerMinute),
     config,
     logger: root.child({ lessonId }),
   });

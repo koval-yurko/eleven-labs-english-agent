@@ -3,9 +3,9 @@ import { validateCoverage } from "../workflow/validate-coverage";
 
 /**
  * Generation-quality scorers (T051, Constitution III). Each turns one quality bar from
- * the spec into a machine-checkable score over a generated LessonScript + its rendered
- * audio. They are pure so they run identically in the `pnpm eval:generation` gate, in the
- * CI scorer test (against mocks), and — when keys are present — against live output.
+ * the spec into a machine-checkable score over a generated LessonScript. They are pure so
+ * they run identically in the `pnpm eval:generation` gate, in the CI scorer test (against
+ * mocks), and — when keys are present — against live output.
  */
 
 export interface ScoreResult {
@@ -16,12 +16,7 @@ export interface ScoreResult {
   detail: string;
 }
 
-export type ScorerKey = "coverage" | "two_voice" | "story_not_definition" | "length";
-
-export interface LengthWindow {
-  minSeconds: number;
-  maxSeconds: number;
-}
+export type ScorerKey = "coverage" | "two_voice" | "story_not_definition";
 
 /** Dictionary-definition phrasing the lesson must avoid — it should teach via story (FR-008). */
 const DEFINITION_PATTERNS: RegExp[] = [
@@ -97,20 +92,5 @@ export function scoreStoryNotDefinition(
       offenders.length === 0
         ? "no definitional phrasing in teaching segments"
         : `definitional phrasing teaching: ${offenders.join(", ")}`,
-  };
-}
-
-/** FR-012/SC-003 — the lesson lands inside the target length window. */
-export function scoreLength(durationSeconds: number, window: LengthWindow): ScoreResult {
-  const { minSeconds, maxSeconds } = window;
-  const pass = durationSeconds >= minSeconds && durationSeconds <= maxSeconds;
-  let score = 1;
-  if (durationSeconds < minSeconds) score = durationSeconds / minSeconds;
-  else if (durationSeconds > maxSeconds) score = maxSeconds / durationSeconds;
-  return {
-    key: "length",
-    pass,
-    score: Math.max(0, Math.min(1, score)),
-    detail: `${durationSeconds}s vs target ${minSeconds}-${maxSeconds}s`,
   };
 }

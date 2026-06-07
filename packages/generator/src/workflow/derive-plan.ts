@@ -50,8 +50,8 @@ export function derivePlan(
   }
 
   // Resolve coverage -> persisted item id by normalizedText (coverage references items by
-  // normalizedText; the persisted source_items hold the authoritative ids — same mapping as
-  // live-tutor/current-item.ts). This guarantees beat.teachesItemIds match PlanItem.sourceItemId.
+  // normalizedText; the persisted source_items hold the authoritative ids).
+  // This guarantees beat.teachesItemIds match PlanItem.sourceItemId.
   const idByNormalized = new Map<string, string>();
   for (const i of orderedItems) idByNormalized.set(i.normalizedText, i.id);
 

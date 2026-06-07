@@ -24,5 +24,3 @@ export function getServiceSupabase(): SupabaseClient {
 export function hasSupabaseEnv(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
-
-export const AUDIO_BUCKET = process.env.SUPABASE_AUDIO_BUCKET ?? "lesson-audio";

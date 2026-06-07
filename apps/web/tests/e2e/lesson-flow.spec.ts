@@ -5,8 +5,9 @@ import { test, expect } from "@playwright/test";
  *
  * Two layers:
  *  1. Unauthenticated gating (always runs): the API rejects anonymous callers (FR-017).
- *  2. Authenticated submit → generate → replay (runs only when an Auth0 session is supplied
- *     via E2E_STORAGE_STATE — see playwright.config.ts). This is the SC-009 happy path.
+ *  2. Authenticated submit → generate → reopen (runs only when an Auth0 session is supplied
+ *     via E2E_STORAGE_STATE — see playwright.config.ts). The ready lesson opens directly into
+ *     the live story — there is NO pre-rendered <audio> player (007-live-only, US2/SC-002).
  *
  * Both Playwright projects (Desktop Chrome, Pixel 5) execute every test, so the responsive
  * behavior is covered without duplicating specs.
@@ -31,7 +32,7 @@ test.describe("authenticated submit → generate → replay (SC-009)", () => {
   );
   test.use({ storageState });
 
-  test("a learner submits a list, hears the lesson, and replays it from the library", async ({
+  test("a learner submits a list, reaches the live story, and reopens it from the library", async ({
     page,
   }) => {
     // Submit a short list.
@@ -42,11 +43,13 @@ test.describe("authenticated submit → generate → replay (SC-009)", () => {
       .fill(["break the ice", "spill the beans", "under the weather"].join("\n"));
     await page.getByRole("button", { name: /generate lesson/i }).click();
 
-    // We land on the lesson page; it shows progress, then becomes ready with a player.
+    // We land on the lesson page; it shows progress, then becomes ready as the live story.
     await expect(page).toHaveURL(/\/lessons\/[^/]+$/);
-    const player = page.locator("audio");
-    await expect(player).toBeVisible({ timeout: 120_000 });
-    await expect(player).toHaveAttribute("src", /.+/);
+    await expect(page.getByRole("button", { name: /start live story/i })).toBeVisible({
+      timeout: 120_000,
+    });
+    // The lesson opens directly into the live story — no pre-rendered audio player (US2/SC-002).
+    expect(await page.locator("audio").count()).toBe(0);
 
     // Every submitted item is listed as taught (FR-009/SC-002).
     await expect(page.getByText("Taught in this lesson")).toBeVisible();
@@ -56,15 +59,21 @@ test.describe("authenticated submit → generate → replay (SC-009)", () => {
 
     const lessonUrl = page.url();
 
-    // Replay from the library: it appears in the list and reopens with a working player.
+    // Reopen from the library: it appears in the list and reopens into the live story.
     await page.goto("/lessons");
     const link = page.getByRole("link", { name: /break the ice/i }).first();
     await expect(link).toBeVisible();
     await link.click();
-    await expect(page.locator("audio")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: /start live story/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    expect(await page.locator("audio").count()).toBe(0);
 
-    // The deep link still works (cross-session replay surface).
+    // The deep link still works (cross-session reopen surface).
     await page.goto(lessonUrl);
-    await expect(page.locator("audio")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: /start live story/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    expect(await page.locator("audio").count()).toBe(0);
   });
 });

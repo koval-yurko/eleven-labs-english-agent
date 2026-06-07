@@ -1,18 +1,11 @@
 import type { CoverageEntry, LessonScript, LessonSegment } from "@idiomatic/contracts";
 import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
-import { noopLogger, type Logger } from "../observability";
-import type {
-  LlmAdapter,
-  ProviderHealth,
-  RenderedAudio,
-  ScriptDraftRequest,
-  TtsAdapter,
-} from "./types";
+import type { LlmAdapter, ProviderHealth, ScriptDraftRequest } from "./types";
 
 /**
- * Deterministic mock adapters for CI/tests (research R11). They produce a valid,
- * coverage-complete LessonScript and a duration derived from word count — enough to
- * exercise the orchestrator and the coverage guarantee without live keys.
+ * Deterministic mock LLM adapter for CI/tests (research R11). It produces a valid,
+ * coverage-complete LessonScript — enough to exercise the orchestrator and the coverage
+ * guarantee without live keys.
  */
 
 function countWords(text: string): number {
@@ -83,49 +76,5 @@ export class MockLlmAdapter implements LlmAdapter {
       coverage,
       estimatedDurationSeconds,
     };
-  }
-}
-
-export class MockTtsAdapter implements TtsAdapter {
-  constructor(private readonly wordsPerMinute = 150) {}
-
-  async healthCheck(): Promise<ProviderHealth> {
-    return { provider: "elevenlabs", ok: true, detail: "mock adapter (no API key configured)" };
-  }
-
-  async renderDialogue(
-    script: LessonScript,
-    ttsCharLimit: number,
-    logger: Logger = noopLogger,
-  ): Promise<RenderedAudio> {
-    // Simulate per-segment rendering under the char limit, then stitching (research R5).
-    let totalWords = 0;
-    let buffer = "";
-    const chunks: string[] = [];
-    for (const seg of script.segments) {
-      totalWords += countWords(seg.text);
-      if ((buffer + seg.text).length > ttsCharLimit) {
-        if (buffer) chunks.push(buffer);
-        buffer = seg.text;
-      } else {
-        buffer = buffer ? `${buffer} ${seg.text}` : seg.text;
-      }
-    }
-    if (buffer) chunks.push(buffer);
-
-    // Emit a per-batch timing so the render path is observable under mocks too (SC-005).
-    chunks.forEach((chunk, i) => {
-      logger.info("render.batch", `rendered batch ${i + 1}/${chunks.length}`, {
-        batchIndex: i,
-        batchCount: chunks.length,
-        chars: chunk.length,
-        durationMs: 0,
-      });
-    });
-
-    const durationSeconds = Math.max(1, Math.round((totalWords / this.wordsPerMinute) * 60));
-    // Placeholder bytes; real adapter returns stitched MP3 audio.
-    const bytes = new TextEncoder().encode(`MOCK_AUDIO:${chunks.length}:${durationSeconds}`);
-    return { bytes, mimeType: "audio/mpeg", durationSeconds };
   }
 }

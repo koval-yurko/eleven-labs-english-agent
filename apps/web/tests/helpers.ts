@@ -2,7 +2,6 @@ import { JsonLogger, type GenerateLessonDeps, type Level, type LogEntry, type Lo
 import type { Clock, IdGenerator } from "../lib/ports";
 import { GenerationRunner } from "../lib/generation/runner";
 import { buildGenerateLessonDeps } from "../lib/generation/deps";
-import { InMemoryAudioStorage } from "../lib/generation/storage";
 import { InMemoryLessonRepository } from "../lib/lessons/in-memory-repository";
 import { LessonService } from "../lib/lessons/service";
 import { CollectingScheduler } from "../lib/lessons/scheduler";
@@ -51,27 +50,24 @@ export function fixedClock(startIso = "2026-06-06T10:00:00.000Z"): Clock {
 
 /**
  * A single "session": a fresh LessonService + scheduler over the given shared infra
- * and generator deps. Two sessions over the same repo/storage simulate the same learner
+ * and generator deps. Two sessions over the same repo simulate the same learner
  * signing out and back in (T035 — cross-session replay, FR-018/SC-006).
  */
 export function makeSession(
   repo: InMemoryLessonRepository,
-  storage: InMemoryAudioStorage,
   deps: GenerateLessonDeps,
   logger?: Logger,
 ) {
-  const runner = new GenerationRunner(repo, storage, deps, logger);
+  const runner = new GenerationRunner(repo, deps, logger);
   const scheduler = new CollectingScheduler();
   const service = new LessonService(
     repo,
     runner,
-    storage,
     scheduler,
     {
       maxTeachableItems: deps.config.maxTeachableItems,
       targetMinSeconds: deps.config.targetMinSeconds,
       targetMaxSeconds: deps.config.targetMaxSeconds,
-      signedUrlTtlSeconds: 600,
     },
     logger,
   );
@@ -88,8 +84,7 @@ export function makeHarness(
   const ids = counterIdGenerator();
   const clock = fixedClock();
   const repo = new InMemoryLessonRepository(ids, clock);
-  const storage = new InMemoryAudioStorage();
   const deps = options.deps ?? buildGenerateLessonDeps(options.env ?? {});
-  const { service, scheduler } = makeSession(repo, storage, deps, options.logger);
-  return { service, scheduler, repo, storage, deps };
+  const { service, scheduler } = makeSession(repo, deps, options.logger);
+  return { service, scheduler, repo, deps };
 }

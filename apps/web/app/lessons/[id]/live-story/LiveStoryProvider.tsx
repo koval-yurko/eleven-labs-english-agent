@@ -10,10 +10,16 @@ import { LiveStoryController } from "./LiveStoryController";
  * are configured on the agent itself (R10), and the per-session clientTools are bound at
  * `startSession`. There is NO `<audio>` element in this mode.
  */
-export function LiveStoryProvider({ lessonId }: { lessonId: string }) {
+export function LiveStoryProvider({
+  lessonId,
+  onSessionEnd,
+}: {
+  lessonId: string;
+  onSessionEnd?: () => void;
+}) {
   return (
     <ConversationProvider>
-      <LiveStoryController lessonId={lessonId} />
+      <LiveStoryController lessonId={lessonId} onSessionEnd={onSessionEnd} />
     </ConversationProvider>
   );
 }

@@ -97,7 +97,11 @@ export function useLiveStory(lessonId: string) {
     } catch {
       /* already disconnected */
     }
-    setStatus("ended");
+    // Only move the UI to "ended" if a session was actually running. React StrictMode (and
+    // the unmount-teardown effect) fire this cleanup during the dev mount→cleanup→mount
+    // double-invoke while status is still "idle"; flipping to "ended" then would hide the
+    // Start button before the learner ever clicks it.
+    setStatus((s) => (s === "idle" ? s : "ended"));
   }, []);
 
   // The client-tools host: stateless SDK callbacks read/write the narration state here.

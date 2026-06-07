@@ -3,18 +3,16 @@ import { classifyInput } from "../teachability";
 import type { EvalCase } from "./dataset";
 import {
   scoreCoverage,
-  scoreLength,
   scoreStoryNotDefinition,
   scoreTwoVoice,
-  type LengthWindow,
   type ScoreResult,
 } from "./scorers";
 
 /**
  * Eval harness (T051). Runs the real generation pipeline (`generateLesson`) over each
- * dataset case and applies the quality scorers. The CLI gate (`run.ts`) and the CI scorer
- * test both call this — the only difference is the deps (live adapters vs. mocks) and which
- * scorers gate (see `gatingKeys`).
+ * dataset case and applies the script-quality scorers. The CLI gate (`run.ts`) and the CI
+ * scorer test both call this — the only difference is the deps (live adapter vs. mock) and
+ * which scorers gate (see `gatingKeys`).
  */
 
 export interface CaseEvaluation {
@@ -27,8 +25,7 @@ export interface CaseEvaluation {
 }
 
 export interface EvalOptions {
-  lengthWindow: LengthWindow;
-  /** Which scorers count toward pass/fail. Length is non-gating against mocks. */
+  /** Which scorers count toward pass/fail. */
   gatingKeys: ReadonlySet<ScoreResult["key"]>;
 }
 
@@ -36,10 +33,8 @@ export const ALL_GATING: ReadonlySet<ScoreResult["key"]> = new Set([
   "coverage",
   "two_voice",
   "story_not_definition",
-  "length",
 ]);
 
-/** Mocks produce tiny audio, so length is reported but not gated when running on mocks. */
 export const MOCK_GATING: ReadonlySet<ScoreResult["key"]> = new Set([
   "coverage",
   "two_voice",
@@ -60,7 +55,6 @@ export async function evaluateCase(
       scoreCoverage(acceptedItemIds, result.script),
       scoreTwoVoice(result.script),
       scoreStoryNotDefinition(acceptedItemIds, result.script),
-      scoreLength(result.audio.durationSeconds, options.lengthWindow),
     ];
     const pass = scores.filter((s) => options.gatingKeys.has(s.key)).every((s) => s.pass);
     return { case: evalCase, acceptedItemIds, scores, pass };

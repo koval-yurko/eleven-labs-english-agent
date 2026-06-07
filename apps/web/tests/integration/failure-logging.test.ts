@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LessonScript } from "@idiomatic/contracts";
-import type { GenerateLessonDeps, TtsAdapter } from "@idiomatic/generator";
-import { MockLlmAdapter } from "@idiomatic/generator";
+import type { GenerateLessonDeps, LlmAdapter, ScriptDraftRequest } from "@idiomatic/generator";
 import { buildGeneratorConfig } from "../../lib/generation/deps";
 import { captureLogger, makeHarness } from "../helpers";
 
@@ -9,16 +7,17 @@ import { captureLogger, makeHarness } from "../helpers";
 
 const OWNER = "auth0|alice";
 
-class FailingTtsAdapter implements TtsAdapter {
-  async renderDialogue(_script: LessonScript): Promise<never> {
-    throw new Error("TTS provider unavailable");
+class FailingLlmAdapter implements LlmAdapter {
+  readonly modelId = "mock-llm-1";
+  readonly promptVersion = "mock-prompt-1";
+  async draftScript(_request: ScriptDraftRequest): Promise<never> {
+    throw new Error("LLM provider unavailable");
   }
 }
 
 function failingDeps(): GenerateLessonDeps {
   return {
-    llm: new MockLlmAdapter(),
-    tts: new FailingTtsAdapter(),
+    llm: new FailingLlmAdapter(),
     config: buildGeneratorConfig({}),
   };
 }
@@ -38,13 +37,13 @@ describe("failure logging", () => {
     expect(error).toBeDefined();
     expect(error?.level).toBe("error");
     expect(error?.fields?.stage).toBe("generation");
-    expect(error?.fields?.reason).toContain("TTS provider unavailable");
+    expect(error?.fields?.reason).toContain("LLM provider unavailable");
 
     const failed = trail
       .filter((e) => e.event === "lesson.status")
       .find((e) => e.fields?.to === "failed");
     expect(failed?.fields?.from).toBe("generating");
-    expect(failed?.fields?.reason).toContain("TTS provider unavailable");
+    expect(failed?.fields?.reason).toContain("LLM provider unavailable");
   });
 
   it("retry of a failed lesson logs failed → generating", async () => {

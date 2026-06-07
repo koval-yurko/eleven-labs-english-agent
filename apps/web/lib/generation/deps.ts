@@ -1,23 +1,19 @@
 import {
   ClaudeLlmAdapter,
-  ElevenLabsTtsAdapter,
   JsonLogger,
   MockLlmAdapter,
-  MockTtsAdapter,
-  parseBatchConcurrency,
   parseLogLevel,
   parseLogPretty,
   type GenerateLessonDeps,
   type GeneratorConfig,
   type LlmAdapter,
   type Logger,
-  type TtsAdapter,
 } from "@idiomatic/generator";
 
 /**
- * Builds the generator config + adapter set. Real Claude + ElevenLabs adapters are used
- * when their API keys are present; otherwise deterministic mocks so the app runs locally
- * and CI runs without live keys (Constitution Dev Workflow).
+ * Builds the generator config + LLM adapter. The real Claude adapter is used when its API
+ * key is present; otherwise a deterministic mock so the app runs locally and CI runs without
+ * live keys (Constitution Dev Workflow). Generation is script-only — no audio render (007).
  */
 export function buildGeneratorConfig(
   env: Record<string, string | undefined> = process.env,
@@ -34,19 +30,15 @@ export function buildGeneratorConfig(
     targetMinSeconds: int("TARGET_MIN_SECONDS", 300),
     targetMaxSeconds: int("TARGET_MAX_SECONDS", 600),
     wordsPerMinute: int("GENERATION_WPM", 150),
-    ttsCharLimit: int("TTS_CHAR_LIMIT", 3000),
-    ttsBatchConcurrency: parseBatchConcurrency(env.TTS_BATCH_CONCURRENCY),
     modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
-    ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
-    ttsBitrate: int("ELEVENLABS_BITRATE", 128000),
     logLevel: parseLogLevel(env.LOG_LEVEL),
     logPretty: parseLogPretty(env.LOG_PRETTY),
   };
 }
 
-/** True when both generation providers are configured to run for real. */
+/** True when the generation provider (Claude) is configured to run for real. */
 export function hasGenerationKeys(env: Record<string, string | undefined> = process.env): boolean {
-  return Boolean(env.ANTHROPIC_API_KEY && env.ELEVENLABS_API_KEY);
+  return Boolean(env.ANTHROPIC_API_KEY);
 }
 
 /**
@@ -66,21 +58,9 @@ export function buildGenerateLessonDeps(
 ): GenerateLessonDeps {
   const config = buildGeneratorConfig(env);
 
-  let llm: LlmAdapter;
-  let tts: TtsAdapter;
-  if (hasGenerationKeys(env)) {
-    llm = new ClaudeLlmAdapter(env.ANTHROPIC_API_KEY!, config.modelId);
-    tts = new ElevenLabsTtsAdapter(env.ELEVENLABS_API_KEY!, {
-      modelId: config.ttsModelId,
-      bitrate: config.ttsBitrate,
-      teacherVoiceId: config.teacherVoiceId,
-      learnerVoiceId: config.learnerVoiceId,
-      batchConcurrency: config.ttsBatchConcurrency,
-    });
-  } else {
-    llm = new MockLlmAdapter();
-    tts = new MockTtsAdapter(config.wordsPerMinute);
-  }
+  const llm: LlmAdapter = hasGenerationKeys(env)
+    ? new ClaudeLlmAdapter(env.ANTHROPIC_API_KEY!, config.modelId)
+    : new MockLlmAdapter();
 
-  return { llm, tts, config };
+  return { llm, config };
 }

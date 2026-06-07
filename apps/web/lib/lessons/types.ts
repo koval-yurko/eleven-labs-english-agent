@@ -18,7 +18,6 @@ export interface LessonRecord {
   acceptedItemCount: number;
   skippedItemCount: number;
   targetDurationSeconds: number;
-  audioDurationSeconds: number | null;
   script: LessonScript | null;
   errorReason: string | null;
   modelId: string | null;
@@ -39,14 +38,4 @@ export interface SourceItemRecord {
   skipReason: SkipReason | null;
   orderIndex: number;
   covered: boolean;
-}
-
-export interface LessonAudioRecord {
-  id: string;
-  lessonId: string;
-  ownerId: string;
-  storagePath: string;
-  mimeType: string;
-  durationSeconds: number;
-  createdAt: string;
 }

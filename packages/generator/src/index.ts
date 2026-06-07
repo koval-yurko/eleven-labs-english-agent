@@ -2,7 +2,7 @@ import type { LessonScript } from "@idiomatic/contracts";
 import { LessonScript as LessonScriptSchema } from "@idiomatic/contracts";
 import type { GeneratorConfig } from "./config";
 import type { ClassifiedItem } from "./teachability";
-import type { LlmAdapter, RenderedAudio, TtsAdapter } from "./adapters/types";
+import type { LlmAdapter } from "./adapters/types";
 import { validateCoverage } from "./workflow/validate-coverage";
 import { noopLogger, type Logger } from "./observability";
 
@@ -15,14 +15,12 @@ export * from "./workflow/tracing";
 export * from "./adapters/types";
 export * from "./adapters/mock";
 export * from "./adapters/claude";
-export * from "./adapters/elevenlabs";
 export * from "./prompts/lesson-script";
 export * from "./observability";
 export * from "./utils/concurrency";
 
 export interface GenerateLessonDeps {
   llm: LlmAdapter;
-  tts: TtsAdapter;
   config: GeneratorConfig;
   /**
    * Optional per-run logger (003-internal-logging). The web bridge injects a child logger
@@ -40,7 +38,6 @@ export interface GenerationMetadata {
 
 export interface GenerateLessonResult {
   script: LessonScript;
-  audio: RenderedAudio;
   metadata: GenerationMetadata;
 }
 
@@ -55,9 +52,9 @@ const MAX_COVERAGE_ATTEMPTS = 2;
 
 /**
  * Generate a lesson from already-classified, accepted items (research R8).
- * Pipeline: draft (LLM) -> validate coverage (re-prompt on miss, research R2) ->
- * render + measure (TTS, research R5). Returns the script, stitched audio, and the
- * reproducibility metadata persisted with every lesson (Constitution III).
+ * Pipeline: draft (LLM) -> validate coverage (re-prompt on miss, research R2).
+ * Returns the structured script and the reproducibility metadata persisted with every
+ * lesson (Constitution III); a lesson is ready once it has a valid script (FR-004, 007).
  */
 export async function generateLesson(
   acceptedItems: ClassifiedItem[],
@@ -67,7 +64,7 @@ export async function generateLesson(
     throw new Error("generateLesson requires at least one accepted item");
   }
 
-  const { llm, tts, config } = deps;
+  const { llm, config } = deps;
   const log = deps.logger ?? noopLogger;
   const acceptedItemIds = acceptedItems.map((i) => i.id);
 
@@ -115,14 +112,6 @@ export async function generateLesson(
     throw new CoverageError(acceptedItemIds);
   }
 
-  const renderStartedAt = Date.now();
-  const audio = await tts.renderDialogue(script, config.ttsCharLimit, log);
-  log.info("render.total", "rendered + stitched lesson audio", {
-    bytes: audio.bytes.byteLength,
-    audioDurationSeconds: audio.durationSeconds,
-    renderDurationMs: Date.now() - renderStartedAt,
-  });
-
   log.info("generate.result", "lesson generated", {
     itemCount: acceptedItemIds.length,
     modelId: llm.modelId,
@@ -133,7 +122,6 @@ export async function generateLesson(
 
   return {
     script,
-    audio,
     metadata: {
       modelId: llm.modelId,
       promptVersion: llm.promptVersion,

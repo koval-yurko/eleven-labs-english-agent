@@ -7,12 +7,12 @@ import {
 } from "@idiomatic/generator";
 import type { ClassifiedItem } from "@idiomatic/generator";
 import type { LessonRepository } from "../lessons/repository";
-import type { AudioStorage } from "./storage";
 
 /**
  * Generation bridge (T026/T027). Advances a lesson `pending → generating → ready|failed`,
- * persisting the script, stitched audio, measured duration, and reproducibility metadata.
- * Generation lives in the DB (research R6), so it survives the learner leaving the session.
+ * persisting the script and reproducibility metadata. A lesson is **ready** once it has a
+ * valid script — no audio is synthesized or stored (FR-004, 007-live-only). Generation
+ * lives in the DB (research R6), so it survives the learner leaving the session.
  *
  * Observability (003-internal-logging): each run mints a child logger bound to
  * `{ lessonId, ownerId }` and injects it into generation, so the whole trail — lifecycle
@@ -21,7 +21,6 @@ import type { AudioStorage } from "./storage";
 export class GenerationRunner {
   constructor(
     private readonly repo: LessonRepository,
-    private readonly storage: AudioStorage,
     private readonly deps: GenerateLessonDeps,
     private readonly logger: Logger = noopLogger,
   ) {}
@@ -42,27 +41,15 @@ export class GenerationRunner {
         { ...this.deps, logger: log },
         { lessonId, ownerId },
       );
-      const { storagePath } = await this.storage.upload(
-        ownerId,
-        lessonId,
-        result.audio.bytes,
-        result.audio.mimeType,
-      );
 
       // generateLesson guarantees coverage, so every accepted item is covered.
       const coveredOrderIndexes = acceptedItems.map((i) => i.orderIndex);
 
       await this.repo.markReady(lessonId, {
         script: result.script,
-        audioDurationSeconds: result.audio.durationSeconds,
         modelId: result.metadata.modelId,
         promptVersion: result.metadata.promptVersion,
         coveredOrderIndexes,
-        audio: {
-          storagePath,
-          mimeType: result.audio.mimeType,
-          durationSeconds: result.audio.durationSeconds,
-        },
       });
       log.info("lesson.status", "lesson generating → ready", {
         from: "generating",

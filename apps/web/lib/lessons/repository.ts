@@ -1,5 +1,5 @@
 import type { LessonScript } from "@idiomatic/contracts";
-import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types";
+import type { LessonRecord, SourceItemRecord } from "./types";
 
 /**
  * Persistence boundary. All reads/writes are OWNER-SCOPED — the repository never
@@ -20,12 +20,10 @@ export interface CreatePendingLessonInput {
 
 export interface ReadyLessonUpdate {
   script: LessonScript;
-  audioDurationSeconds: number;
   modelId: string;
   promptVersion: string;
   /** Order indexes of source items the script covers; sets their `covered` flag (FR-009). */
   coveredOrderIndexes: number[];
-  audio: Omit<LessonAudioRecord, "id" | "lessonId" | "ownerId" | "createdAt">;
 }
 
 export interface LessonRepository {
@@ -43,11 +41,8 @@ export interface LessonRepository {
 
   setStatus(id: string, status: LessonRecord["status"]): Promise<void>;
 
-  /** Mark ready: persist script, audio, duration, metadata, covered flags (T027). */
+  /** Mark ready: persist script, metadata, covered flags (T027). A valid script ⇒ ready (FR-004). */
   markReady(id: string, update: ReadyLessonUpdate): Promise<void>;
 
   markFailed(id: string, errorReason: string): Promise<void>;
-
-  /** Owner-scoped audio lookup for playback (FR-014). */
-  getAudio(ownerId: string, lessonId: string): Promise<LessonAudioRecord | null>;
 }

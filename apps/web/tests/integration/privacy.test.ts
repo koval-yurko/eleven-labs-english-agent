@@ -7,7 +7,7 @@ const ALICE = "auth0|alice";
 const BOB = "auth0|bob";
 
 describe("lesson privacy", () => {
-  it("Bob cannot read, list, or get audio for Alice's lesson", async () => {
+  it("Bob cannot read or list Alice's lesson", async () => {
     const { service, scheduler } = makeHarness();
 
     const outcome = await service.createLesson(ALICE, ["break the ice"]);
@@ -20,7 +20,6 @@ describe("lesson privacy", () => {
 
     // Non-owner gets null (route maps to 404 — no existence leak).
     expect(await service.getLesson(BOB, lessonId)).toBeNull();
-    expect(await service.getAudioUrl(BOB, lessonId)).toBeNull();
     expect(await service.listLessons(BOB)).toHaveLength(0);
 
     // Owner's library still shows it.

@@ -10,24 +10,13 @@ export interface GeneratorConfig {
   learnerVoiceId: string;
   /** Hard ceiling on teachable items per lesson (research R1). */
   maxTeachableItems: number;
-  /** Length bound target window in seconds (FR-012, research R3). */
+  /** Length bound target window in seconds used to budget script length (research R3). */
   targetMinSeconds: number;
   targetMaxSeconds: number;
   /** Speaking rate used to budget script length (research R3). */
   wordsPerMinute: number;
-  /** ElevenLabs per-request character ceiling for Text to Dialogue (research R5). */
-  ttsCharLimit: number;
-  /**
-   * Max ElevenLabs Text-to-Dialogue batch renders in flight at once (004-tts-parallel-render).
-   * Keep at/under the active plan's concurrency limit to avoid 429s; `1` = sequential.
-   */
-  ttsBatchConcurrency: number;
   /** Claude model id for generation (Constitution III reproducibility). */
   modelId: string;
-  /** ElevenLabs Text to Dialogue model id (Eleven v3). */
-  ttsModelId: string;
-  /** CBR MP3 bitrate (bps) of the TTS output, used to compute duration (SC-003). */
-  ttsBitrate: number;
   /** Minimum structured-log level emitted (003-internal-logging). Default `info`. */
   logLevel?: Level;
   /** When true, emit human-readable log lines instead of raw NDJSON (dev only). */
@@ -35,21 +24,6 @@ export interface GeneratorConfig {
 }
 
 export const DEFAULT_MAX_TEACHABLE_ITEMS = 20;
-
-/** Default TTS batch concurrency — safe at the ElevenLabs Starter tier and above (004). */
-export const DEFAULT_TTS_BATCH_CONCURRENCY = 3;
-
-/**
- * Parse `TTS_BATCH_CONCURRENCY` (004-tts-parallel-render). Unlike the other int env vars this
- * SANITIZES rather than throws: absent / blank / non-integer / `< 1` → the safe default, so a
- * misconfigured tuning knob degrades gracefully instead of failing a lesson.
- */
-export function parseBatchConcurrency(raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === "") return DEFAULT_TTS_BATCH_CONCURRENCY;
-  const parsed = Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_TTS_BATCH_CONCURRENCY;
-  return parsed;
-}
 
 const LOG_LEVELS: ReadonlySet<string> = new Set(["debug", "info", "warn", "error"]);
 
@@ -91,11 +65,7 @@ export function loadGeneratorConfig(env: NodeJS.ProcessEnv = process.env): Gener
     targetMinSeconds: intFromEnv(env, "TARGET_MIN_SECONDS", 300),
     targetMaxSeconds: intFromEnv(env, "TARGET_MAX_SECONDS", 600),
     wordsPerMinute: intFromEnv(env, "GENERATION_WPM", 150),
-    ttsCharLimit: intFromEnv(env, "TTS_CHAR_LIMIT", 3000),
-    ttsBatchConcurrency: parseBatchConcurrency(env.TTS_BATCH_CONCURRENCY),
     modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
-    ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
-    ttsBitrate: intFromEnv(env, "ELEVENLABS_BITRATE", 128000),
     logLevel: parseLogLevel(env.LOG_LEVEL),
     logPretty: parseLogPretty(env.LOG_PRETTY),
   };

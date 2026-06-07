@@ -1,20 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   scoreCoverage,
-  scoreLength,
   scoreStoryNotDefinition,
   scoreTwoVoice,
 } from "../../src/evals/scorers";
 import { EVAL_DATASET } from "../../src/evals/dataset";
 import { evaluateSuite, MOCK_GATING } from "../../src/evals/harness";
-import { MockLlmAdapter, MockTtsAdapter } from "../../src/adapters/mock";
+import { MockLlmAdapter } from "../../src/adapters/mock";
 import { loadGeneratorConfig } from "../../src/config";
 import type { LessonScript } from "@idiomatic/contracts";
 
 /**
- * T051 — generation eval scorers. The deterministic scorers (coverage, two-voice,
- * story-not-definition) must pass on the mock generator across the whole dataset; the
- * length scorer is exercised directly since mock audio is intentionally short.
+ * T051 — generation eval scorers. The deterministic script scorers (coverage, two-voice,
+ * story-not-definition) must pass on the mock generator across the whole dataset.
  */
 
 const config = loadGeneratorConfig({
@@ -24,14 +22,12 @@ const config = loadGeneratorConfig({
 
 const deps = {
   llm: new MockLlmAdapter(),
-  tts: new MockTtsAdapter(config.wordsPerMinute),
   config,
 };
 
 describe("generation eval — gating scorers on mock generator", () => {
   it("every dataset case passes coverage, two-voice, and story-not-definition", async () => {
     const evaluations = await evaluateSuite(EVAL_DATASET, deps, {
-      lengthWindow: { minSeconds: config.targetMinSeconds, maxSeconds: config.targetMaxSeconds },
       gatingKeys: MOCK_GATING,
     });
 
@@ -89,11 +85,5 @@ describe("generation eval — scorer unit behavior", () => {
       ],
     });
     expect(scoreStoryNotDefinition(["item-0"], script).pass).toBe(false);
-  });
-
-  it("scores length inside and outside the window", () => {
-    expect(scoreLength(420, { minSeconds: 300, maxSeconds: 600 }).pass).toBe(true);
-    expect(scoreLength(120, { minSeconds: 300, maxSeconds: 600 }).pass).toBe(false);
-    expect(scoreLength(900, { minSeconds: 300, maxSeconds: 600 }).pass).toBe(false);
   });
 });

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LessonScript } from "@idiomatic/contracts";
-import type { GenerateLessonDeps, TtsAdapter } from "@idiomatic/generator";
-import { MockLlmAdapter } from "@idiomatic/generator";
+import type { GenerateLessonDeps, LlmAdapter, ScriptDraftRequest } from "@idiomatic/generator";
 import { buildGeneratorConfig } from "../../lib/generation/deps";
 import { makeHarness } from "../helpers";
 
@@ -9,16 +7,17 @@ import { makeHarness } from "../helpers";
 
 const OWNER = "auth0|alice";
 
-class FailingTtsAdapter implements TtsAdapter {
-  async renderDialogue(_script: LessonScript): Promise<never> {
-    throw new Error("TTS provider unavailable");
+class FailingLlmAdapter implements LlmAdapter {
+  readonly modelId = "mock-llm-1";
+  readonly promptVersion = "mock-prompt-1";
+  async draftScript(_request: ScriptDraftRequest): Promise<never> {
+    throw new Error("LLM provider unavailable");
   }
 }
 
 function failingDeps(): GenerateLessonDeps {
   return {
-    llm: new MockLlmAdapter(),
-    tts: new FailingTtsAdapter(),
+    llm: new FailingLlmAdapter(),
     config: buildGeneratorConfig({}),
   };
 }
@@ -32,7 +31,7 @@ describe("retry", () => {
 
     const detail = await service.getLesson(OWNER, outcome.lesson.id);
     expect(detail?.status).toBe("failed");
-    expect(detail?.errorReason).toContain("TTS provider unavailable");
+    expect(detail?.errorReason).toContain("LLM provider unavailable");
   });
 
   it("allows retry on a failed lesson and rejects retry on a ready one", async () => {

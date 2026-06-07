@@ -1,9 +1,8 @@
 // Provision the adaptive live-STORY ElevenLabs Conversational AI agent (006-adaptive-live-story).
 //
-// This is a SEPARATE agent from the 005 live-tutor (`pnpm provision:agent`) so each prompt +
-// tool set is tuned independently (research R10). It creates an agent configured to match what
-// the live-story client expects:
-//   - the PINNED teacher voice (Constitution I — same voice as the scripted podcast + 005),
+// This is the live-narrated story agent — the sole live experience (007-live-only). It creates
+// an agent configured to match what the live-story client expects:
+//   - the PINNED teacher voice (Constitution I — the single teacher voice),
 //   - a native Claude LLM (Haiku 4.5 by default — narration latency),
 //   - the VERSIONED narrator/tutor/steering system prompt from
 //     apps/web/lib/live-story/agent-prompt.ts (Constitution III — no untracked prompts),

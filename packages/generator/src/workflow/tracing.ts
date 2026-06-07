@@ -28,8 +28,7 @@ export interface TraceMetadata {
 
 /**
  * Run `generateLesson`, recording a LangSmith trace when configured. Inputs and outputs are
- * summarized (item texts in, segment/coverage/duration counts out) so traces stay readable
- * and never carry raw audio bytes.
+ * summarized (item texts in, segment/coverage counts out) so traces stay readable.
  */
 export async function generateLessonTraced(
   acceptedItems: ClassifiedItem[],
@@ -50,7 +49,6 @@ export async function generateLessonTraced(
         project_name: langSmithProject(),
         metadata: {
           modelId: deps.config.modelId,
-          ttsModelId: deps.config.ttsModelId,
           promptVersion: deps.llm.promptVersion,
           ...meta,
         },
@@ -61,8 +59,6 @@ export async function generateLessonTraced(
         processOutputs: (out: GenerateLessonResult) => ({
           segments: out.script.segments.length,
           coverage: out.script.coverage.length,
-          durationSeconds: out.audio.durationSeconds,
-          audioBytes: out.audio.bytes.length,
           modelId: out.metadata.modelId,
           promptVersion: out.metadata.promptVersion,
         }),

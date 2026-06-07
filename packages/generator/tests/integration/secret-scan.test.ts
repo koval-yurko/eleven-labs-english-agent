@@ -4,7 +4,6 @@ import {
   generateLesson,
   JsonLogger,
   MockLlmAdapter,
-  MockTtsAdapter,
   type GeneratorConfig,
 } from "../../src/index";
 
@@ -17,11 +16,7 @@ const config: GeneratorConfig = {
   targetMinSeconds: 300,
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
-  ttsCharLimit: 80,
   modelId: "mock-llm-1",
-  ttsModelId: "eleven_v3",
-  ttsBitrate: 128000,
-  ttsBatchConcurrency: 3,
 };
 
 // Patterns an operator would treat as a leaked secret in the log stream.
@@ -50,7 +45,6 @@ describe("secret scan", () => {
 
     await generateLesson(accepted, {
       llm: new MockLlmAdapter(),
-      tts: new MockTtsAdapter(config.wordsPerMinute),
       config,
       logger: logger.child({ lessonId: "lesson_1", ownerId: "auth0|alice" }),
     });

@@ -4,7 +4,7 @@ import type {
   LessonRepository,
   ReadyLessonUpdate,
 } from "./repository";
-import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types";
+import type { LessonRecord, SourceItemRecord } from "./types";
 
 /**
  * In-memory LessonRepository for tests. Enforces the SAME owner scoping as the
@@ -13,7 +13,6 @@ import type { LessonAudioRecord, LessonRecord, SourceItemRecord } from "./types"
 export class InMemoryLessonRepository implements LessonRepository {
   private lessons = new Map<string, LessonRecord>();
   private items = new Map<string, SourceItemRecord[]>();
-  private audio = new Map<string, LessonAudioRecord>();
 
   constructor(
     private readonly ids: IdGenerator,
@@ -31,7 +30,6 @@ export class InMemoryLessonRepository implements LessonRepository {
       acceptedItemCount: input.acceptedItemCount,
       skippedItemCount: input.skippedItemCount,
       targetDurationSeconds: input.targetDurationSeconds,
-      audioDurationSeconds: null,
       script: null,
       errorReason: null,
       modelId: null,
@@ -87,7 +85,6 @@ export class InMemoryLessonRepository implements LessonRepository {
     if (!lesson) return;
     lesson.status = "ready";
     lesson.script = update.script;
-    lesson.audioDurationSeconds = update.audioDurationSeconds;
     lesson.modelId = update.modelId;
     lesson.promptVersion = update.promptVersion;
     lesson.errorReason = null;
@@ -97,15 +94,6 @@ export class InMemoryLessonRepository implements LessonRepository {
     for (const si of this.items.get(id) ?? []) {
       if (covered.has(si.orderIndex)) si.covered = true;
     }
-
-    const audioId = this.ids.next();
-    this.audio.set(id, {
-      ...update.audio,
-      id: audioId,
-      lessonId: id,
-      ownerId: lesson.ownerId,
-      createdAt: this.clock.now().toISOString(),
-    });
   }
 
   async markFailed(id: string, errorReason: string): Promise<void> {
@@ -114,11 +102,5 @@ export class InMemoryLessonRepository implements LessonRepository {
     lesson.status = "failed";
     lesson.errorReason = errorReason;
     lesson.updatedAt = this.clock.now().toISOString();
-  }
-
-  async getAudio(ownerId: string, lessonId: string): Promise<LessonAudioRecord | null> {
-    const lesson = this.lessons.get(lessonId);
-    if (!lesson || lesson.ownerId !== ownerId) return null;
-    return structuredClone(this.audio.get(lessonId) ?? null);
   }
 }

@@ -3,7 +3,6 @@ import {
   classifyInput,
   generateLesson,
   MockLlmAdapter,
-  MockTtsAdapter,
   type GeneratorConfig,
   type LogEntry,
 } from "../../src/index";
@@ -18,11 +17,7 @@ const config: GeneratorConfig = {
   targetMinSeconds: 300,
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
-  ttsCharLimit: 3000,
   modelId: "mock-llm-1",
-  ttsModelId: "eleven_v3",
-  ttsBitrate: 128000,
-  ttsBatchConcurrency: 3,
 };
 
 describe("reproducibility summary", () => {
@@ -32,7 +27,6 @@ describe("reproducibility summary", () => {
 
     await generateLesson(accepted, {
       llm: new MockLlmAdapter(),
-      tts: new MockTtsAdapter(config.wordsPerMinute),
       config,
       logger: root.child({ lessonId: "lesson_1" }),
     });

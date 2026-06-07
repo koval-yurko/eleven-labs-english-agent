@@ -4,7 +4,7 @@ import type { ClassifiedItem } from "../teachability";
  * Versioned generation prompt (T021, Constitution III — prompts in version control).
  * Bump PROMPT_VERSION on any change so produced lessons stay reproducible/traceable.
  */
-export const PROMPT_VERSION = "lesson-script-2026-06-06";
+export const PROMPT_VERSION = "lesson-script-2026-06-07";
 
 export interface PromptInputs {
   acceptedItems: ClassifiedItem[];
@@ -23,7 +23,8 @@ export function buildSystemPrompt(inputs: PromptInputs): string {
     '- "teacher": a warm, encouraging teacher who explains through vivid mini-stories.',
     "",
     "Write ONE flowing conversation that teaches every provided item. Rules:",
-    "1. Teach each item through a concrete mini-story or vivid scenario — NEVER a dictionary definition.",
+    "1. Teach each item through a concrete mini-story or vivid scenario — show its meaning in action, NEVER state a dictionary definition.",
+    "   Do NOT gloss an item with definitional connectives. Avoid the words/phrases \"means\", \"refers to\", \"is defined as\", \"in other words\", \"definition\", \"synonym\", \"literally means/translates\", and \"i.e.\" — including in the learner's questions. Let the story and concrete examples make the meaning obvious; rephrase any \"X means Y\" gloss as a lived example (e.g. \"...so the moment she cracked that joke, the whole room relaxed\").",
     "2. Cover every item at least once. In `coverage`, map each item's exact id to the ids of the segment(s) that teach it.",
     "3. Make it one coherent conversation, not a list of disconnected explanations — connect items naturally.",
     "4. Alternate speakers naturally; the teacher carries the stories, the learner reacts and prompts.",

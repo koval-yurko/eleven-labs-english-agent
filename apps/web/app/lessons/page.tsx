@@ -37,8 +37,7 @@ export default async function LessonsPage() {
                 <span className="muted">{statusLabel(l.status)}</span>
               </div>
               <div className="muted" style={{ fontSize: "0.875rem", marginTop: "0.35rem" }}>
-                {l.acceptedItemCount} item{l.acceptedItemCount === 1 ? "" : "s"}
-                {l.audioDurationSeconds ? ` · ${formatDuration(l.audioDurationSeconds)}` : ""} ·{" "}
+                {l.acceptedItemCount} item{l.acceptedItemCount === 1 ? "" : "s"} ·{" "}
                 {new Date(l.createdAt).toLocaleString()}
               </div>
             </div>
@@ -58,10 +57,4 @@ function statusLabel(status: string): string {
     default:
       return "… Generating";
   }
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
 }

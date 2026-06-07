@@ -1,21 +1,19 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: (none) → 1.0.0
-Bump rationale: Initial ratification of the project constitution (first concrete
-  version replacing the unfilled template).
+Version change: 1.0.0 → 2.0.0
+Bump rationale: MAJOR — a decided stack component is dropped. Feature 007-live-only
+  retires the pre-rendered "scripted podcast" (ElevenLabs Text-to-Dialogue) audio path;
+  the product is now live-only on the adaptive live-narrated story (006). Principle I's
+  voice-consistency / expressiveness wording is reframed off the scripted podcast and onto
+  the single pinned teacher voice carried by the live narration + live tutor, and the
+  "Scripted audio: ElevenLabs Text to Dialogue" stack line is removed.
 
-Modified principles: N/A (initial adoption)
-Added principles:
-  - I. Voice-First Experience Quality
-  - II. One Language, End-to-End (TypeScript/Node)
-  - III. Evaluated, Reproducible Generation
-  - IV. Buy the Hard Parts, Build the Glue
-  - V. Learner Data Integrity & Privacy
-Added sections:
-  - Technology & Architecture Constraints
-  - Development Workflow & Quality Gates
-  - Governance
+Modified principles:
+  - I. Voice-First Experience Quality (reframed onto live narration; scripted podcast removed)
+Modified sections:
+  - Technology & Architecture Constraints (Generation line: dropped scripted-audio render)
+Added principles: none. Removed principles: none.
 
 Templates requiring updates:
   - ✅ .specify/templates/plan-template.md (Constitution Check gate is generic; no edit needed)
@@ -23,7 +21,7 @@ Templates requiring updates:
   - ✅ .specify/templates/tasks-template.md (task categories compatible; no edit needed)
   - ✅ .claude/commands/speckit.*.md (no outdated principle references)
 
-Follow-up TODOs: none. RATIFICATION_DATE set to first adoption date (2026-06-06).
+Follow-up TODOs: none. RATIFICATION_DATE unchanged (2026-06-06).
 -->
 
 # Idiomatic Constitution
@@ -32,14 +30,14 @@ Follow-up TODOs: none. RATIFICATION_DATE set to first adoption date (2026-06-06)
 
 ### I. Voice-First Experience Quality
 
-The product is an audio experience; it is judged by how it sounds, not how it
+The product is a live audio experience; it is judged by how it sounds, not how it
 reads. Every feature that touches the listener MUST protect three qualities:
 
-- **Voice consistency**: the teacher voice in the scripted podcast and the live
-  tutor MUST be the same ElevenLabs voice. A change that splits or alters the
-  teacher voice is a breaking change and requires explicit approval.
-- **Expressiveness**: generated audio MUST sound like a told story (two distinct,
-  natural voices), never like a screen reader reading a list. Flat, robotic, or
+- **Voice consistency**: the teacher voice across the live-narrated lesson and the
+  live tutor MUST be the same single pinned ElevenLabs voice. A change that splits
+  or alters the teacher voice is a breaking change and requires explicit approval.
+- **Expressiveness**: the live narration MUST sound like a told story (two distinct,
+  natural personas), never like a screen reader reading a list. Flat, robotic, or
   monotone output is a defect, not a stylistic choice.
 - **Low-latency interruption**: barge-in and live Q&A MUST stay responsive.
   Perceived time-to-first-audio for a live answer SHOULD be under ~1.5s; any
@@ -113,8 +111,10 @@ governance-level decisions, not casual refactors:
 - **Language/runtime**: TypeScript / Node (no Python in v1).
 - **Frontend**: Next.js (App Router), responsive web only for v1.
 - **Auth**: Auth0. **Data & storage**: Supabase (Postgres + Storage).
-- **Generation**: Mastra workflow + Claude. **Scripted audio**: ElevenLabs Text
-  to Dialogue (Eleven v3). **Live tutor**: ElevenLabs Agents with Claude.
+- **Generation**: Claude produces the structured lesson script (ordered items,
+  story beats, two personas, coverage). A lesson is ready on a valid script — no
+  audio is pre-rendered. **Live narration + tutor**: ElevenLabs Agents with Claude
+  narrate the script live in the pinned teacher voice (no scripted-audio render).
 - **Architecture stance**: cascaded (STT → LLM → TTS) is mandatory for v1 so the
   transcript stays available for notes, feedback, and progress. Speech-to-speech
   is out of scope for v1.
@@ -160,4 +160,4 @@ convenience, the constitution wins or it must be amended first.
   the operational detail that implements these principles; they MUST stay
   consistent with this document.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-06 | **Last Amended**: 2026-06-06
+**Version**: 2.0.0 | **Ratified**: 2026-06-06 | **Last Amended**: 2026-06-07

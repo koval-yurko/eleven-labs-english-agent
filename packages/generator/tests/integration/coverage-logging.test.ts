@@ -4,7 +4,6 @@ import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
 import {
   classifyInput,
   generateLesson,
-  MockTtsAdapter,
   type GeneratorConfig,
   type LlmAdapter,
   type ScriptDraftRequest,
@@ -20,11 +19,7 @@ const config: GeneratorConfig = {
   targetMinSeconds: 300,
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
-  ttsCharLimit: 3000,
   modelId: "mock-llm-1",
-  ttsModelId: "eleven_v3",
-  ttsBitrate: 128000,
-  ttsBatchConcurrency: 3,
 };
 
 /** Misses coverage for the last item on the first draft, then covers everything on retry. */
@@ -77,7 +72,6 @@ describe("coverage logging", () => {
 
     await generateLesson(accepted, {
       llm: new FlakyCoverageLlmAdapter(),
-      tts: new MockTtsAdapter(config.wordsPerMinute),
       config,
       logger: root.child({ lessonId: "lesson_1" }),
     });

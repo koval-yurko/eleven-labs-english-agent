@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-06-07
 - Supabase Postgres — two new owner-scoped tables `qa_exchanges` and `qa_turns` (transcript record), RLS keyed on the Auth0 subject like `lessons`. No new Storage bucket. Live answer **audio is not persisted** in v1 (the text transcript is the durable record); the realtime audio is ephemeral session output. (005-live-tutor-qa)
 - TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · **ElevenLabs Agents / Conversational AI** via `@elevenlabs/react` (client realtime session: WebRTC/WebSocket, VAD, barge-in, STT→TTS, `clientTools`, `sendContextualUpdate`, `onMessage`, `onAgentResponseCorrection`) + ElevenLabs REST (`/v1/convai/conversation/token`, server-side mint — **reuses 005's `lib/live-tutor/token.ts`**) · **native Claude** as the agent LLM (configured on the agent, no custom proxy) · existing `@idiomatic/contracts` (Zod) · the **plan derivation reads the persisted `LessonScript`** (the generator's boundary artifact; generation behavior unchanged) · Supabase JS (Postgres + RLS) · Auth0 (`@auth0/nextjs-auth0`) · the in-repo structured logger (`@idiomatic/generator` observability port). Reuses the pinned ElevenLabs teacher voice from 002. (006-adaptive-live-story)
 - Supabase Postgres — two new owner-scoped tables `live_sessions` and `session_turns` (the durable transcript), RLS keyed on the Auth0 subject like `lessons`. No new Storage bucket. **Realtime audio is NOT persisted** (FR-025); the text transcript is the only durable record. 005's `qa_exchanges`/`qa_turns` are left in place (that mode still backs the fallback) and are not reused — they are exchange/position-scoped and do not fit a continuous session. (006-adaptive-live-story)
+- TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · `@idiomatic/contracts` (Zod) · Supabase JS (Postgres + Storage) · Auth0 · in-repo structured logger. **Removed from the generation path**: `@elevenlabs/elevenlabs-js` (server Text-to-Dialogue). **Untouched / still required**: `@elevenlabs/react` + ElevenLabs Conversational AI (live-story realtime), native Claude (generation brain + agent LLM). (007-live-only)
+- Supabase Postgres + Storage. Forward-only change drops the `lesson-audio` Storage bucket, the `lesson_audio` table, the `audio_duration_seconds` column on `lessons`, and the `qa_exchanges`/`qa_turns` tables (+ `qa_turn_role` enum). `live_sessions`/`session_turns` retained unchanged (FR-008). No auth/RLS redesign (FR-015). (007-live-only)
 
 - TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · Mastra (generation workflow) · `@anthropic` Claude (generation brain) · ElevenLabs `@elevenlabs/elevenlabs-js` (server, Text to Dialogue / Eleven v3) + `@elevenlabs/react` (client playback) · Supabase JS (`@supabase/supabase-js`, Postgres + Storage) · Auth0 (`@auth0/nextjs-auth0`) · Zod (shared schemas) · LangSmith via `@mastra/langsmith` (eval/observability) (002-lesson-generation)
 
@@ -41,9 +43,9 @@ Before committing feature work: `pnpm test && pnpm typecheck && pnpm lint`.
 TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II): Follow standard conventions
 
 ## Recent Changes
+- 007-live-only: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · `@idiomatic/contracts` (Zod) · Supabase JS (Postgres + Storage) · Auth0 · in-repo structured logger. **Removed from the generation path**: `@elevenlabs/elevenlabs-js` (server Text-to-Dialogue). **Untouched / still required**: `@elevenlabs/react` + ElevenLabs Conversational AI (live-story realtime), native Claude (generation brain + agent LLM).
 - 006-adaptive-live-story: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · **ElevenLabs Agents / Conversational AI** via `@elevenlabs/react` (client realtime session: WebRTC/WebSocket, VAD, barge-in, STT→TTS, `clientTools`, `sendContextualUpdate`, `onMessage`, `onAgentResponseCorrection`) + ElevenLabs REST (`/v1/convai/conversation/token`, server-side mint — **reuses 005's `lib/live-tutor/token.ts`**) · **native Claude** as the agent LLM (configured on the agent, no custom proxy) · existing `@idiomatic/contracts` (Zod) · the **plan derivation reads the persisted `LessonScript`** (the generator's boundary artifact; generation behavior unchanged) · Supabase JS (Postgres + RLS) · Auth0 (`@auth0/nextjs-auth0`) · the in-repo structured logger (`@idiomatic/generator` observability port). Reuses the pinned ElevenLabs teacher voice from 002.
 - 005-live-tutor-qa: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + Next.js (App Router) · **ElevenLabs Agents / Conversational AI** via `@elevenlabs/react` (client realtime session: WebRTC/WebSocket, VAD, barge-in, STT→TTS) + ElevenLabs REST (`/v1/convai/conversation/token`, server-side token mint) · **native Claude** as the agent LLM (configured in the agent, no custom proxy) · existing `@idiomatic/contracts` (Zod) · Supabase JS (Postgres + RLS) · Auth0 (`@auth0/nextjs-auth0`) · the existing in-repo structured logger (`@idiomatic/generator` observability port). Reuses the existing pinned ElevenLabs teacher voice from 002.
-- 004-tts-parallel-render: Added TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution II) + No new runtime dependency. A minimal in-repo `mapWithConcurrency`
 
 
 <!-- MANUAL ADDITIONS START -->
@@ -51,11 +53,14 @@ TypeScript (strict) on Node 20 LTS — single language end-to-end (Constitution 
 ## Generation architecture note
 
 Generation is implemented as a plain `generateLesson` orchestrator
-(`packages/generator/src/index.ts`), not a Mastra runtime. LangSmith traceability is wired
-directly via the `langsmith` SDK in `packages/generator/src/workflow/tracing.ts`
-(`generateLessonTraced`), used by the web app's generation runner. The `@mastra/langsmith`
-exporter from plan.md was superseded because there is no Mastra trace stream to export.
-LangSmith is a soft dependency — everything degrades to a no-op without `LANGSMITH_API_KEY`.
+(`packages/generator/src/index.ts`), not a Mastra runtime. As of 007-live-only it is
+**script-only**: `generateLesson` returns `{ script, metadata }` (ordered items, story beats,
+two personas, coverage, bounded target length) and a lesson is **ready** on a valid script —
+no audio is synthesized, stitched, or stored. LangSmith traceability is wired directly via the
+`langsmith` SDK in `packages/generator/src/workflow/tracing.ts` (`generateLessonTraced`), used
+by the web app's generation runner. The `@mastra/langsmith` exporter from plan.md was
+superseded because there is no Mastra trace stream to export. LangSmith is a soft dependency —
+everything degrades to a no-op without `LANGSMITH_API_KEY`.
 
 ## Internal logging note (003-internal-logging)
 
@@ -109,5 +114,28 @@ VAD / STT / streaming TTS (Principle IV); the app builds only glue:
 When adding to this subsystem, keep the narration logic pure and in `narration-state.ts`,
 add client tools over it, and never put realtime/audio handling in app code (buy it from the
 platform). Verify with `pnpm test && pnpm typecheck && pnpm lint`.
+
+## Live-only note (007-live-only)
+
+The product is **live-only**: the adaptive live-narrated story (006) is the single learner
+experience and the live-session transcript (`live_sessions`/`session_turns`) is the single
+durable record. Feature 007 retired, via a forward-only change:
+
+- **Pre-rendered audio**: the server Text-to-Dialogue render adapter
+  (`packages/generator/src/adapters/elevenlabs.ts`), the `TtsAdapter`/`RenderedAudio` port +
+  mocks, the `tts*` generator config, the `render.*` log events, the `AudioStorage` port +
+  Supabase impl, the audio-serving route, and the `scoreLength` eval scorer. `generateLesson`
+  no longer renders; the web bridge marks `ready` on a valid script with **no** storage upload.
+- **005 playback-position Q&A**: the `lib/qa/` + `lib/live-tutor/` (minus **`token.ts`**,
+  reused by live-story), the `live-tutor/` UI, the `/live-session` + `/exchanges` routes, the
+  `qa.*` log events, and the `qa.ts` contract. `lib/live-tutor/token.ts` is **kept in place**.
+- **Data**: migration `0006_retire_audio_qa.sql` drops the `lesson-audio` bucket (+ RLS), the
+  `lesson_audio` table, `lessons.audio_duration_seconds`, and `qa_exchanges`/`qa_turns`
+  (+ `qa_turn_role`). `live_sessions`/`session_turns`/`source_items` are untouched.
+
+No audio is ever pre-rendered or stored. The eval gate (`pnpm eval:generation`) is script-only
+(coverage · two-persona · story-not-definition). The constitution is at **v2.0.0** (the
+scripted-podcast stack component was dropped). When touching generation, keep it script-only;
+never reintroduce a server render path.
 
 <!-- MANUAL ADDITIONS END -->

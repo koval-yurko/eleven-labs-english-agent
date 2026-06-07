@@ -4,12 +4,11 @@ import {
   classifyInput,
   generateLesson,
   MockLlmAdapter,
-  MockTtsAdapter,
   validateCoverage,
   type GeneratorConfig,
 } from "../../src/index";
 
-/** End-to-end orchestrator with mock providers (research R11): coverage + duration. */
+/** End-to-end orchestrator with the mock LLM (research R11): plan-only, no audio (007). */
 
 const config: GeneratorConfig = {
   teacherVoiceId: "voice-teacher",
@@ -18,15 +17,11 @@ const config: GeneratorConfig = {
   targetMinSeconds: 300,
   targetMaxSeconds: 600,
   wordsPerMinute: 150,
-  ttsCharLimit: 3000,
   modelId: "mock-llm-1",
-  ttsModelId: "eleven_v3",
-  ttsBitrate: 128000,
-  ttsBatchConcurrency: 3,
 };
 
 describe("generateLesson", () => {
-  it("produces a valid, coverage-complete script and measured audio", async () => {
+  it("produces a valid, coverage-complete script with two distinct personas and no audio", async () => {
     const { accepted } = classifyInput([
       "break the ice",
       "spill the beans",
@@ -35,7 +30,6 @@ describe("generateLesson", () => {
 
     const result = await generateLesson(accepted, {
       llm: new MockLlmAdapter(),
-      tts: new MockTtsAdapter(config.wordsPerMinute),
       config,
     });
 
@@ -56,9 +50,10 @@ describe("generateLesson", () => {
       result.script.speakers.learner.voiceId,
     );
 
-    // Audio measured (SC-003) and reproducibility metadata captured (Constitution III).
-    expect(result.audio.durationSeconds).toBeGreaterThan(0);
-    expect(result.audio.mimeType).toBe("audio/mpeg");
+    // Generation is plan-only: no audio artifact is produced (FR-001/SC-001).
+    expect("audio" in result).toBe(false);
+
+    // Reproducibility metadata captured (Constitution III).
     expect(result.metadata.modelId).toBe("mock-llm-1");
     expect(result.metadata.acceptedItemIds).toHaveLength(3);
   });
@@ -67,7 +62,6 @@ describe("generateLesson", () => {
     await expect(
       generateLesson([], {
         llm: new MockLlmAdapter(),
-        tts: new MockTtsAdapter(),
         config,
       }),
     ).rejects.toThrow();
