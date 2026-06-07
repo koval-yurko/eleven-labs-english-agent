@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://idiomatic.app/contracts/live-story.schema.json",
+  "title": "Adaptive Live Story — boundary schemas (006)",
+  "description": "Shared shapes between the realtime client (narration loop + capture), the route handlers (token mint, transcript persist/review), the narration state machine, and the live-story repository. Mirrors packages/contracts/src/live-story.ts. Ownership is enforced by the repository/RLS; these shapes carry no owner_id (it is stamped server-side). No realtime audio appears anywhere (FR-025).",
+  "definitions": {
+    "PlanItem": {
+      "type": "object",
+      "description": "One teachable item the narration must cover at least once (FR-004).",
+      "additionalProperties": false,
+      "required": ["sourceItemId", "normalizedText", "itemType"],
+      "properties": {
+        "sourceItemId": { "type": "string", "minLength": 1 },
+        "normalizedText": { "type": "string", "minLength": 1 },
+        "itemType": { "type": "string", "enum": ["word", "sentence", "idiom"] }
+      }
+    },
+    "PlanBeat": {
+      "type": "object",
+      "description": "One ordered story beat condensed from the LessonScript segments (R2).",
+      "additionalProperties": false,
+      "required": ["index", "summary", "teachesItemIds"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "summary": { "type": "string", "minLength": 1 },
+        "teachesItemIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "sourceItemIds taught in this beat; empty for a pure story/connective beat."
+        }
+      }
+    },
+    "LessonPlan": {
+      "type": "object",
+      "description": "Derived (not persisted) ordered plan that drives narration (R2). Reproducible from lessons.script.",
+      "additionalProperties": false,
+      "required": ["lessonId", "items", "beats", "targetSeconds", "teacherVoiceId"],
+      "properties": {
+        "lessonId": { "type": "string", "minLength": 1 },
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/PlanItem" } },
+        "beats": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/PlanBeat" } },
+        "targetSeconds": { "type": "integer", "minimum": 1 },
+        "teacherVoiceId": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "StartStoryToken": {
+      "type": "object",
+      "description": "Owner-scoped credential + grounding the browser uses to open a realtime narration session (R1/R10). The xi-api-key NEVER appears here (Constitution V); only a short-lived conversation token does.",
+      "additionalProperties": false,
+      "required": ["sessionId", "agentId", "conversationToken", "connectionType", "dynamicVariables"],
+      "properties": {
+        "sessionId": { "type": "string", "description": "id of the opened LiveSession row, used for transcript writes." },
+        "agentId": { "type": "string" },
+        "conversationToken": { "type": "string" },
+        "connectionType": { "type": "string", "enum": ["webrtc", "websocket"] },
+        "dynamicVariables": {
+          "type": "object",
+          "description": "Plan-derived grounding injected at startSession: lesson_summary, items_list, beats_outline, target_minutes, scenario.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+
+    "SessionTurnRole": { "type": "string", "enum": ["teacher", "learner"] },
+    "SessionTurnKind": { "type": "string", "enum": ["narration", "answer", "question", "scenario_change"] },
+
+    "SessionTurn": {
+      "type": "object",
+      "description": "One captured utterance, corrected text, attributed and ordered (FR-021/FR-022/FR-023).",
+      "additionalProperties": false,
+      "required": ["role", "kind", "text", "turnIndex"],
+      "properties": {
+        "role": { "$ref": "#/definitions/SessionTurnRole" },
+        "kind": { "$ref": "#/definitions/SessionTurnKind" },
+        "text": { "type": "string", "minLength": 1, "description": "Corrected transcript (R5). Private learner content." },
+        "turnIndex": { "type": "integer", "minimum": 0 },
+        "elevenTurnRef": { "type": ["string", "null"], "description": "Optional SDK turn ref; lets a barge-in correction upsert a teacher turn in place (R5/R6)." }
+      }
+    },
+
+    "LiveSession": {
+      "type": "object",
+      "description": "One narration-plus-interaction episode + its ordered turns (the durable transcript record).",
+      "additionalProperties": false,
+      "required": ["id", "lessonId", "status", "scenario", "elevenlabsConversationId", "turns", "createdAt", "endedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "ended"] },
+        "scenario": { "type": ["string", "null"], "description": "Most recent scenario in effect; null = original setting (FR-008/FR-009)." },
+        "elevenlabsConversationId": { "type": ["string", "null"] },
+        "turns": { "type": "array", "items": { "$ref": "#/definitions/SessionTurn" } },
+        "createdAt": { "type": "string" },
+        "endedAt": { "type": ["string", "null"] }
+      }
+    },
+
+    "AppendTurnRequest": {
+      "type": "object",
+      "description": "Append one or more finalized turns to a session (incremental persistence; off the speech path; FR-027). turnIndex is assigned/validated server-side as the next index. May also update the session's scenario / mark it ended.",
+      "additionalProperties": false,
+      "required": ["sessionId", "turns"],
+      "properties": {
+        "sessionId": { "type": "string" },
+        "turns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "kind", "text"],
+            "properties": {
+              "role": { "$ref": "#/definitions/SessionTurnRole" },
+              "kind": { "$ref": "#/definitions/SessionTurnKind" },
+              "text": { "type": "string", "minLength": 1 },
+              "elevenTurnRef": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "scenario": { "type": ["string", "null"], "description": "Set/overwrite the session's current scenario (latest wins)." },
+        "ended": { "type": "boolean", "description": "When true, mark the session ended (status=ended, ended_at=now)." },
+        "elevenlabsConversationId": { "type": ["string", "null"] }
+      }
+    },
+
+    "TranscriptDTO": {
+      "type": "object",
+      "description": "Response body for GET .../transcript — the lesson's live sessions (most recent first), each with its ordered turns (FR-024).",
+      "additionalProperties": false,
+      "required": ["sessions"],
+      "properties": {
+        "sessions": { "type": "array", "items": { "$ref": "#/definitions/LiveSession" } }
+      }
+    },
+
+    "ClientToolContract": {
+      "type": "object",
+      "description": "The four platform client tools the narrator agent calls (R1/R3/R4). Each handler is pure-ish glue over the narration state machine and returns a short STRING the agent uses to continue. Declared on the agent (quickstart) and implemented in lib/live-story/client-tools.ts.",
+      "additionalProperties": false,
+      "properties": {
+        "advanceNarration": {
+          "type": "object",
+          "description": "Called by the agent at the end of each beat. Returns the next instruction: next beat summary, the items still owed, the current scenario to keep, or 'conclude' once all items are covered AND the length budget is spent (R1/R3/R8).",
+          "additionalProperties": false,
+          "properties": {
+            "params": { "type": "object", "additionalProperties": false, "properties": {} },
+            "returns": { "type": "string", "description": "Human-readable next-step instruction for the agent." }
+          }
+        },
+        "markItemTaught": {
+          "type": "object",
+          "description": "Called when the agent has taught a planned item. Adds it to the covered set (R3).",
+          "additionalProperties": false,
+          "properties": {
+            "params": { "type": "object", "additionalProperties": false, "required": ["itemId"], "properties": { "itemId": { "type": "string" } } },
+            "returns": { "type": "string", "description": "Acknowledgement, e.g. remaining-item count." }
+          }
+        },
+        "setScenario": {
+          "type": "object",
+          "description": "Called when the agent interprets the learner as requesting a scenario change. Updates state + re-pins via sendContextualUpdate; records a scenario_change turn (R4).",
+          "additionalProperties": false,
+          "properties": {
+            "params": { "type": "object", "additionalProperties": false, "required": ["scenario"], "properties": { "scenario": { "type": "string", "minLength": 1 } } },
+            "returns": { "type": "string", "description": "Confirmation to weave into narration." }
+          }
+        },
+        "concludeLesson": {
+          "type": "object",
+          "description": "Called when the agent believes the lesson is done. REJECTED (returns the still-owed items) while any planned item is uncovered (R3); otherwise acknowledges a natural close (FR-004).",
+          "additionalProperties": false,
+          "properties": {
+            "params": { "type": "object", "additionalProperties": false, "properties": {} },
+            "returns": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
