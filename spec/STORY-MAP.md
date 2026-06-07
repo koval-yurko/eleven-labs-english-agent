@@ -1,7 +1,7 @@
 # Story Map — Interactive English Lesson Podcast (Idiomatic)
 
 **Source vision**: [`PRD-base.md`](./PRD-base.md)
-**Created**: 2026-06-06 · **Last reordered**: 2026-06-07
+**Created**: 2026-06-06 · **Last reordered**: 2026-06-07 (inserted **S4 — live-only**; pushed lesson-notes → S5, adaptive-progress → S6)
 **Purpose**: Decompose the PRD into independently-shippable stories. Each story below becomes its **own** Spec Kit feature (its own `specs/00N-*/` folder, branch, plan, tasks, implementation). Do **not** run `speckit.specify` on the whole PRD — run it once per story using the "specify input" block provided.
 
 > This file is the backlog. It is not a spec. Detailed acceptance criteria live in each generated `spec.md`.
@@ -23,24 +23,26 @@
 ## Build order & dependencies
 
 ```
-S1 lesson-generation [002] ──► S2 live-tutor-qa [005] ──► S3 adaptive-live-story [006]   ◄── next up
-        │                            │                             │
-        │                            ├──► S4 lesson-notes [007*] ◄─┘
-        │                            │
-        │                            └──► S5 adaptive-progress [008*]
+S1 lesson-generation [002] ─► S2 live-tutor-qa [005] ─► S3 adaptive-live-story [006] ─► S4 live-only [007]  ◄── next up
+        │                           │                            │                           │
+        │                           │                            │                           ├─► S5 lesson-notes [008*]
+        │                           │                            │                           └─► S6 adaptive-progress [009*]
         │
         ├──► TE2 internal-logging [003]      (tech · enhances S1)
-        └──► TE1 tts-parallel-render [004]    (tech · enhances S1)
+        └──► TE1 tts-parallel-render [004]    (tech · enhances S1 — RETIRED by S4 live-only)
 
   [NNN] = spec folder specs/NNN-<slug>/   * = provisional (assigned when the folder is created)
   Folders are numbered in creation order — TE2/TE1 took 003/004 between S1 and S2, so S2 is 005.
+  S4 (live-only) RETIRES S1's audio render + storage, the whole of S2 (playback Q&A), and TE1 —
+  the product collapses to one live-narrated stream (S3) with a text plan + durable transcript.
 ```
 
 - **S1** is the foundation (MVP). It also carries the **cross-cutting** account/persistence and input-guardrail requirements, because everything else builds on an authenticated, persistent lesson. *(Done.)*
-- **S2** depends on S1 (needs a playing lesson + the teacher voice). *(Done.)*
-- **S3** (adaptive-live-story) depends on S1 + S2 (reuses the generation pipeline as a *planner* and the live convai session + teacher voice + transcript tables). It is an **alternative experience mode** that replaces static MP3 playback with one live-narrated, steerable stream; it does not remove S1's rendered-podcast mode. **Next up.**
-- **S4** (lesson-notes) depends on S1 (playback); enriched by S2. It **must support S3's live mode** too: the live mode has no audio playhead, so a note anchors to the active item/beat + transcript offset (and a caption line can become a note).
-- **S5** (adaptive-progress) depends on S1 + S2 (struggle signal comes from questions asked); **S3 live sessions are an additional struggle-signal source**; consumes S4 notes if present. Adapts *across* sessions — distinct from S3's *within*-session steering.
+- **S2** depends on S1 (needs a playing lesson + the teacher voice). *(Done — but RETIRED by S4 live-only.)*
+- **S3** (adaptive-live-story) depended on S1 + S2 (reuses the generation pipeline as a *planner* and the live convai session + teacher voice + transcript tables). It introduced one live-narrated, steerable stream **alongside** the rendered podcast. *(Done.)*
+- **S4** (live-only) depends on S3. It **retires the now-redundant pre-rendered paths**: generation becomes plan-only (no TTS render / stitch / storage), and the rendered `<audio>` player + the S2 playback-Q&A mode + their tables are removed. The live story (S3) becomes the **only** lesson experience. **Supersedes S3's "both modes coexist" decision. Next up.**
+- **S5** (lesson-notes) depends on S3/S4 — the live story is the only mode now. A note anchors to the active item/beat + a transcript offset (live mode has no audio playhead), and a caption/transcript line can become a note. *(No rendered-playback / audio-position anchor — that mode is gone after S4.)*
+- **S6** (adaptive-progress) depends on **S3 live sessions** as the struggle signal (questions asked during a live-narrated session) and consumes S5 notes if present. Adapts *across* sessions — distinct from S3's *within*-session steering.
 
 ---
 
@@ -88,7 +90,7 @@ These came from the original mega-spec and must land somewhere. Assignment:
 
 ---
 
-## S3 — One adaptive, steerable live story instead of a fixed recording  (P3) — **NEXT**
+## S3 — One adaptive, steerable live story instead of a fixed recording  (P3) — **BUILT**
 
 **Slug**: `adaptive-live-story` · **Branch**: `006-adaptive-live-story` *(next free spec number; folders are numbered sequentially by creation — 002–005 are taken)* · **Depends on**: S1 + S2
 
@@ -114,26 +116,50 @@ These came from the original mega-spec and must land somewhere. Assignment:
 
 ---
 
-## S4 — Capture notes during a lesson  (P4)
+## S4 — Live-only: retire the pre-rendered podcast & playback Q&A  (P3.5, refactor) — **NEXT**
 
-**Slug**: `lesson-notes` · **Branch**: `007-lesson-notes` *(provisional; assigned when the folder is created)* · **Depends on**: S1 (rendered playback); enriched by S2; **must support S3's live mode**
+**Slug**: `live-only` · **Branch**: `007-live-only` *(next free spec number)* · **Depends on**: S3
 
-**Value**: At any point during a lesson the learner captures a note tied to the current moment — a phrase to remember, a usage example from a tutor answer, or a line straight from the live captions. Notes persist and are reviewable later. Reinforces retention with durable takeaways. Works in **both** lesson modes: the rendered podcast (S1) and the live-narrated story (S3).
+**Value**: After S3, the lesson exists as **two parallel realities**: the frozen MP3 podcast (S1) + its playback-anchored live Q&A (S2), *and* the new live-narrated story (S3). The pre-rendered path is now redundant — the live story already teaches every item, steerably, with a durable transcript. Carrying the MP3 render, the audio storage, and the playback-position Q&A adds real cost (TTS minutes, Storage, signed URLs), surface area, and a confusing dual UI. S4 makes the product **live-only**: generation produces a text **plan/script**, not audio; the lesson page offers **only** the live story; the old audio + playback-Q&A subsystems and their tables are retired. This is the `planLesson` split S3's design memo flagged but deliberately deferred to keep S3's blast radius small.
 
-**In scope**: capture a note at any point — in rendered playback **and** in a live-narrated session — without losing place (rendered) or breaking flow (live); **anchor each note with a mode-appropriate reference**: an audio position in rendered mode, and the active item/beat plus a transcript offset in live mode (which has no audio playhead); capture a note directly from a **live caption/transcript line** (turn what the teacher just said into a note); persist; review all notes with their anchor when reopening the lesson in a later session.
+**In scope**: turn `generateLesson` into a **plan-only `planLesson`** (Claude draft script + `validateCoverage`, keeping `estimatedDurationSeconds` and the two-voice script for `derivePlan`/narration target) with **no** TTS render, audio stitch, or Storage upload — a lesson goes `ready` on a valid script; **remove** the pre-rendered `<audio>` player and the S2 playback-position Q&A from the lesson page so the live story (S3) is the only experience; **retire** audio storage (the Storage bucket + `lesson_audio`) and the `qa_exchanges`/`qa_turns` tables via a forward migration (keep `live_sessions`/`session_turns`); remove the TTS adapter/render path, the batch-render concurrency (TE1), audio DTO fields (`audioDurationSeconds`), the audio route, and `smoke:generate`'s audio output; update the **eval gate** to score the script only (coverage / two distinct personas / story-driven), with no audio-render or audio-length checks; update the **Constitution** where it defines the product around the "scripted podcast" + a render eval (Principle I → "the pinned teacher voice"; Principle III → drop render/audio-length scorers); move the one reused S2 artifact (`live-tutor/token.ts`) under `live-story/`.
 
-**Out of scope**: lesson generation (S1); live Q&A / steering mechanics (S2/S3); cross-session adaptation (S5).
+**Out of scope**: changing the live-story behavior itself (S3 stays as built); removing script/coverage **generation** (the planner still needs the LessonScript + coverage + estimated duration); auth/persistence/RLS redesign; backfilling or preserving previously-rendered MP3s (those modes are removed — data loss for `lesson_audio`/`qa_*` is accepted); a feature flag to keep the rendered mode (this is a clean removal, not a toggle).
 
-**Independent test**: In rendered playback capture a note; in a live session capture a note and capture one from a caption line; end session, return later → all notes present, linked to the correct lesson, and anchored correctly for their mode (audio position vs. item/beat + transcript offset).
+**Independent test**: Submit a list → the lesson becomes `ready` with a derivable plan and **no** audio object exists in Storage and **no** `lesson_audio` row is written. Open the lesson → there is **only** the Live Story panel — no `<audio>` element, no separate "Live tutor" panel. Start it → live narration teaches every item and the transcript persists. Search the codebase/build: the TTS render path, audio storage, and `qa_*` tables/routes are gone; `pnpm test && pnpm typecheck && pnpm lint` pass green with the audio/Q&A suites removed and the planner/eval suites updated.
 
 **Specify input**:
-> Add note capture to an existing lesson experience that has two playback modes — a pre-rendered podcast (lesson-generation) and a live-narrated, steerable story (adaptive-live-story). At any point during either mode the learner can capture a note (a phrase to remember, a usage example from a tutor answer, or a line from the live captions/transcript) without losing their place in rendered playback or breaking the flow of a live session. Each note is anchored to the moment it was captured using a mode-appropriate reference: an audio position in the rendered mode, and the active item/beat plus a transcript offset in the live mode (which has no audio playhead). Notes are persisted to the learner's account and made reviewable, with their anchor, when the learner reopens the lesson in a later session. OUT OF SCOPE: lesson generation, live Q&A/steering mechanics, and cross-session adaptive progress — those are separate features.
+> Retire the pre-rendered audio podcast and the playback-anchored live Q&A so the product is **live-only**, assuming the adaptive live-narrated story already exists. Lesson generation produces only the text lesson plan/script (ordered teachable items, story beats, bounded target length) with its coverage guarantee and the two distinct personas — it no longer synthesizes, stitches, or stores any audio file. The lesson experience is exclusively the live-narrated, steerable story; the pre-rendered audio player and the older playback-position Q&A mode are removed from the product, along with their audio storage and Q&A transcript tables — the live-session transcript is the durable record. Generation quality is still evaluated on the script (every teachable item covered, two distinct personas, story-driven), without any audio-render or audio-length checks. The product's voice-consistency and reproducibility principles are reframed away from the now-removed "scripted podcast." OUT OF SCOPE: changing live-story behavior; removing script/coverage generation (the planner still needs them); preserving previously rendered audio; a flag to keep the old mode; auth/persistence redesign.
+
+**Design notes** (2026-06-07):
+- Migrations are **forward-only**: add a migration that drops `lesson_audio` + the Storage bucket policy (`0002_storage.sql`) and `qa_exchanges`/`qa_turns` (`0004_qa.sql`); `live_sessions`/`session_turns` stay. Existing rows are discarded (accepted).
+- The generator keeps the **Claude draft + `validateCoverage` + `LessonScript`** (with `estimatedDurationSeconds`); only the `TtsAdapter` / ElevenLabs render / stitch / `RenderedAudio` / `mapWithConcurrency`-for-TTS tail is removed. `derivePlan` (S3) is unchanged.
+- The lesson status machine simplifies: `ready` now means "has a valid script/plan," not "has rendered audio."
+- Web removals: `<audio>` player, `lib/live-tutor/*` (except the moved token), `lib/qa/*`, `supabase/audio-storage.ts` + `supabase/qa-repository.ts`, `generation/storage.ts`, the audio + exchanges routes, the `qa.ts` contracts, `LiveTutor*`/`usePlaybackQa`/`current-item`/`exchange-state`.
+- **Constitution** is in scope to edit (run `/speckit.constitution` if the principle wording needs it) — this is the first story that deliberately removes a Principle-I/III anchor (the rendered podcast), so make that decision explicitly in the spec/plan, not implicitly in code.
 
 ---
 
-## S5 — Adaptive progress across sessions  (P5)
+## S5 — Capture notes during a lesson  (P4)
 
-**Slug**: `adaptive-progress` · **Branch**: `008-adaptive-progress` *(provisional; assigned when the folder is created)* · **Depends on**: S1 + S2 (struggle signal); **S3 live sessions are an additional struggle-signal source**; consumes S4 if present
+**Slug**: `lesson-notes` · **Branch**: `008-lesson-notes` *(provisional; assigned when the folder is created)* · **Depends on**: S3 + S4 (the live story is the only lesson mode)
+
+**Value**: At any point during a live-narrated lesson the learner captures a note tied to the current moment — a phrase to remember, a usage example from a tutor answer, or a line straight from the live captions. Notes persist and are reviewable later. Reinforces retention with durable takeaways. (After S4 there is only the live mode — no rendered-playback anchor.)
+
+**In scope**: capture a note at any point during a live-narrated session without breaking flow; **anchor each note to the active item/beat plus a transcript offset** (the live mode has no audio playhead); capture a note directly from a **live caption/transcript line** (turn what the teacher just said into a note); persist; review all notes with their anchor when reopening the lesson in a later session.
+
+**Out of scope**: lesson generation (S1); live Q&A / steering mechanics (S3); cross-session adaptation (S6); any rendered-audio-position anchor (that mode is removed by S4).
+
+**Independent test**: In a live session capture a note and capture one from a caption line; end session, return later → all notes present, linked to the correct lesson, and anchored to the right item/beat + transcript offset.
+
+**Specify input**:
+> Add note capture to the live-narrated, steerable lesson experience (assumes the live-only adaptive-live-story mode exists; there is no pre-rendered playback mode). At any point during a live session the learner can capture a note (a phrase to remember, a usage example from a tutor answer, or a line from the live captions/transcript) without breaking the flow of the session. Each note is anchored to the moment it was captured using a live-mode reference: the active item/beat plus a transcript offset (the live mode has no audio playhead). Notes are persisted to the learner's account and made reviewable, with their anchor, when the learner reopens the lesson in a later session. OUT OF SCOPE: lesson generation, live Q&A/steering mechanics, cross-session adaptive progress, and any rendered-audio-position anchor — those are separate or removed features.
+
+---
+
+## S6 — Adaptive progress across sessions  (P5)
+
+**Slug**: `adaptive-progress` · **Branch**: `009-adaptive-progress` *(provisional; assigned when the folder is created)* · **Depends on**: **S3 live sessions** (the struggle signal — questions asked during a live-narrated session); consumes S5 notes if present
 
 **Value**: The system remembers what the learner studied and which items they struggled with (asked questions about or flagged), and uses that history so future lessons reinforce struggled items and de-emphasize mastered ones. Drives long-term learning value and stickiness. This is *cross-session* adaptation — distinct from S3, which steers a single session live.
 
@@ -143,10 +169,10 @@ These came from the original mega-spec and must land somewhere. Assignment:
 
 **Independent test**: Complete a lesson where some items trigger questions, start a new lesson later → previously struggled items are reinforced and progress history reflects what was studied.
 
-**S3 interaction**: S3 (live story) is simply **another source of the struggle signal** (questions asked during a live-narrated session) and a richer one — it provides per-item live-coverage data (which items the `nextBeat` progress actually delivered) and a full session transcript. Treat S2 and S3 sessions **uniformly** as Q&A/struggle sources rather than special-casing one. "Struggled = questioned or flagged" still holds.
+**S3 interaction**: after S4 the **live-narrated session is the only** struggle-signal source — questions asked during narration, plus per-item live-coverage data (which items the narration's `advanceNarration`/`markItemTaught` progress actually delivered) and the full session transcript. (The S2 playback-Q&A source is gone — retired by S4.) "Struggled = questioned or flagged" still holds.
 
 **Specify input**:
-> Add cross-session adaptive progress on top of existing lesson generation and live Q&A (assumes those features exist, including the live-narrated story mode). Maintain a per-learner progress history of items studied with a status of new, struggled, or mastered. At the end of a lesson, flag items the learner appeared to struggle with — items they asked live questions about (in either the Q&A or the live-narrated mode) or explicitly flagged. When generating a future lesson, use this history to give struggled items additional reinforcement and de-emphasize mastered ones, and surface the struggled items for the next session. An item is "struggled" when questioned or flagged; quizzing/scoring and pronunciation analysis are OUT OF SCOPE. The lesson-generation, live-Q&A, live-story, and note-capture mechanics are consumed from their own features, not redefined here.
+> Add cross-session adaptive progress on top of existing lesson generation and the live-narrated story mode (assumes those features exist; the product is live-only). Maintain a per-learner progress history of items studied with a status of new, struggled, or mastered. At the end of a lesson, flag items the learner appeared to struggle with — items they asked live questions about during a live-narrated session or explicitly flagged. When generating a future lesson, use this history to give struggled items additional reinforcement and de-emphasize mastered ones, and surface the struggled items for the next session. An item is "struggled" when questioned or flagged; quizzing/scoring and pronunciation analysis are OUT OF SCOPE. The lesson-generation, live-story, and note-capture mechanics are consumed from their own features, not redefined here.
 
 ---
 
@@ -212,12 +238,13 @@ eval-trace export (already tracked as an S1 task, T052).
 
 ## Status tracker
 
-| Story | Slug | Priority | Spec | Plan | Tasks | Implemented |
-|-------|------|----------|------|------|-------|-------------|
-| S1 | lesson-generation | P1 | ☑ | ☑ | ☑ | ☑ |
-| S2 | live-tutor-qa | P2 | ☑ | ☑ | ☑ | ☑ |
-| S3 | adaptive-live-story | P3 | ☐ | ☐ | ☐ | ☐ |
-| S4 | lesson-notes | P4 | ☐ | ☐ | ☐ | ☐ |
-| S5 | adaptive-progress | P5 | ☐ | ☐ | ☐ | ☐ |
-| TE1 | tts-parallel-render | Tech | ☑ | ☑ | ☑ | ☑ |
-| TE2 | internal-logging | Tech | ☑ | ☑ | ☑ | ☑ |
+| Story | Slug | Folder | Priority | Spec | Plan | Tasks | Implemented |
+|-------|------|--------|----------|------|------|-------|-------------|
+| S1 | lesson-generation | 002 | P1 | ☑ | ☑ | ☑ | ☑ |
+| S2 | live-tutor-qa | 005 | P2 | ☑ | ☑ | ☑ | ☑ (retired by S4) |
+| S3 | adaptive-live-story | 006 | P3 | ☑ | ☑ | ☑ | ☑ |
+| S4 | live-only | 007 | P3.5 | ☐ | ☐ | ☐ | ☐ ◄ next |
+| S5 | lesson-notes | 008* | P4 | ☐ | ☐ | ☐ | ☐ |
+| S6 | adaptive-progress | 009* | P5 | ☐ | ☐ | ☐ | ☐ |
+| TE1 | tts-parallel-render | 004 | Tech | ☑ | ☑ | ☑ | ☑ (retired by S4) |
+| TE2 | internal-logging | 003 | Tech | ☑ | ☑ | ☑ | ☑ |
