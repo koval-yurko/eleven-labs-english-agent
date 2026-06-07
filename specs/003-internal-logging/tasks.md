@@ -26,7 +26,7 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 **Purpose**: Configuration knobs for logging
 
-- [ ] T001 [P] Add `LOG_LEVEL` (default `info`) and `LOG_PRETTY` (optional dev flag) with explanatory comments to `.env.example`
+- [X] T001 [P] Add `LOG_LEVEL` (default `info`) and `LOG_PRETTY` (optional dev flag) with explanatory comments to `.env.example`
 
 ---
 
@@ -36,19 +36,19 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 **⚠️ CRITICAL**: No story instrumentation (Phase 3+) can begin until the logger and the per-run child-logger plumbing exist.
 
-- [ ] T002 [P] Define `Level`, the `EventId` taxonomy, and the `LogEntry` / `LogFields` / `LogContext` / `Logger` types per `contracts/log-event.md` in `packages/generator/src/observability/logger.ts` and `packages/generator/src/observability/events.ts`
-- [ ] T003 [P] Implement secret redaction (key-name allowlist + value patterns → `"[redacted]"`) in `packages/generator/src/observability/redact.ts`
-- [ ] T004 [P] Implement the no-op default logger in `packages/generator/src/observability/noop-logger.ts`
-- [ ] T005 Implement the NDJSON logger (emit, level threshold filter, `child()` context merge, `LOG_PRETTY` rendering, per-emit `try/catch` isolation) in `packages/generator/src/observability/json-logger.ts` (depends T002, T003)
-- [ ] T006 Add `packages/generator/src/observability/index.ts` barrel and re-export the observability surface from `packages/generator/src/index.ts` (depends T002–T005)
-- [ ] T007 Add `LOG_LEVEL`/`LOG_PRETTY` to `packages/generator/src/config.ts` and a `createLogger(env)` factory (no-op vs JSON, honoring the knobs) in `apps/web/lib/generation/deps.ts` (depends T006)
-- [ ] T008 Thread an optional per-run `logger` into `generateLesson` (default no-op, existing callers/tests unaffected) in `packages/generator/src/index.ts` (depends T004, T006)
-- [ ] T009 Mint a child logger bound to `{ lessonId, ownerId }` in `apps/web/lib/generation/runner.ts` `run()` and pass it into the generation call (depends T007, T008)
-- [ ] T010 Inject a logger into `LessonService`, mint `logger.child({ lessonId })` after `createPendingLesson` (and on `retry`), and wire it in `apps/web/lib/container.ts` in `apps/web/lib/lessons/service.ts` (depends T007)
-- [ ] T011 [P] Add a capturing `Logger` test double (records entries in memory) in `packages/generator/tests/helpers/capturing-logger.ts` (depends T002)
-- [ ] T012 [P] Unit test: level filtering drops sub-threshold entries; emitted `LogEntry` carries all required fields (`ts`/`level`/`event`/`lessonId`/`msg`) in `packages/generator/tests/unit/json-logger.test.ts` (depends T005, T011)
-- [ ] T013 [P] Unit test: redaction yields zero matches against secret-name/value patterns in `packages/generator/tests/unit/redact.test.ts` (depends T003)
-- [ ] T014 [P] Unit test: `child()` context merge, two-child disjointness, and emit-failure isolation (throwing serializer never propagates) in `packages/generator/tests/unit/logger-isolation.test.ts` (depends T005, T011)
+- [X] T002 [P] Define `Level`, the `EventId` taxonomy, and the `LogEntry` / `LogFields` / `LogContext` / `Logger` types per `contracts/log-event.md` in `packages/generator/src/observability/logger.ts` and `packages/generator/src/observability/events.ts`
+- [X] T003 [P] Implement secret redaction (key-name allowlist + value patterns → `"[redacted]"`) in `packages/generator/src/observability/redact.ts`
+- [X] T004 [P] Implement the no-op default logger in `packages/generator/src/observability/noop-logger.ts`
+- [X] T005 Implement the NDJSON logger (emit, level threshold filter, `child()` context merge, `LOG_PRETTY` rendering, per-emit `try/catch` isolation) in `packages/generator/src/observability/json-logger.ts` (depends T002, T003)
+- [X] T006 Add `packages/generator/src/observability/index.ts` barrel and re-export the observability surface from `packages/generator/src/index.ts` (depends T002–T005)
+- [X] T007 Add `LOG_LEVEL`/`LOG_PRETTY` to `packages/generator/src/config.ts` and a `createLogger(env)` factory (no-op vs JSON, honoring the knobs) in `apps/web/lib/generation/deps.ts` (depends T006)
+- [X] T008 Thread an optional per-run `logger` into `generateLesson` (default no-op, existing callers/tests unaffected) in `packages/generator/src/index.ts` (depends T004, T006)
+- [X] T009 Mint a child logger bound to `{ lessonId, ownerId }` in `apps/web/lib/generation/runner.ts` `run()` and pass it into the generation call (depends T007, T008)
+- [X] T010 Inject a logger into `LessonService`, mint `logger.child({ lessonId })` after `createPendingLesson` (and on `retry`), and wire it in `apps/web/lib/container.ts` in `apps/web/lib/lessons/service.ts` (depends T007)
+- [X] T011 [P] Add a capturing `Logger` test double (records entries in memory) in `packages/generator/tests/helpers/capturing-logger.ts` (depends T002)
+- [X] T012 [P] Unit test: level filtering drops sub-threshold entries; emitted `LogEntry` carries all required fields (`ts`/`level`/`event`/`lessonId`/`msg`) in `packages/generator/tests/unit/json-logger.test.ts` (depends T005, T011)
+- [X] T013 [P] Unit test: redaction yields zero matches against secret-name/value patterns in `packages/generator/tests/unit/redact.test.ts` (depends T003)
+- [X] T014 [P] Unit test: `child()` context merge, two-child disjointness, and emit-failure isolation (throwing serializer never propagates) in `packages/generator/tests/unit/logger-isolation.test.ts` (depends T005, T011)
 
 **Checkpoint**: Logger emits correlated, level-filtered, redacted, isolated entries; correlation plumbing live in both `runner.ts` and `service.ts`. Story instrumentation can begin.
 
@@ -62,15 +62,15 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 ### Tests for User Story 1 ⚠️ (write first, ensure they FAIL)
 
-- [ ] T015 [P] [US1] Integration test: per-lesson trail is complete and ordered when filtered by lesson id (SC-001) in `packages/generator/tests/integration/lesson-trail.test.ts`
-- [ ] T016 [P] [US1] Integration test: two concurrent generations produce disjoint id-filtered trails (SC-007) in `packages/generator/tests/integration/concurrency-separation.test.ts`
-- [ ] T017 [P] [US1] Integration test: `generate.result` makes input count, model id, and prompt version recoverable (SC-008) in `packages/generator/tests/integration/reproducibility.test.ts`
+- [X] T015 [P] [US1] Integration test: per-lesson trail is complete and ordered when filtered by lesson id (SC-001) in `packages/generator/tests/integration/lesson-trail.test.ts`
+- [X] T016 [P] [US1] Integration test: two concurrent generations produce disjoint id-filtered trails (SC-007) in `packages/generator/tests/integration/concurrency-separation.test.ts`
+- [X] T017 [P] [US1] Integration test: `generate.result` makes input count, model id, and prompt version recoverable (SC-008) in `packages/generator/tests/integration/reproducibility.test.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Emit `generate.draft` (attempt/maxAttempts/outcome; draft body @debug), `generate.coverage` (ok/result), and `generate.result` (itemCount/modelId/promptVersion/segments/coverage) through the per-run logger in `packages/generator/src/index.ts` (depends T008)
-- [ ] T019 [US1] Emit `render.total` (bytes, audioDurationSeconds, renderDurationMs) by measuring wall-clock around `tts.renderDialogue` in `packages/generator/src/index.ts` (depends T018 — same file)
-- [ ] T020 [US1] Emit `teachability.summary` (requested/accepted/skipped counts) via the service child logger in `apps/web/lib/lessons/service.ts` (depends T010)
+- [X] T018 [US1] Emit `generate.draft` (attempt/maxAttempts/outcome; draft body @debug), `generate.coverage` (ok/result), and `generate.result` (itemCount/modelId/promptVersion/segments/coverage) through the per-run logger in `packages/generator/src/index.ts` (depends T008)
+- [X] T019 [US1] Emit `render.total` (bytes, audioDurationSeconds, renderDurationMs) by measuring wall-clock around `tts.renderDialogue` in `packages/generator/src/index.ts` (depends T018 — same file)
+- [X] T020 [US1] Emit `teachability.summary` (requested/accepted/skipped counts) via the service child logger in `apps/web/lib/lessons/service.ts` (depends T010)
 
 **Checkpoint**: A whole lesson is traceable end-to-end by id (MVP). US2/US3 add lifecycle/failure and decision/timing depth.
 
@@ -84,14 +84,14 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 ### Tests for User Story 2 ⚠️ (write first, ensure they FAIL)
 
-- [ ] T021 [P] [US2] Integration test: each lifecycle transition emits `lesson.status` with `from`/`to` (SC-004) in `apps/web/tests/integration/lifecycle-logging.test.ts`
-- [ ] T022 [P] [US2] Integration test: failure emits `generate.error` with stage+reason and a `generating→failed` transition (SC-002) in `apps/web/tests/integration/failure-logging.test.ts`
+- [X] T021 [P] [US2] Integration test: each lifecycle transition emits `lesson.status` with `from`/`to` (SC-004) in `apps/web/tests/integration/lifecycle-logging.test.ts`
+- [X] T022 [P] [US2] Integration test: failure emits `generate.error` with stage+reason and a `generating→failed` transition (SC-002) in `apps/web/tests/integration/failure-logging.test.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Emit `lesson.status` for `pending→generating` and `generating→ready` (with `from`/`to`) in `apps/web/lib/generation/runner.ts` (depends T009)
-- [ ] T024 [US2] In the `runner.ts` catch block, emit `generate.error` `{ stage, reason }` (derive stage from error type, e.g. `CoverageError`→coverage, else generation) and the `generating→failed` `lesson.status` in `apps/web/lib/generation/runner.ts` (depends T023 — same file)
-- [ ] T025 [US2] Ensure retry re-entry logs a distinct `failed→generating` transition in the retry path of `apps/web/lib/lessons/service.ts` / `apps/web/lib/generation/runner.ts` (depends T024, T010)
+- [X] T023 [US2] Emit `lesson.status` for `pending→generating` and `generating→ready` (with `from`/`to`) in `apps/web/lib/generation/runner.ts` (depends T009)
+- [X] T024 [US2] In the `runner.ts` catch block, emit `generate.error` `{ stage, reason }` (derive stage from error type, e.g. `CoverageError`→coverage, else generation) and the `generating→failed` `lesson.status` in `apps/web/lib/generation/runner.ts` (depends T023 — same file)
+- [X] T025 [US2] Ensure retry re-entry logs a distinct `failed→generating` transition in the retry path of `apps/web/lib/lessons/service.ts` / `apps/web/lib/generation/runner.ts` (depends T024, T010)
 
 **Checkpoint**: Failures are diagnosable from logs without re-running; lifecycle fully visible.
 
@@ -105,15 +105,15 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 ### Tests for User Story 3 ⚠️ (write first, ensure they FAIL)
 
-- [ ] T026 [P] [US3] Integration test: per-item `teachability.item` records decision, itemType, and skip reason (raw text only @debug) in `apps/web/tests/integration/teachability-logging.test.ts`
-- [ ] T027 [P] [US3] Integration test: `generate.coverage` reports uncovered ids and that a re-prompt occurred in `packages/generator/tests/integration/coverage-logging.test.ts`
-- [ ] T028 [P] [US3] Integration test: a `render.batch` timing is present for every batch (SC-005) in `packages/generator/tests/integration/render-batch-logging.test.ts`
+- [X] T026 [P] [US3] Integration test: per-item `teachability.item` records decision, itemType, and skip reason (raw text only @debug) in `apps/web/tests/integration/teachability-logging.test.ts`
+- [X] T027 [P] [US3] Integration test: `generate.coverage` reports uncovered ids and that a re-prompt occurred in `packages/generator/tests/integration/coverage-logging.test.ts`
+- [X] T028 [P] [US3] Integration test: a `render.batch` timing is present for every batch (SC-005) in `packages/generator/tests/integration/render-batch-logging.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Emit `teachability.item` per item (decision/itemType/skipReason; `rawText` @debug only) via the service child logger in `apps/web/lib/lessons/service.ts` (depends T010; same file as T020)
-- [ ] T030 [US3] Emit `generate.coverage` detail (uncovered ids + `reprompted` flag) around the `validateCoverage` re-prompt loop in `packages/generator/src/index.ts` (depends T018 — same file)
-- [ ] T031 [US3] Add an optional `logger` param to `TtsAdapter.renderDialogue` and emit `render.batch` `{ batchIndex, batchCount, chars, durationMs }` per batch in `packages/generator/src/adapters/types.ts`, `packages/generator/src/adapters/elevenlabs.ts`, and `packages/generator/src/adapters/mock.ts` (depends T008)
+- [X] T029 [US3] Emit `teachability.item` per item (decision/itemType/skipReason; `rawText` @debug only) via the service child logger in `apps/web/lib/lessons/service.ts` (depends T010; same file as T020)
+- [X] T030 [US3] Emit `generate.coverage` detail (uncovered ids + `reprompted` flag) around the `validateCoverage` re-prompt loop in `packages/generator/src/index.ts` (depends T018 — same file)
+- [X] T031 [US3] Add an optional `logger` param to `TtsAdapter.renderDialogue` and emit `render.batch` `{ batchIndex, batchCount, chars, durationMs }` per batch in `packages/generator/src/adapters/types.ts`, `packages/generator/src/adapters/elevenlabs.ts`, and `packages/generator/src/adapters/mock.ts` (depends T008)
 
 **Checkpoint**: Quality and performance regressions are diagnosable from decision + timing detail.
 
@@ -121,9 +121,9 @@ pnpm workspace (per plan.md): logger lives in `packages/generator/src/observabil
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] Integration test: a full mocked generation run's emitted entries contain zero secrets across all events (SC-003) in `packages/generator/tests/integration/secret-scan.test.ts`
-- [ ] T033 [P] Document logging usage (enable, filter by lesson id, levels, privacy) in `README.md` and add a generation-logging note to `CLAUDE.md`; confirm `.env.example` knobs match
-- [ ] T034 Run the `quickstart.md` verification matrix and the standard gates: `pnpm test && pnpm typecheck && pnpm lint`
+- [X] T032 [P] Integration test: a full mocked generation run's emitted entries contain zero secrets across all events (SC-003) in `packages/generator/tests/integration/secret-scan.test.ts`
+- [X] T033 [P] Document logging usage (enable, filter by lesson id, levels, privacy) in `README.md` and add a generation-logging note to `CLAUDE.md`; confirm `.env.example` knobs match
+- [X] T034 Run the `quickstart.md` verification matrix and the standard gates: `pnpm test && pnpm typecheck && pnpm lint`
 
 ---
 

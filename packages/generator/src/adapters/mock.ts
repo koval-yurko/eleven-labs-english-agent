@@ -1,5 +1,6 @@
 import type { CoverageEntry, LessonScript, LessonSegment } from "@idiomatic/contracts";
 import { LESSON_SCRIPT_VERSION } from "@idiomatic/contracts";
+import { noopLogger, type Logger } from "../observability";
 import type {
   LlmAdapter,
   ProviderHealth,
@@ -92,7 +93,11 @@ export class MockTtsAdapter implements TtsAdapter {
     return { provider: "elevenlabs", ok: true, detail: "mock adapter (no API key configured)" };
   }
 
-  async renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio> {
+  async renderDialogue(
+    script: LessonScript,
+    ttsCharLimit: number,
+    logger: Logger = noopLogger,
+  ): Promise<RenderedAudio> {
     // Simulate per-segment rendering under the char limit, then stitching (research R5).
     let totalWords = 0;
     let buffer = "";
@@ -107,6 +112,16 @@ export class MockTtsAdapter implements TtsAdapter {
       }
     }
     if (buffer) chunks.push(buffer);
+
+    // Emit a per-batch timing so the render path is observable under mocks too (SC-005).
+    chunks.forEach((chunk, i) => {
+      logger.info("render.batch", `rendered batch ${i + 1}/${chunks.length}`, {
+        batchIndex: i,
+        batchCount: chunks.length,
+        chars: chunk.length,
+        durationMs: 0,
+      });
+    });
 
     const durationSeconds = Math.max(1, Math.round((totalWords / this.wordsPerMinute) * 60));
     // Placeholder bytes; real adapter returns stitched MP3 audio.

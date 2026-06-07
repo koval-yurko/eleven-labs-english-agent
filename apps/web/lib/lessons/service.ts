@@ -4,8 +4,8 @@ import type {
   SkippedEntry,
   SourceItem,
 } from "@idiomatic/contracts";
-import { decideSubmission } from "@idiomatic/generator";
-import type { ClassifiedItem } from "@idiomatic/generator";
+import { decideSubmission, noopLogger } from "@idiomatic/generator";
+import type { ClassifiedItem, Logger } from "@idiomatic/generator";
 import type { GenerationRunner } from "../generation/runner";
 import type { AudioStorage } from "../generation/storage";
 import type { LessonRepository } from "./repository";
@@ -54,6 +54,7 @@ export class LessonService {
     private readonly storage: AudioStorage,
     private readonly scheduler: TaskScheduler,
     private readonly config: LessonServiceConfig,
+    private readonly logger: Logger = noopLogger,
   ) {}
 
   async createLesson(ownerId: string, input: string | string[]): Promise<CreateLessonOutcome> {
@@ -101,6 +102,24 @@ export class LessonService {
         covered: false,
       })),
     });
+
+    // Now that a lesson id exists, emit the correlated teachability trail (US1/US3).
+    const log = this.logger.child({ lessonId: lesson.id, ownerId });
+    log.info("teachability.summary", "classified submission", {
+      requested: result.items.length,
+      accepted: result.accepted.length,
+      skipped: result.skipped.length,
+    });
+    for (const item of result.items) {
+      log.info("teachability.item", `item ${item.id} ${item.teachable ? "accepted" : "skipped"}`, {
+        id: item.id,
+        itemType: item.itemType,
+        decision: item.teachable ? "accepted" : "skipped",
+        ...(item.skipReason ? { skipReason: item.skipReason } : {}),
+        // Raw learner text is privacy-sensitive — debug only (FR-017).
+        ...(log.enabled("debug") ? { text: item.rawText } : {}),
+      });
+    }
 
     // Kick off generation in the background; POST returns 202 immediately (R6).
     const acceptedItems: ClassifiedItem[] = result.accepted;

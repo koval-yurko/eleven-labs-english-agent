@@ -1,11 +1,15 @@
 import {
   ClaudeLlmAdapter,
   ElevenLabsTtsAdapter,
+  JsonLogger,
   MockLlmAdapter,
   MockTtsAdapter,
+  parseLogLevel,
+  parseLogPretty,
   type GenerateLessonDeps,
   type GeneratorConfig,
   type LlmAdapter,
+  type Logger,
   type TtsAdapter,
 } from "@idiomatic/generator";
 
@@ -33,12 +37,26 @@ export function buildGeneratorConfig(
     modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
     ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
     ttsBitrate: int("ELEVENLABS_BITRATE", 128000),
+    logLevel: parseLogLevel(env.LOG_LEVEL),
+    logPretty: parseLogPretty(env.LOG_PRETTY),
   };
 }
 
 /** True when both generation providers are configured to run for real. */
 export function hasGenerationKeys(env: Record<string, string | undefined> = process.env): boolean {
   return Boolean(env.ANTHROPIC_API_KEY && env.ELEVENLABS_API_KEY);
+}
+
+/**
+ * Build the process root logger from the environment (003-internal-logging). NDJSON to
+ * stdout, honoring `LOG_LEVEL`/`LOG_PRETTY`. The web generation bridge derives per-run
+ * child loggers bound to `{ lessonId, ownerId }` from this root for correlation.
+ */
+export function createLogger(env: Record<string, string | undefined> = process.env): Logger {
+  return new JsonLogger({
+    level: parseLogLevel(env.LOG_LEVEL),
+    pretty: parseLogPretty(env.LOG_PRETTY),
+  });
 }
 
 export function buildGenerateLessonDeps(

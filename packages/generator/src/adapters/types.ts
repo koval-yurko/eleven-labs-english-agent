@@ -1,5 +1,6 @@
 import type { LessonScript } from "@idiomatic/contracts";
 import type { ClassifiedItem } from "../teachability";
+import type { Logger } from "../observability";
 
 /**
  * Provider adapter boundaries (research R11). Business logic depends on these
@@ -42,7 +43,15 @@ export interface RenderedAudio {
 
 /** ElevenLabs Text to Dialogue: render per-segment under the char limit, then stitch. */
 export interface TtsAdapter {
-  renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio>;
+  /**
+   * Render + stitch the dialogue. The optional `logger` (003-internal-logging) receives a
+   * `render.batch` timing per batch; omitting it leaves rendering behavior unchanged.
+   */
+  renderDialogue(
+    script: LessonScript,
+    ttsCharLimit: number,
+    logger?: Logger,
+  ): Promise<RenderedAudio>;
   /** Cheap liveness/config check (e.g. validate the API key + configured voices). */
   healthCheck?(): Promise<ProviderHealth>;
 }

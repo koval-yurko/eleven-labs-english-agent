@@ -1,6 +1,6 @@
 import { systemClock, createUuidGenerator } from "./ports";
 import { GenerationRunner } from "./generation/runner";
-import { buildGenerateLessonDeps } from "./generation/deps";
+import { buildGenerateLessonDeps, createLogger } from "./generation/deps";
 import { InMemoryAudioStorage, type AudioStorage } from "./generation/storage";
 import { InMemoryLessonRepository } from "./lessons/in-memory-repository";
 import type { LessonRepository } from "./lessons/repository";
@@ -36,15 +36,23 @@ export function getLessonService(): LessonService {
   }
 
   const deps = buildGenerateLessonDeps();
-  const runner = new GenerationRunner(repo, storage, deps);
+  const logger = createLogger();
+  const runner = new GenerationRunner(repo, storage, deps, logger);
 
   const signedUrlTtl = Number.parseInt(process.env.SIGNED_URL_TTL_SECONDS ?? "", 10);
-  service = new LessonService(repo, runner, storage, fireAndForgetScheduler, {
-    maxTeachableItems: deps.config.maxTeachableItems,
-    targetMinSeconds: deps.config.targetMinSeconds,
-    targetMaxSeconds: deps.config.targetMaxSeconds,
-    // Short-lived playback URLs; tighten/loosen via env (default 5 min).
-    signedUrlTtlSeconds: Number.isNaN(signedUrlTtl) ? 300 : signedUrlTtl,
-  });
+  service = new LessonService(
+    repo,
+    runner,
+    storage,
+    fireAndForgetScheduler,
+    {
+      maxTeachableItems: deps.config.maxTeachableItems,
+      targetMinSeconds: deps.config.targetMinSeconds,
+      targetMaxSeconds: deps.config.targetMaxSeconds,
+      // Short-lived playback URLs; tighten/loosen via env (default 5 min).
+      signedUrlTtlSeconds: Number.isNaN(signedUrlTtl) ? 300 : signedUrlTtl,
+    },
+    logger,
+  );
   return service;
 }

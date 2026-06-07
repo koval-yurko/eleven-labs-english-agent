@@ -182,4 +182,4 @@ eval-trace export (already tracked as an S1 task, T052).
 | S3 | lesson-notes | P3 | ☐ | ☐ | ☐ | ☐ |
 | S4 | adaptive-progress | P4 | ☐ | ☐ | ☐ | ☐ |
 | TE1 | tts-parallel-render | Tech | ☐ | ☐ | ☐ | ☐ |
-| TE2 | internal-logging | Tech | ☑ | ☑ | ☑ | ☐ |
+| TE2 | internal-logging | Tech | ☑ | ☑ | ☑ | ☑ |

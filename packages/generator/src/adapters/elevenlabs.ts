@@ -1,5 +1,6 @@
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import type { LessonScript } from "@idiomatic/contracts";
+import { noopLogger, type Logger } from "../observability";
 import type { ProviderHealth, RenderedAudio, TtsAdapter } from "./types";
 
 /**
@@ -62,7 +63,11 @@ export class ElevenLabsTtsAdapter implements TtsAdapter {
     }
   }
 
-  async renderDialogue(script: LessonScript, ttsCharLimit: number): Promise<RenderedAudio> {
+  async renderDialogue(
+    script: LessonScript,
+    ttsCharLimit: number,
+    logger: Logger = noopLogger,
+  ): Promise<RenderedAudio> {
     const voiceFor = (speaker: "learner" | "teacher"): string =>
       speaker === "teacher" ? script.speakers.teacher.voiceId : script.speakers.learner.voiceId;
 
@@ -73,12 +78,21 @@ export class ElevenLabsTtsAdapter implements TtsAdapter {
 
     const batches = batchUnderLimit(inputs, ttsCharLimit);
     const chunks: Uint8Array[] = [];
-    for (const batch of batches) {
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]!;
+      const chars = batch.reduce((n, input) => n + input.text.length, 0);
+      const startedAt = Date.now();
       const audio = await this.client.textToDialogue.convert({
         inputs: batch,
         modelId: this.options.modelId,
       });
       chunks.push(await collectBytes(audio));
+      logger.info("render.batch", `rendered batch ${i + 1}/${batches.length}`, {
+        batchIndex: i,
+        batchCount: batches.length,
+        chars,
+        durationMs: Date.now() - startedAt,
+      });
     }
 
     const bytes = concatBytes(chunks);

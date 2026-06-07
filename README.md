@@ -78,6 +78,26 @@ needs a signed-in Auth0 session — supply a Playwright `storageState` file via
 (`packages/generator/src/workflow/tracing.ts`), which records a LangSmith trace per run when
 `LANGSMITH_API_KEY` is set and is a transparent pass-through otherwise.
 
+**Internal logging:** the generation pipeline emits structured, newline-delimited-JSON logs
+to stdout (`packages/generator/src/observability/`), correlated by lesson id. Each run binds
+a child logger to `{ lessonId, ownerId }`, so the whole trail — `lesson.status` transitions,
+`teachability.*`, `generate.draft`/`coverage`/`result`, `render.batch`/`total`, and
+`generate.error` — is retrievable by id alone.
+
+```bash
+LOG_LEVEL=info   # debug | info | warn | error (default: info)
+LOG_PRETTY=1     # human-readable dev lines instead of raw NDJSON
+
+# one lesson's complete, ordered trail:
+jq -c 'select(.lessonId=="<LESSON_ID>")' app.log
+# just the failing stage + reason:
+jq -c 'select(.event=="generate.error")' app.log
+```
+
+Secrets are always redacted; raw learner item text and draft/prompt bodies appear only at
+`debug` (Constitution V). Logging is best-effort and isolated — an emit failure never affects
+generation. No external APM/log-shipping is added.
+
 ## Status
 
 Early development. Full requirements, data model, API surface, and build phases are in [`PRD-base.md`](./spec/PRD-base.md).

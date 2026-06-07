@@ -25,10 +25,17 @@ export interface Logger {
   info(event: EventId, msg: string, fields?: LogFields): void;
   warn(event: EventId, msg: string, fields?: LogFields): void;
   error(event: EventId, msg: string, fields?: LogFields): void;
+  /** True when `level` would be emitted at the current threshold — gates debug-only fields. */
+  enabled(level: Level): boolean;
   /** Returns a logger whose entries are merged with `context` (correlation binding). */
   child(context: LogContext): Logger;
 }
 ```
+
+> Implementation note: `enabled(level)` was added to the port during implementation so call
+> sites can gate privacy-sensitive fields (raw learner text, draft bodies) to `debug`
+> (FR-017) without assembling them when they would be dropped. The no-op logger returns
+> `false`, so unconfigured callers never build debug payloads.
 
 **Behavioral contract**:
 - Each method emits at most one `LogEntry`, or zero if `level` is below the configured threshold.

@@ -1,3 +1,5 @@
+import type { Level } from "./observability";
+
 /**
  * Generator configuration (research R1/R3/R4). Voice IDs and tuning come from the
  * environment; the teacher voice is FIXED and reused by the live tutor (Constitution I).
@@ -21,9 +23,27 @@ export interface GeneratorConfig {
   ttsModelId: string;
   /** CBR MP3 bitrate (bps) of the TTS output, used to compute duration (SC-003). */
   ttsBitrate: number;
+  /** Minimum structured-log level emitted (003-internal-logging). Default `info`. */
+  logLevel?: Level;
+  /** When true, emit human-readable log lines instead of raw NDJSON (dev only). */
+  logPretty?: boolean;
 }
 
 export const DEFAULT_MAX_TEACHABLE_ITEMS = 20;
+
+const LOG_LEVELS: ReadonlySet<string> = new Set(["debug", "info", "warn", "error"]);
+
+/** Parse `LOG_LEVEL` from the environment, defaulting to `info` on absent/invalid. */
+export function parseLogLevel(raw: string | undefined): Level {
+  const value = raw?.trim().toLowerCase();
+  return value && LOG_LEVELS.has(value) ? (value as Level) : "info";
+}
+
+/** Truthy `LOG_PRETTY` flag (`1`/`true`/`yes`). */
+export function parseLogPretty(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
 
 function intFromEnv(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   const raw = env[key];
@@ -55,5 +75,7 @@ export function loadGeneratorConfig(env: NodeJS.ProcessEnv = process.env): Gener
     modelId: env.GENERATION_MODEL_ID?.trim() || "claude-opus-4-8",
     ttsModelId: env.ELEVENLABS_MODEL_ID?.trim() || "eleven_v3",
     ttsBitrate: intFromEnv(env, "ELEVENLABS_BITRATE", 128000),
+    logLevel: parseLogLevel(env.LOG_LEVEL),
+    logPretty: parseLogPretty(env.LOG_PRETTY),
   };
 }

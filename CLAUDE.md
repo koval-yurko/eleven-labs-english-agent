@@ -50,4 +50,17 @@ directly via the `langsmith` SDK in `packages/generator/src/workflow/tracing.ts`
 exporter from plan.md was superseded because there is no Mastra trace stream to export.
 LangSmith is a soft dependency — everything degrades to a no-op without `LANGSMITH_API_KEY`.
 
+## Internal logging note (003-internal-logging)
+
+The generation pipeline is observable via a small, dependency-free structured logger in
+`packages/generator/src/observability/` (typed `Logger` port + NDJSON `JsonLogger` +
+no-op default + secret redaction). It is an **injected** port: the generator defaults to
+`noopLogger`, and the web bridge (`apps/web/lib/generation/runner.ts`,
+`lib/lessons/service.ts`) mints a child logger bound to `{ lessonId, ownerId }` so every
+entry for a run shares its id. Config via `LOG_LEVEL` (default `info`) and `LOG_PRETTY`.
+Raw learner text / draft bodies are gated to `debug` (Constitution V); secrets are always
+redacted; emits are best-effort and never throw into generation. When adding a pipeline
+stage, add its `EventId` to `observability/events.ts` and emit through the injected logger —
+never `console.log`.
+
 <!-- MANUAL ADDITIONS END -->
