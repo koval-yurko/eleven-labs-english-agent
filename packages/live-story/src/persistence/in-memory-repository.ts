@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator } from "../ports";
+import type { Clock, IdGenerator } from "../types";
 import type {
   AppendTurnInput,
   LiveSessionRecord,

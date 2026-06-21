@@ -5,7 +5,7 @@
 //   - the PINNED teacher voice (Constitution I — the single teacher voice),
 //   - a native Claude LLM (Haiku 4.5 by default — narration latency),
 //   - the VERSIONED narrator/tutor/steering system prompt from
-//     apps/web/lib/live-story/agent-prompt.ts (Constitution III — no untracked prompts),
+//     src/agent/agent-prompt.ts (Constitution III — no untracked prompts),
 //   - the FOUR client tools the narration loop calls (advanceNarration, markItemTaught,
 //     setScenario, concludeLesson), declared inline with expects_response so the agent reads
 //     each tool's returned instruction string, and
@@ -19,6 +19,7 @@
 //   pnpm provision:story-agent                                   # create from your .env keys
 //   LIVE_STORY_LLM=claude-sonnet-4-6 pnpm provision:story-agent  # override the LLM
 //   LIVE_STORY_TTS_MODEL=eleven_turbo_v2 pnpm provision:story-agent  # override the TTS model
+//   (or, from the package: pnpm --filter @idiomatic/live-story provision:agent)
 //
 // Reads ELEVENLABS_API_KEY + ELEVENLABS_TEACHER_VOICE_ID (and optional LIVE_STORY_LLM,
 // LIVE_STORY_TTS_MODEL) from .env / .env.local / apps/web/.env.local — the api key never
@@ -29,13 +30,14 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// scripts/ → live-story → packages → repo root.
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 for (const f of [".env", ".env.local", "apps/web/.env.local"]) {
   dotenv.config({ path: join(root, f) });
 }
 
 const { LIVE_STORY_SYSTEM_PROMPT, LIVE_STORY_PROMPT_VERSION, LIVE_STORY_CLIENT_TOOL_DESCRIPTIONS } =
-  await import("../apps/web/lib/live-story/agent-prompt.ts");
+  await import("../src/agent/agent-prompt.ts");
 
 const env = process.env;
 const apiKey = env.ELEVENLABS_API_KEY?.trim();
@@ -62,7 +64,7 @@ if (!voiceId) {
 const D = LIVE_STORY_CLIENT_TOOL_DESCRIPTIONS;
 
 // The four client tools the narrator agent calls (contracts/live-story.schema.json →
-// ClientToolContract). Each handler runs in the browser (lib/live-story/client-tools.ts) and
+// ClientToolContract). Each handler runs in the browser (src/agent/client-tools.ts) and
 // returns a short instruction string — so expects_response is true (the agent waits for it).
 const tools = [
   {
@@ -111,7 +113,7 @@ const tools = [
   },
 ];
 
-// Per-session grounding is injected at runtime via dynamic variables (lib/live-story/
+// Per-session grounding is injected at runtime via dynamic variables (src/agent/
 // plan-context.ts); these are just the placeholder defaults the agent validates its prompt
 // against. Keys must match the {{...}} placeholders in agent-prompt.ts.
 const body = {

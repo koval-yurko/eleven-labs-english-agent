@@ -7,11 +7,13 @@ import { LessonService } from "./lessons/service";
 import { fireAndForgetScheduler } from "./lessons/scheduler";
 import { getServiceSupabase, hasSupabaseEnv } from "./supabase/server";
 import { SupabaseLessonRepository } from "./supabase/lesson-repository";
-import type { LiveStoryRepository } from "./live-story/repository";
-import { InMemoryLiveStoryRepository } from "./live-story/in-memory-repository";
+import {
+  InMemoryLiveStoryRepository,
+  StartStoryService,
+  TranscriptService,
+  type LiveStoryRepository,
+} from "@idiomatic/live-story";
 import { SupabaseLiveStoryRepository } from "./supabase/live-story-repository";
-import { StartStoryService } from "./live-story/service";
-import { TranscriptService } from "./live-story/transcript-service";
 import { liveStoryConfig } from "./config";
 import type { Logger } from "@idiomatic/generator";
 

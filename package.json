@@ -16,7 +16,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "smoke:generate": "tsx scripts/smoke-generate.ts",
-    "provision:story-agent": "tsx scripts/create-live-story-agent.ts",
+    "provision:story-agent": "pnpm --filter @idiomatic/live-story provision:agent",
     "eval:generation": "tsx packages/generator/src/evals/run.ts",
     "test:e2e": "playwright test",
     "check:bundle": "node scripts/check-bundle-secrets.mjs",

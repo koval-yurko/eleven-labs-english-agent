@@ -4,7 +4,7 @@ import {
   requestConclude,
   setScenario,
   type NarrationState,
-} from "./narration-state";
+} from "../narration/narration-state";
 
 /**
  * Build the `clientTools` map the narrator agent calls (research R1/R3/R4). Each handler is

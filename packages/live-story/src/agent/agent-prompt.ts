@@ -5,7 +5,7 @@
  * Conversational AI "live story" agent (quickstart.md §1). The agent is provisioned with
  * the pinned teacher voice + a native Claude LLM and declares the four client tools below.
  *
- * Per-session grounding is injected via dynamic variables (lib/live-story/plan-context.ts):
+ * Per-session grounding is injected via dynamic variables (./plan-context):
  *   {{lesson_summary}} {{items_list}} {{beats_outline}} {{target_minutes}} {{scenario}}
  *
  * Sections are added per user story: US1 narration loop + coverage (here), US2 scenario
@@ -47,7 +47,7 @@ Begin only when you receive the kickoff message, then narrate beat 1.`;
 
 /**
  * Human-readable descriptions of the four client tools the agent declares (quickstart §1).
- * The handlers run in the browser (lib/live-story/client-tools.ts) and return a short string
+ * The handlers run in the browser (./client-tools) and return a short string
  * the agent continues from. Kept here so the agent config and the code share one description.
  */
 export const LIVE_STORY_CLIENT_TOOL_DESCRIPTIONS = {

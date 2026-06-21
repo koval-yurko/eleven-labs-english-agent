@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { StartStoryToken } from "@idiomatic/contracts";
 import { captureLogger, makeHarness } from "../helpers";
-import { StartStoryService } from "../../lib/live-story/service";
-import { InMemoryLiveStoryRepository } from "../../lib/live-story/in-memory-repository";
+import {
+  StartStoryService,
+  InMemoryLiveStoryRepository,
+  type LiveStoryConfig,
+  type TokenFetch,
+} from "@idiomatic/live-story";
 import { InMemoryLessonRepository } from "../../lib/lessons/in-memory-repository";
 import { counterIdGenerator, fixedClock } from "../helpers";
-import type { LiveStoryConfig } from "../../lib/config";
-import type { TokenFetch } from "../../lib/live-tutor/token";
 
 /**
  * T016 [US1] — Integration: StartStoryService over the in-memory lesson + live-story repos

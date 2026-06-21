@@ -9,13 +9,13 @@
  *
  * Defaults mirror the generator's (`lib/generation/deps.ts`) so the live-story target
  * window matches the scripted lesson's, keeping "bounded target length" one tuning knob.
+ *
+ * The `LiveStoryConfig` shape lives in `@idiomatic/live-story`; this module is the env
+ * reader that produces it (the package never touches `process.env`).
  */
-export interface LiveStoryConfig {
-  apiKey?: string;
-  agentId?: string;
-  targetMinSeconds: number;
-  targetMaxSeconds: number;
-}
+import type { LiveStoryConfig } from "@idiomatic/live-story";
+
+export type { LiveStoryConfig };
 
 const DEFAULT_TARGET_MIN_SECONDS = 300;
 const DEFAULT_TARGET_MAX_SECONDS = 600;

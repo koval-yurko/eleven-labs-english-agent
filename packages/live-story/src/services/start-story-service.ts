@@ -1,11 +1,9 @@
 import type { LessonPlan, StartStoryToken } from "@idiomatic/contracts";
 import { derivePlan, noopLogger, type Logger } from "@idiomatic/generator";
-import type { LessonRepository } from "../lessons/repository";
-import { mintConversationToken, type TokenFetch } from "../live-tutor/token";
-import type { LiveStoryConfig } from "../config";
-import { isLiveStoryConfigured } from "./availability";
-import { buildPlanDynamicVariables } from "./plan-context";
-import type { LiveStoryRepository } from "./repository";
+import type { LessonReader, LiveStoryConfig } from "../types";
+import { mintConversationToken, type TokenFetch } from "./token";
+import { buildPlanDynamicVariables } from "../agent/plan-context";
+import type { LiveStoryRepository } from "../persistence/repository";
 
 /**
  * Orchestrates starting an adaptive live-story session for a ready, owned lesson (US1).
@@ -24,15 +22,16 @@ const UNAVAILABLE_MESSAGE =
 
 export class StartStoryService {
   constructor(
-    private readonly lessons: LessonRepository,
+    private readonly lessons: LessonReader,
     private readonly repo: LiveStoryRepository,
     private readonly config: LiveStoryConfig,
     private readonly logger: Logger = noopLogger,
     private readonly fetchImpl: TokenFetch = fetch,
   ) {}
 
+  /** Feature gate (FR-026, R7/R10): the agent + key must both be configured server-side. */
   available(): boolean {
-    return isLiveStoryConfigured(this.config);
+    return Boolean(this.config.apiKey && this.config.agentId);
   }
 
   async startStory(ownerId: string, lessonId: string): Promise<StartStoryOutcome> {

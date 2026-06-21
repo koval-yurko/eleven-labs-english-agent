@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AppendTurnRequest } from "@idiomatic/contracts";
 import { makeHarness } from "../helpers";
-import { TranscriptService } from "../../lib/live-story/transcript-service";
-import { InMemoryLiveStoryRepository } from "../../lib/live-story/in-memory-repository";
+import { TranscriptService, InMemoryLiveStoryRepository } from "@idiomatic/live-story";
 import { counterIdGenerator, fixedClock } from "../helpers";
 
 /**

@@ -21,6 +21,7 @@ Auto-generated from all feature plans. Last updated: 2026-06-07
 ```text
 packages/contracts/   # shared Zod schemas + DTOs (subsystem boundary)
 packages/generator/   # lesson generation: adapters, prompts, workflow, evals
+packages/live-story/  # adaptive live-story subsystem: prompt, narration state machine, client tools, services
 apps/web/             # Next.js App Router app: UI, API routes, Supabase persistence
 supabase/migrations/  # Postgres schema, RLS, storage
 ```
@@ -86,30 +87,38 @@ VAD / STT / streaming TTS (Principle IV); the app builds only glue:
   `source_items` to a `LessonPlan` (ordered items, story beats, clamped target length). It
   does **not** touch batch generation or its eval gate. Coverage entries are mapped to
   persisted item ids by `normalizedText` (same as `live-tutor/current-item.ts`).
-- **Narration state machine** `apps/web/lib/live-story/narration-state.ts` is PURE
+  The whole subsystem now lives in its own package **`@idiomatic/live-story`**
+  (`packages/live-story/src/`); the web app wires its `LessonRepository` into the package's
+  narrow read-only `LessonReader` port, and `lib/config.ts` is the env reader that produces
+  the package's `LiveStoryConfig`. The package depends only on `@idiomatic/contracts` +
+  `@idiomatic/generator` (no Next/Supabase/DOM).
+- **Narration state machine** `packages/live-story/src/narration/narration-state.ts` is PURE
   (no SDK/DOM): covered-set + completion guard (conclude only when every item is covered AND
   the beat budget is spent — coverage always wins), scenario pin (latest wins), clarification
   guard (ported from 005's `exchange-state.ts`), and the caption reducer (append +
   `correctLastTeacherCaption`). Unit-tested in `tests/unit/narration-state.test.ts`.
 - **Client tools** (`advanceNarration`, `markItemTaught`, `setScenario`, `concludeLesson`) in
-  `lib/live-story/client-tools.ts` are thin glue over the state machine, returning short
-  instruction strings the agent continues from (the agent-driven self-continuation loop, R1).
-- **Agent prompt** is a VERSIONED source artifact (`lib/live-story/agent-prompt.ts`,
+  `packages/live-story/src/agent/client-tools.ts` are thin glue over the state machine, returning
+  short instruction strings the agent continues from (the agent-driven self-continuation loop, R1).
+- **Agent prompt** is a VERSIONED source artifact (`packages/live-story/src/agent/agent-prompt.ts`,
   Constitution III) — pasted onto the dedicated `ELEVENLABS_STORY_AGENT_ID` agent.
 - **Captions + transcript share one corrected-text path**: the hook
   (`app/lessons/[id]/live-story/useLiveStory.ts`) consumes `onMessage` (finalized turns) and
   `onAgentResponseCorrection` (barge-in truncation), never the tentative stream (R5). Turns
   persist incrementally and best-effort, OFF the speech path, via
-  `POST /api/lessons/{id}/live-story/turns` → `transcript-service.ts` →
+  `POST /api/lessons/{id}/live-story/turns` → the package's `transcript-service.ts` →
+  `lib/supabase/live-story-repository.ts` (impl of the package's `LiveStoryRepository` port) →
   `live_sessions`/`session_turns` (migration `0005_live_story.sql`, owner-scoped RLS). A
   teacher turn carrying a known `elevenTurnRef` is upserted in place (the only mutation).
   **No realtime audio is ever persisted** (FR-025).
 - **Observability**: `story.*` `EventId`s in `observability/events.ts`
   (`story.session|beat|coverage|scenario|turn|error|unavailable`).
-- **Feature gate**: `lib/config.ts` `liveStoryConfig()` + `lib/live-story/availability.ts`;
+- **Feature gate**: `lib/config.ts` `liveStoryConfig()` + `StartStoryService.available()` (the
+  agent id + key must both be configured server-side);
   when unconfigured or a mint/transport drop occurs, the UI shows a clear retry/try-later
-  panel — modes stay decoupled, no pre-render substitution (R7). The token mint is **reused**
-  unchanged from 005 (`lib/live-tutor/token.ts`).
+  panel — modes stay decoupled, no pre-render substitution (R7). The token mint
+  (`packages/live-story/src/services/token.ts`, moved from 005's `lib/live-tutor/token.ts`) lives in the
+  package alongside the service that uses it.
 
 When adding to this subsystem, keep the narration logic pure and in `narration-state.ts`,
 add client tools over it, and never put realtime/audio handling in app code (buy it from the
@@ -128,7 +137,9 @@ durable record. Feature 007 retired, via a forward-only change:
   no longer renders; the web bridge marks `ready` on a valid script with **no** storage upload.
 - **005 playback-position Q&A**: the `lib/qa/` + `lib/live-tutor/` (minus **`token.ts`**,
   reused by live-story), the `live-tutor/` UI, the `/live-session` + `/exchanges` routes, the
-  `qa.*` log events, and the `qa.ts` contract. `lib/live-tutor/token.ts` is **kept in place**.
+  `qa.*` log events, and the `qa.ts` contract. The token mint (005's `lib/live-tutor/token.ts`)
+  was retained for live-story and has since moved into `@idiomatic/live-story`
+  (`packages/live-story/src/services/token.ts`); `lib/live-tutor/` is now gone.
 - **Data**: migration `0006_retire_audio_qa.sql` drops the `lesson-audio` bucket (+ RLS), the
   `lesson_audio` table, `lessons.audio_duration_seconds`, and `qa_exchanges`/`qa_turns`
   (+ `qa_turn_role`). `live_sessions`/`session_turns`/`source_items` are untouched.

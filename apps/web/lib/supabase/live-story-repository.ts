@@ -6,7 +6,7 @@ import type {
   LiveStoryRepository,
   OpenSessionInput,
   SessionTurnRecord,
-} from "../live-story/repository";
+} from "@idiomatic/live-story";
 
 /**
  * Supabase-backed LiveStoryRepository (0005_live_story.sql). Every query filters/stamps

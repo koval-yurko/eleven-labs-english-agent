@@ -2,12 +2,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { LiveSession, StartStoryToken, TranscriptDTO } from "@idiomatic/contracts";
 import { makeHarness } from "../helpers";
-import { StartStoryService } from "../../lib/live-story/service";
-import { TranscriptService } from "../../lib/live-story/transcript-service";
-import { InMemoryLiveStoryRepository } from "../../lib/live-story/in-memory-repository";
+import {
+  StartStoryService,
+  TranscriptService,
+  InMemoryLiveStoryRepository,
+  type LiveStoryConfig,
+  type TokenFetch,
+} from "@idiomatic/live-story";
 import { counterIdGenerator, fixedClock } from "../helpers";
-import type { LiveStoryConfig } from "../../lib/config";
-import type { TokenFetch } from "../../lib/live-tutor/token";
 
 /**
  * Contract tests for the live-story routes against contracts/http-api.md:

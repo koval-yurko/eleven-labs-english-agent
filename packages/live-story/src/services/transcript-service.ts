@@ -1,8 +1,8 @@
 import type { AppendTurnRequest, LiveSession, TranscriptDTO } from "@idiomatic/contracts";
 import { isRoleKindConsistent } from "@idiomatic/contracts";
 import { noopLogger, type Logger } from "@idiomatic/generator";
-import type { LessonRepository } from "../lessons/repository";
-import type { LiveSessionRecord, LiveStoryRepository } from "./repository";
+import type { LessonReader } from "../types";
+import type { LiveSessionRecord, LiveStoryRepository } from "../persistence/repository";
 
 /**
  * Persists and lists the durable live-story transcript (US5). Owner-scoped throughout
@@ -19,7 +19,7 @@ export type AppendTurnsOutcome =
 
 export class TranscriptService {
   constructor(
-    private readonly lessons: LessonRepository,
+    private readonly lessons: LessonReader,
     private readonly repo: LiveStoryRepository,
     private readonly logger: Logger = noopLogger,
   ) {}

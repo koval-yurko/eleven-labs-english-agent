@@ -16,7 +16,7 @@ import {
   setScenario,
   shouldOfferReturnToLesson,
   type NarrationState,
-} from "../../lib/live-story/narration-state";
+} from "@idiomatic/live-story";
 
 /**
  * T014 [US1] — Unit tests for the pure narration state machine. Coverage guarantee, the

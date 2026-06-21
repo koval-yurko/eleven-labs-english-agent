@@ -6,8 +6,6 @@ import type { AppendTurnRequest, LessonPlan, StartStoryToken } from "@idiomatic/
 import {
   buildClientTools,
   type ClientToolsHost,
-} from "../../../../lib/live-story/client-tools";
-import {
   appendCaption,
   type Caption,
   correctLastTeacherCaption,
@@ -17,8 +15,8 @@ import {
   remainingItems,
   shouldOfferReturnToLesson,
   type NarrationState,
-} from "../../../../lib/live-story/narration-state";
-import { scenarioPinText } from "../../../../lib/live-story/plan-context";
+  scenarioPinText,
+} from "@idiomatic/live-story/client";
 
 /**
  * Binds the ElevenLabs realtime session to the pure narration state machine (US1, R1/R3).

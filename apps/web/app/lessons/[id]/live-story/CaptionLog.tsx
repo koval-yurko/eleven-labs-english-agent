@@ -1,6 +1,6 @@
 "use client";
 
-import type { Caption } from "../../../../lib/live-story/narration-state";
+import type { Caption } from "@idiomatic/live-story/client";
 
 /**
  * Live subtitle captions of both voices (US4, FR-018/FR-019). Each entry is a finalized,
