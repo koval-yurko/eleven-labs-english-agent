@@ -13,11 +13,12 @@ drop table if exists qa_exchanges;
 drop type if exists qa_turn_role;
 
 -- Pre-rendered audio storage. The two owner RLS policies live on storage.objects (which
--- persists), so drop them explicitly; then clear the bucket's objects and the bucket itself.
+-- persists), so drop them explicitly here (DDL is permitted). The bucket itself and its
+-- objects CANNOT be removed via SQL — Supabase blocks direct DML on storage.objects/buckets
+-- ("Use the Storage API instead"); the `lesson-audio` bucket was removed out-of-band via the
+-- Storage API.
 drop policy if exists "lesson audio owner read" on storage.objects;
 drop policy if exists "lesson audio owner write" on storage.objects;
-delete from storage.objects where bucket_id = 'lesson-audio';
-delete from storage.buckets where id = 'lesson-audio';
 
 -- Pre-rendered audio table.
 drop table if exists lesson_audio;

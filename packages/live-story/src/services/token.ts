@@ -5,7 +5,7 @@
  */
 export type TokenFetch = typeof fetch;
 
-export interface MintedToken {
+interface MintedToken {
   conversationToken: string;
   connectionType: "webrtc";
 }

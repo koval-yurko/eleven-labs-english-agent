@@ -11,9 +11,7 @@ import type { LessonRecord, SourceItemRecord } from "./types";
 export interface CreatePendingLessonInput {
   ownerId: string;
   generationInput: { items: string[] };
-  requestedItemCount: number;
   acceptedItemCount: number;
-  skippedItemCount: number;
   targetDurationSeconds: number;
   sourceItems: Omit<SourceItemRecord, "id" | "lessonId" | "ownerId">[];
 }

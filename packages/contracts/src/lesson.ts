@@ -43,7 +43,6 @@ export type SkippedEntry = z.infer<typeof SkippedEntry>;
 export const LessonStatusDTO = z.object({
   id: z.string(),
   status: LessonStatus,
-  requestedItemCount: z.number().int().min(0),
   acceptedItemCount: z.number().int().min(0),
   skipped: z.array(SkippedEntry),
   errorReason: z.string().nullable(),

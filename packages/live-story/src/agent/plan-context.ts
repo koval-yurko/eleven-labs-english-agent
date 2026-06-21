@@ -8,7 +8,7 @@ import type { LessonPlan } from "@idiomatic/contracts";
  * contract).
  */
 
-export const ORIGINAL_SCENARIO_LABEL = "the lesson's original everyday setting";
+const ORIGINAL_SCENARIO_LABEL = "the lesson's original everyday setting";
 
 export function buildPlanDynamicVariables(
   plan: LessonPlan,

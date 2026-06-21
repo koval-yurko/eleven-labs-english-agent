@@ -79,10 +79,6 @@ export function remainingItems(state: NarrationState): PlanItem[] {
   return state.items.filter((i) => !state.covered.has(i.sourceItemId));
 }
 
-export function allCovered(state: NarrationState): boolean {
-  return remainingItems(state).length === 0;
-}
-
 /** The length budget is "spent" once we've narrated at least as many beats as it allows. */
 export function budgetSpent(state: NarrationState): boolean {
   return state.beatsNarrated >= state.beatBudget;

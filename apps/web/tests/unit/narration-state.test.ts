@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { LessonPlan } from "@idiomatic/contracts";
 import {
   advanceNarration,
-  allCovered,
   appendCaption,
   type Caption,
   CLARIFICATION_ESCAPE_THRESHOLD,
@@ -95,7 +94,7 @@ describe("advanceNarration completion guard", () => {
       s = step.state;
       expect(step.instruction).not.toMatch(/concludeLesson/);
     }
-    expect(allCovered(s)).toBe(false);
+    expect(remainingItems(s).length).toBeGreaterThan(0);
   });
 
   it("concludes only after every item is covered AND the budget is spent", () => {
@@ -103,7 +102,7 @@ describe("advanceNarration completion guard", () => {
     s = markItemTaught(s, "si-1").state;
     s = markItemTaught(s, "si-2").state;
     const { state, instruction } = runToConclude(s);
-    expect(allCovered(state)).toBe(true);
+    expect(remainingItems(state).length).toBe(0);
     expect(instruction).toMatch(/concludeLesson/);
   });
 
@@ -148,13 +147,13 @@ describe("setScenario (US2)", () => {
     s = markItemTaught(s, "si-1").state;
     for (let i = 0; i < 5; i++) s = advanceNarration(s).state; // burn beats
     s = setScenario(s, "the deep sea").state;
-    expect(allCovered(s)).toBe(false);
+    expect(remainingItems(s).length).toBeGreaterThan(0);
     // The machine must still demand the owed item, not conclude.
     const step = advanceNarration(s);
     expect(step.instruction).toContain("piece of cake");
     expect(step.instruction).toContain("the deep sea");
     s = markItemTaught(step.state, "si-2").state;
-    expect(allCovered(s)).toBe(true);
+    expect(remainingItems(s).length).toBe(0);
     expect(requestConclude(s).ok).toBe(true);
   });
 });

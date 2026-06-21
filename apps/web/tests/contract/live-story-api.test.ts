@@ -87,9 +87,7 @@ beforeAll(async () => {
   const pending = await h.repo.createPendingLesson({
     ownerId: "auth0|alice",
     generationInput: { items: ["under the weather"] },
-    requestedItemCount: 1,
     acceptedItemCount: 1,
-    skippedItemCount: 0,
     targetDurationSeconds: 450,
     sourceItems: [
       {

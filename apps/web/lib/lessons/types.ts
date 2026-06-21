@@ -14,9 +14,7 @@ export interface LessonRecord {
   id: string;
   ownerId: string;
   status: LessonStatus;
-  requestedItemCount: number;
   acceptedItemCount: number;
-  skippedItemCount: number;
   targetDurationSeconds: number;
   script: LessonScript | null;
   errorReason: string | null;

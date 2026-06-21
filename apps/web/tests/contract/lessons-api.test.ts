@@ -83,7 +83,6 @@ describe("POST /api/lessons contract", () => {
     const body = await res.json();
     expect(() => LessonStatusDTO.parse(body)).not.toThrow();
     expect(body.status).toBe("pending");
-    expect(body.requestedItemCount).toBe(3);
     expect(body.acceptedItemCount).toBe(3);
     expect(body.skipped).toEqual([]);
   });

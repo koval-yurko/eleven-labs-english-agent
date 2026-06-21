@@ -22,8 +22,8 @@ export interface ClientToolsHost {
   onScenarioChange?(scenario: string): void;
 }
 
-export type ClientToolHandler = (params: Record<string, unknown>) => string;
-export type ClientToolMap = Record<string, ClientToolHandler>;
+type ClientToolHandler = (params: Record<string, unknown>) => string;
+type ClientToolMap = Record<string, ClientToolHandler>;
 
 export function buildClientTools(host: ClientToolsHost): ClientToolMap {
   return {

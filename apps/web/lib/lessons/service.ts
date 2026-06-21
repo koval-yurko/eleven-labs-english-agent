@@ -84,9 +84,7 @@ export class LessonService {
     const lesson = await this.repo.createPendingLesson({
       ownerId,
       generationInput: { items: result.items.map((i) => i.rawText) },
-      requestedItemCount: result.items.length,
       acceptedItemCount: result.accepted.length,
-      skippedItemCount: result.skipped.length,
       targetDurationSeconds,
       sourceItems: result.items.map((i) => ({
         rawText: i.rawText,
@@ -193,7 +191,6 @@ function toStatusDTO(lesson: LessonRecord, skipped: SkippedEntry[]): LessonStatu
   return {
     id: lesson.id,
     status: lesson.status,
-    requestedItemCount: lesson.requestedItemCount,
     acceptedItemCount: lesson.acceptedItemCount,
     skipped,
     errorReason: lesson.errorReason,
