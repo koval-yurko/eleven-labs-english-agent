@@ -19,14 +19,14 @@ An interactive English lesson generator. Give it a list of words, sentences, or 
 
 Supporting pieces:
 
-| Concern | Choice |
-|---|---|
-| Frontend | Next.js (web) |
-| Lesson generation | Mastra workflow + Claude |
+| Concern                | Choice                                  |
+|------------------------|-----------------------------------------|
+| Frontend               | Next.js (web)                           |
+| Lesson generation      | Mastra workflow + Claude                |
 | Scripted podcast audio | ElevenLabs Text to Dialogue (Eleven v3) |
-| Live tutor LLM | Claude (native in ElevenLabs Agents) |
-| Data & storage | Supabase (Postgres + Storage) |
-| Auth | Auth0 |
+| Live tutor LLM         | Claude (native in ElevenLabs Agents)    |
+| Data & storage         | Supabase (Postgres + Storage)           |
+| Auth                   | Auth0                                   |
 
 ## How it fits together
 
@@ -59,15 +59,15 @@ pnpm --filter @idiomatic/web dev      # Next.js app at http://localhost:3000
 
 ### Quality gates
 
-| Command | What it checks |
-|---|---|
-| `pnpm test` | Unit + contract + integration (Vitest); providers mocked, **no live keys needed** |
-| `pnpm typecheck` | Strict TS across all packages |
-| `pnpm lint` | ESLint (flat config) |
-| `pnpm eval:generation` | Generation-quality gate — coverage, two-voice, story-not-definition, length. Runs LIVE with `ANTHROPIC_API_KEY` + `ELEVENLABS_API_KEY`, else deterministic mocks (length reported but not gated). Uploads runs to LangSmith when `LANGSMITH_API_KEY` is set. |
-| `pnpm test:e2e` | Playwright submit → generate → replay across desktop + mobile viewports (SC-009). One-time `npx playwright install chromium`. |
-| `pnpm smoke:generate` | One real Claude + ElevenLabs lesson written to `/tmp/idiomatic-smoke.mp3` |
-| `pnpm check:bundle` / `pnpm rls:smoke` | Security hardening: no provider secrets in the client bundle; RLS smoke test |
+| Command                                | What it checks                                                                                                                                                                                                                                               |
+|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `pnpm test`                            | Unit + contract + integration (Vitest); providers mocked, **no live keys needed**                                                                                                                                                                            |
+| `pnpm typecheck`                       | Strict TS across all packages                                                                                                                                                                                                                                |
+| `pnpm lint`                            | ESLint (flat config)                                                                                                                                                                                                                                         |
+| `pnpm eval:generation`                 | Generation-quality gate — coverage, two-voice, story-not-definition, length. Runs LIVE with `ANTHROPIC_API_KEY` + `ELEVENLABS_API_KEY`, else deterministic mocks (length reported but not gated). Uploads runs to LangSmith when `LANGSMITH_API_KEY` is set. |
+| `pnpm test:e2e`                        | Playwright submit → generate → replay across desktop + mobile viewports (SC-009). One-time `npx playwright install chromium`.                                                                                                                                |
+| `pnpm smoke:generate`                  | One real Claude + ElevenLabs lesson written to `/tmp/idiomatic-smoke.mp3`                                                                                                                                                                                    |
+| `pnpm check:bundle` / `pnpm rls:smoke` | Security hardening: no provider secrets in the client bundle; RLS smoke test                                                                                                                                                                                 |
 
 **E2E auth:** the unauthenticated gating checks run anywhere. The full authenticated flow
 needs a signed-in Auth0 session — supply a Playwright `storageState` file via
@@ -124,11 +124,13 @@ Early development. Full requirements, data model, API surface, and build phases 
   Row-Level Security becomes a live second layer. Steps are documented in
   [`supabase/README.md`](./supabase/README.md) §T037.
 
-## MCP
+## MCP & Skills
 
 ```
 claude mcp add --scope local --transport http supabase "https://mcp.supabase.com/mcp?read_only=true"
 
 claude mcp remove supabase
+
+npx skills add langchain-ai/langsmith-skills --agent claude-code --skill '*' --yes --global
 ```
 
