@@ -109,7 +109,7 @@ A bounded-concurrency pool for the per-batch ElevenLabs Text-to-Dialogue renders
 
 ## S9 — Improve LangSmith tracing
 
-**Status**: To-do
+**Status**: In progress (008) — spec, plan & tasks done; implementation pending
 
 Make the pipeline observable in LangSmith end-to-end, not just for batch generation: extend tracing to the adaptive live-narrated story session (session, turns, scenario changes, coverage/beat progress, client-tool calls) and enrich the existing generation traces with structured run hierarchy, inputs/outputs, and metadata correlated by lesson/session id. LangSmith stays a soft dependency that no-ops without a key.
 
@@ -139,7 +139,7 @@ Make the pipeline observable in LangSmith end-to-end, not just for batch generat
 | S6    | adaptive-progress   | —      | ☐    | ☐    | ☐     | ☐           |
 | S7    | internal-logging    | 003    | ☑    | ☑    | ☑     | ☑           |
 | S8    | tts-parallel-render | 004    | ☑    | ☑    | ☑     | ☑           |
-| S9    | langsmith-tracing   | —      | ☐    | ☐    | ☐     | ☐           |
+| S9    | langsmith-tracing   | 008    | ☑    | ☑    | ☑     | ☐           |
 
 ---
 
