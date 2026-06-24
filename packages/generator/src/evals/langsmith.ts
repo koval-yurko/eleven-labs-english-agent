@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { CaseEvaluation } from "./harness";
+import { getSharedLangSmithClient } from "../observability/tracing-runtime";
 
 /**
  * Optional LangSmith upload for eval runs (T051/T052). LangSmith is a *soft* dependency:
@@ -36,31 +38,18 @@ interface LangSmithClientLike {
   ): Promise<unknown>;
 }
 
-type ClientCtor = new (opts: { apiKey: string }) => LangSmithClientLike;
-interface LangSmithModule {
-  Client?: ClientCtor;
-  default?: { Client?: ClientCtor };
-}
-
 /**
- * Lazily resolve a LangSmith Client, or null if the SDK isn't installed / not configured.
- * Dynamic import keeps `langsmith` out of the runtime path for the app and CI.
+ * Resolve the shared LangSmith Client (or null if the SDK isn't installed / not configured),
+ * narrowed to the slice the eval upload uses.
  */
 export async function getLangSmithClient(
   env: LangSmithEnv = process.env,
 ): Promise<LangSmithClientLike | null> {
-  const apiKey = langSmithApiKey(env);
-  if (!apiKey) return null;
-  try {
-    // Cast via unknown: the real SDK types are broader than the slice we use.
-    const mod = (await import("langsmith")) as unknown as LangSmithModule;
-    const Client = mod.Client ?? mod.default?.Client;
-    if (!Client) return null;
-    return new Client({ apiKey });
-  } catch {
-    // SDK not installed — degrade silently to no-op.
-    return null;
-  }
+  // Delegate to the shared, flushable client so eval uploads share the one queue that
+  // `flushTracing()` drains before the CLI exits (otherwise the auto-batch never sends).
+  // Cast via unknown: the real SDK Client is broader than the slice we use here.
+  const client = await getSharedLangSmithClient(env as NodeJS.ProcessEnv);
+  return (client as unknown as LangSmithClientLike) ?? null;
 }
 
 /** Upload one eval run per case with scorer results attached as feedback. Best-effort. */
@@ -76,10 +65,18 @@ export async function uploadEvalRun(
 
   for (const evaluation of evaluations) {
     try {
-      const run = await client.createRun({
+      // We mint the run id ourselves rather than relying on createRun's return value (void in
+      // this SDK version) so feedback can always be attached. start_time + end_time close the
+      // run out — without end_time it would stay "pending"/running forever in the UI.
+      const runId = randomUUID();
+      const now = Date.now();
+      await client.createRun({
+        id: runId,
         name: `generation-eval:${evaluation.case.id}`,
         run_type: "chain",
         project_name: project,
+        start_time: now,
+        end_time: now,
         inputs: { items: evaluation.case.input },
         outputs: {
           pass: evaluation.pass,
@@ -89,9 +86,7 @@ export async function uploadEvalRun(
         error: evaluation.error,
       });
 
-      // createRun may return void in some SDK versions; only add feedback when we have an id.
-      const runId = run && typeof run === "object" ? run.id : undefined;
-      if (runId && typeof client.createFeedback === "function") {
+      if (typeof client.createFeedback === "function") {
         for (const score of evaluation.scores) {
           await client.createFeedback(runId, score.key, {
             score: score.score,

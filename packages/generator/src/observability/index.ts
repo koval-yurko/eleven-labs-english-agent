@@ -9,3 +9,16 @@ export { LEVEL_RANK } from "./logger";
 export { JsonLogger, type JsonLoggerOptions } from "./json-logger";
 export { noopLogger } from "./noop-logger";
 export { redactFields } from "./redact";
+export {
+  noopSessionTracer,
+  createLangSmithSessionTracer,
+  type SessionTracer,
+  type SessionTrace,
+  type SessionTraceTurn,
+} from "./session-tracer";
+export {
+  getSharedLangSmithClient,
+  flushTracing,
+  installTracingShutdownHooks,
+  type SharedLangSmithClient,
+} from "./tracing-runtime";

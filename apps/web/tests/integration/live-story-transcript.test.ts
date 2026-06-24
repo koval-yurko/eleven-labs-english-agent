@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AppendTurnRequest } from "@idiomatic/contracts";
 import { makeHarness } from "../helpers";
 import { TranscriptService, InMemoryLiveStoryRepository } from "@idiomatic/live-story";
+import type { SessionTrace, SessionTracer } from "@idiomatic/generator";
 import { counterIdGenerator, fixedClock } from "../helpers";
 
 /**
@@ -96,6 +97,44 @@ describe("TranscriptService.appendTurns", () => {
     const out = await svc.appendTurns(OWNER, lessonId, req({ turns: [{ role: "teacher", kind: "narration", text: "   " }] }));
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.status).toBe(400);
+  });
+});
+
+describe("TranscriptService session tracing", () => {
+  it("records one upsertable session trace: open on the first append, patch + finalize on end", async () => {
+    const calls: SessionTrace[] = [];
+    const tracer: SessionTracer = {
+      async recordSession(trace) {
+        calls.push(trace);
+      },
+    };
+    const traced = new TranscriptService(h.repo, repo, undefined, tracer);
+
+    await traced.appendTurns(OWNER, lessonId, req({ turns: [{ role: "teacher", kind: "narration", text: "Once..." }] }));
+    await traced.appendTurns(
+      OWNER,
+      lessonId,
+      req({ turns: [{ role: "learner", kind: "question", text: "Why?" }], ended: true }),
+    );
+
+    expect(calls).toHaveLength(2);
+    // First append opens the run (isNew), reusing the session id so later appends patch it.
+    expect(calls[0]).toMatchObject({ sessionId, lessonId, ownerId: OWNER, isNew: true, ended: false });
+    expect(calls[0]?.turns).toHaveLength(1);
+    // The `ended` append patches the same run with the full transcript and finalizes it.
+    expect(calls[1]).toMatchObject({ sessionId, isNew: false, ended: true, status: "ended" });
+    expect(calls[1]?.turns.map((t) => t.role)).toEqual(["teacher", "learner"]);
+  });
+
+  it("never lets a throwing tracer break transcript persistence", async () => {
+    const tracer: SessionTracer = {
+      async recordSession() {
+        throw new Error("langsmith down");
+      },
+    };
+    const traced = new TranscriptService(h.repo, repo, undefined, tracer);
+    const out = await traced.appendTurns(OWNER, lessonId, req({ turns: [{ role: "teacher", kind: "narration", text: "Hi" }] }));
+    expect(out.ok).toBe(true);
   });
 });
 

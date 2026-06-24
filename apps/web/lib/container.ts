@@ -15,7 +15,7 @@ import {
 } from "@idiomatic/live-story";
 import { SupabaseLiveStoryRepository } from "./supabase/live-story-repository";
 import { liveStoryConfig } from "./config";
-import type { Logger } from "@idiomatic/generator";
+import { createLangSmithSessionTracer, type Logger } from "@idiomatic/generator";
 
 /**
  * Composition root. Uses Supabase when configured; otherwise an in-memory stack so the app
@@ -92,6 +92,12 @@ let transcriptService: TranscriptService | null = null;
 export function getTranscriptService(): TranscriptService {
   if (transcriptService) return transcriptService;
   const { repo, liveStoryRepo, logger } = getInfra();
-  transcriptService = new TranscriptService(repo, liveStoryRepo, logger);
+  // Soft LangSmith dep: a no-op unless LANGSMITH_API_KEY is set (mirrors generation tracing).
+  transcriptService = new TranscriptService(
+    repo,
+    liveStoryRepo,
+    logger,
+    createLangSmithSessionTracer(),
+  );
   return transcriptService;
 }

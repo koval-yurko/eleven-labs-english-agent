@@ -14,6 +14,7 @@ import { loadGeneratorConfig, ClaudeLlmAdapter, MockLlmAdapter } from "../index"
 import { EVAL_DATASET } from "./dataset";
 import { evaluateSuite, ALL_GATING } from "./harness";
 import { uploadEvalRun, isLangSmithEnabled, langSmithProject } from "./langsmith";
+import { flushTracing } from "../observability/tracing-runtime";
 
 // Load env BEFORE reading any provider keys (modules above don't read env at import time).
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -59,6 +60,9 @@ if (isLangSmithEnabled(env)) {
   const res = await uploadEvalRun(evaluations, env);
   if (res) console.log(`\n↥ uploaded ${res.uploaded} run(s) to LangSmith project "${res.project}"`);
   else console.log(`\n(LangSmith key set but upload unavailable — install the \`langsmith\` package)`);
+  // Drain the auto-batch queue before exit — `process.exit()` below would otherwise kill the
+  // background sender mid-flight, leaving runs "pending" with their feedback dropped.
+  await flushTracing();
 } else {
   console.log(`\n(LangSmith disabled — set LANGSMITH_API_KEY to upload to "${langSmithProject(env)}")`);
 }

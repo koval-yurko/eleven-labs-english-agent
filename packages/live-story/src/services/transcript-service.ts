@@ -1,6 +1,11 @@
 import type { AppendTurnRequest, LiveSession, TranscriptDTO } from "@idiomatic/contracts";
 import { isRoleKindConsistent } from "@idiomatic/contracts";
-import { noopLogger, type Logger } from "@idiomatic/generator";
+import {
+  noopLogger,
+  noopSessionTracer,
+  type Logger,
+  type SessionTracer,
+} from "@idiomatic/generator";
 import type { LessonReader } from "../types";
 import type { LiveSessionRecord, LiveStoryRepository } from "../persistence/repository";
 
@@ -22,6 +27,7 @@ export class TranscriptService {
     private readonly lessons: LessonReader,
     private readonly repo: LiveStoryRepository,
     private readonly logger: Logger = noopLogger,
+    private readonly tracer: SessionTracer = noopSessionTracer,
   ) {}
 
   async appendTurns(
@@ -40,6 +46,8 @@ export class TranscriptService {
     if (!session || session.lessonId !== lessonId) {
       return { ok: false, status: 404, code: "not_found", message: "Session not found." };
     }
+    // Captured before appending so the tracer knows whether to open or patch the run.
+    const priorTurnCount = session.turns.length;
 
     if (req.turns.length === 0) {
       return { ok: false, status: 400, code: "invalid_body", message: "At least one turn is required." };
@@ -92,6 +100,30 @@ export class TranscriptService {
         // Transcript text is private learner content — debug only (Constitution V).
         ...(log.enabled("debug") ? { text: t.text } : {}),
       });
+    }
+
+    // Trace the whole session to LangSmith (best-effort, off the speech path): the run id is
+    // the session id, so the first append opens it and every later one — including this
+    // `ended` append — upserts it. The tracer swallows its own errors; the catch is defence
+    // in depth so a tracer change can never break persistence.
+    try {
+      await this.tracer.recordSession({
+        sessionId: updated.id,
+        lessonId,
+        ownerId,
+        scenario: updated.scenario,
+        status: updated.status,
+        turns: updated.turns.map((t) => ({
+          role: t.role,
+          kind: t.kind,
+          text: t.text,
+          turnIndex: t.turnIndex,
+        })),
+        isNew: priorTurnCount === 0,
+        ended: Boolean(req.ended),
+      });
+    } catch {
+      /* best-effort */
     }
 
     return { ok: true, session: toDTO(updated) };

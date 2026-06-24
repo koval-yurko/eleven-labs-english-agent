@@ -1,5 +1,6 @@
 import { generateLesson, type GenerateLessonDeps, type GenerateLessonResult } from "../index";
 import type { ClassifiedItem } from "../teachability";
+import { getSharedLangSmithClient } from "../observability/tracing-runtime";
 
 /**
  * Generation traceability via LangSmith (T052, Constitution III — generation must be
@@ -41,16 +42,23 @@ export async function generateLessonTraced(
 
   try {
     const { traceable } = await import("langsmith/traceable");
+    // Trace through the shared client so generation runs sit in the one queue shutdown drains.
+    const client = (await getSharedLangSmithClient()) ?? undefined;
     const run = traceable(
       async ({ items }: { items: ClassifiedItem[] }) => generateLesson(items, deps),
       {
         name: "generateLesson",
         run_type: "chain",
+        ...(client ? { client: client as never } : {}),
         project_name: langSmithProject(),
         metadata: {
           modelId: deps.config.modelId,
           promptVersion: deps.llm.promptVersion,
           ...meta,
+          // Share the lesson's LangSmith Thread (same key the live-story tracer uses) so a
+          // lesson's generation and every spoken session appear in one timeline. Omitted when
+          // lessonId is unknown (e.g. eval/ad-hoc runs) so those don't form a bogus thread.
+          ...(meta.lessonId ? { thread_id: meta.lessonId } : {}),
         },
         processInputs: (inputs: { items: ClassifiedItem[] }) => ({
           itemCount: inputs.items.length,
