@@ -4,6 +4,7 @@ import type {
   LiveSessionRecord,
   LiveStoryRepository,
   OpenSessionInput,
+  SessionCorrelation,
   SessionTurnRecord,
 } from "./repository";
 
@@ -23,6 +24,7 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
   ) {}
 
   async openSession(input: OpenSessionInput): Promise<LiveSessionRecord> {
+    const now = this.clock.now().toISOString();
     const record: LiveSessionRecord = {
       id: this.ids.next(),
       lessonId: input.lessonId,
@@ -30,8 +32,9 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
       status: "active",
       scenario: input.scenario,
       elevenlabsConversationId: null,
-      createdAt: this.clock.now().toISOString(),
+      createdAt: now,
       endedAt: null,
+      lastActivityAt: now,
       turns: [],
     };
     this.sessions.set(record.id, record);
@@ -73,6 +76,7 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
       };
       s.turns.push(turn);
     }
+    s.lastActivityAt = this.clock.now().toISOString();
     return structuredClone(s);
   }
 
@@ -80,6 +84,7 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
     const s = this.sessions.get(sessionId);
     if (!s || s.ownerId !== ownerId) return;
     s.scenario = scenario;
+    s.lastActivityAt = this.clock.now().toISOString();
   }
 
   async endSession(ownerId: string, sessionId: string): Promise<void> {
@@ -97,6 +102,7 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
     const s = this.sessions.get(sessionId);
     if (!s || s.ownerId !== ownerId) return;
     if (!s.elevenlabsConversationId) s.elevenlabsConversationId = conversationId;
+    s.lastActivityAt = this.clock.now().toISOString();
   }
 
   async listTranscript(ownerId: string, lessonId: string): Promise<LiveSessionRecord[]> {
@@ -105,5 +111,29 @@ export class InMemoryLiveStoryRepository implements LiveStoryRepository {
         .filter((s) => s.ownerId === ownerId && s.lessonId === lessonId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
+  }
+
+  async findSessionByConversationId(
+    conversationId: string,
+  ): Promise<SessionCorrelation | null> {
+    // Service-role: scan across owners (no owner filter) — the webhook has no owner in hand.
+    for (const s of this.sessions.values()) {
+      if (s.elevenlabsConversationId === conversationId) {
+        return { sessionId: s.id, lessonId: s.lessonId, ownerId: s.ownerId };
+      }
+    }
+    return null;
+  }
+
+  async findStaleActiveSessions(
+    idleOlderThan: Date,
+    limit: number,
+  ): Promise<SessionCorrelation[]> {
+    const cutoff = idleOlderThan.getTime();
+    return [...this.sessions.values()]
+      .filter((s) => s.status === "active" && new Date(s.lastActivityAt).getTime() < cutoff)
+      .sort((a, b) => a.lastActivityAt.localeCompare(b.lastActivityAt))
+      .slice(0, limit)
+      .map((s) => ({ sessionId: s.id, lessonId: s.lessonId, ownerId: s.ownerId }));
   }
 }

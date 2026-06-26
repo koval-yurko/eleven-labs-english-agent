@@ -9,12 +9,14 @@ import { getServiceSupabase, hasSupabaseEnv } from "./supabase/server";
 import { SupabaseLessonRepository } from "./supabase/lesson-repository";
 import {
   InMemoryLiveStoryRepository,
+  OtelWebhookService,
   StartStoryService,
+  SweepService,
   TranscriptService,
   type LiveStoryRepository,
 } from "@idiomatic/live-story";
 import { SupabaseLiveStoryRepository } from "./supabase/live-story-repository";
-import { liveStoryConfig } from "./config";
+import { liveStoryConfig, liveStoryTracingConfig } from "./config";
 import { createLangSmithSessionTracer, type Logger } from "@idiomatic/generator";
 
 /**
@@ -100,4 +102,31 @@ export function getTranscriptService(): TranscriptService {
     createLangSmithSessionTracer(),
   );
   return transcriptService;
+}
+
+let otelWebhookService: OtelWebhookService | null = null;
+
+export function getOtelWebhookService(): OtelWebhookService {
+  if (otelWebhookService) return otelWebhookService;
+  const { liveStoryRepo, logger } = getInfra();
+  // The live-story repo here is the service-role Supabase client (or in-memory in dev/CI), so
+  // the correlation lookup can resolve a conversation id to its owner without a learner session.
+  const tracing = liveStoryTracingConfig();
+  otelWebhookService = new OtelWebhookService(liveStoryRepo, {
+    webhookSecret: tracing.webhookSecret,
+    langsmithProject: tracing.langsmithProject,
+    langsmithEndpoint: tracing.langsmithEndpoint,
+    logger,
+  });
+  return otelWebhookService;
+}
+
+let sweepService: SweepService | null = null;
+
+export function getSweepService(): SweepService {
+  if (sweepService) return sweepService;
+  const { liveStoryRepo, logger } = getInfra();
+  // Soft LangSmith dep: the finalized abandoned-session trace no-ops without LANGSMITH_API_KEY.
+  sweepService = new SweepService(liveStoryRepo, createLangSmithSessionTracer(), logger);
+  return sweepService;
 }

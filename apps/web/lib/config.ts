@@ -33,3 +33,44 @@ export function liveStoryConfig(env: NodeJS.ProcessEnv = process.env): LiveStory
     targetMaxSeconds: intEnv(env.TARGET_MAX_SECONDS, DEFAULT_TARGET_MAX_SECONDS),
   };
 }
+
+const DEFAULT_LANGSMITH_ENDPOINT = "https://api.smith.langchain.com";
+const DEFAULT_LANGSMITH_PROJECT = "idiomatic-generation";
+const DEFAULT_SWEEP_IDLE_MINUTES = 10;
+const DEFAULT_SWEEP_BATCH_LIMIT = 100;
+
+/**
+ * Server-side config for live-story session tracing (008-langsmith-tracing). All values are
+ * SERVER-ONLY (Constitution V): the ElevenLabs webhook HMAC secret, the cron/sweep secret,
+ * and the LangSmith OTLP sink coordinates. Everything degrades to a no-op when unset — the
+ * forwarder skips (no `LANGSMITH_API_KEY`) and the webhook/sweep routes reject unsigned calls.
+ */
+export interface LiveStoryTracingConfig {
+  /** ElevenLabs post-call webhook HMAC secret; webhook rejects all posts when unset. */
+  webhookSecret?: string;
+  /** Shared secret the scheduled sweep route requires (cron auth, not Auth0). */
+  sweepSecret?: string;
+  /** LangSmith base URL; OTLP ingest is `${langsmithEndpoint}/otel/v1/traces`. */
+  langsmithEndpoint: string;
+  /** LangSmith project the forwarded spans land in (matches the run-API tracer's project). */
+  langsmithProject: string;
+  /** Sessions idle longer than this are force-closed by the sweep (FR-003, clarification Q1). */
+  sweepIdleMinutes: number;
+  /** Max sessions finalized per sweep tick; the rest are caught next run. */
+  sweepBatchLimit: number;
+}
+
+export function liveStoryTracingConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): LiveStoryTracingConfig {
+  return {
+    webhookSecret: env.ELEVENLABS_CONVAI_WEBHOOK_SECRET?.trim() || undefined,
+    sweepSecret: env.CRON_SECRET?.trim() || undefined,
+    langsmithEndpoint:
+      env.LANGSMITH_ENDPOINT?.trim() || env.LANGCHAIN_ENDPOINT?.trim() || DEFAULT_LANGSMITH_ENDPOINT,
+    langsmithProject:
+      env.LANGSMITH_PROJECT?.trim() || env.LANGCHAIN_PROJECT?.trim() || DEFAULT_LANGSMITH_PROJECT,
+    sweepIdleMinutes: intEnv(env.LIVE_STORY_SWEEP_IDLE_MINUTES, DEFAULT_SWEEP_IDLE_MINUTES),
+    sweepBatchLimit: intEnv(env.LIVE_STORY_SWEEP_BATCH_LIMIT, DEFAULT_SWEEP_BATCH_LIMIT),
+  };
+}

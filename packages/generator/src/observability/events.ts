@@ -23,4 +23,7 @@ export type EventId =
   | "story.scenario" // a scenario change pinned for the rest of the session (latest wins)
   | "story.turn" // a captured/persisted session turn (role, kind, turnIndex; text @debug)
   | "story.error" // live-story session / persistence failure
-  | "story.unavailable"; // live story not configured/reachable; fallback surfaced (FR-026)
+  | "story.unavailable" // live story not configured/reachable; fallback surfaced (FR-026)
+  // LangSmith session tracing (008-langsmith-tracing). Emitted by the webhook relay + sweep.
+  | "story.trace" // post-call OTel delivery relayed to LangSmith (matched/unmatched/no_sink)
+  | "story.sweep"; // abandonment sweep finalized N idle sessions (scanned/finalized)

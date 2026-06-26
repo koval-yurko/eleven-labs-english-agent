@@ -12,6 +12,8 @@ export { redactFields } from "./redact";
 export {
   noopSessionTracer,
   createLangSmithSessionTracer,
+  buildSessionRunInputs,
+  buildTurnChildRuns,
   type SessionTracer,
   type SessionTrace,
   type SessionTraceTurn,
@@ -22,3 +24,8 @@ export {
   installTracingShutdownHooks,
   type SharedLangSmithClient,
 } from "./tracing-runtime";
+export {
+  forwardOtlpToLangSmith,
+  type ForwardOtlpOptions,
+  type ForwardOtlpResult,
+} from "./otlp-forward";

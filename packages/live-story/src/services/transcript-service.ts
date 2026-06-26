@@ -113,6 +113,8 @@ export class TranscriptService {
         ownerId,
         scenario: updated.scenario,
         status: updated.status,
+        // Real session start so the trace duration is the conversation length (Tier A, 008).
+        createdAt: updated.createdAt,
         turns: updated.turns.map((t) => ({
           role: t.role,
           kind: t.kind,

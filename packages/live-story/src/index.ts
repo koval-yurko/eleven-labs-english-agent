@@ -22,6 +22,12 @@ export * from "./narration/narration-state";
 export * from "./services/start-story-service";
 export * from "./services/transcript-service";
 export * from "./services/token";
+// 008-langsmith-tracing — session telemetry relay + abandonment sweep
+export * from "./services/hmac";
+export * from "./services/otel-build";
+export * from "./services/otel-enrich";
+export * from "./services/otel-webhook-service";
+export * from "./services/sweep-service";
 
 // persistence/ — transcript storage boundary + in-memory impl
 export * from "./persistence/repository";

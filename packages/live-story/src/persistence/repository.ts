@@ -30,7 +30,24 @@ export interface LiveSessionRecord {
   elevenlabsConversationId: string | null;
   createdAt: string;
   endedAt: string | null;
+  /**
+   * When the owner last touched the session (append / scenario / conversation id). Drives the
+   * abandonment sweep (008-langsmith-tracing): an `active` session idle past the threshold is
+   * force-closed (FR-003). Initialized to `createdAt` on open.
+   */
+  lastActivityAt: string;
   turns: SessionTurnRecord[];
+}
+
+/**
+ * The minimal session identity the webhook + sweep operate on (008-langsmith-tracing). Both
+ * lookups that produce it are service-role / non-owner-scoped (R3/R6): the webhook caller is
+ * ElevenLabs (no learner session), so it must look the owner *up* from the conversation id.
+ */
+export interface SessionCorrelation {
+  sessionId: string;
+  lessonId: string;
+  ownerId: string;
 }
 
 export interface OpenSessionInput {
@@ -77,4 +94,20 @@ export interface LiveStoryRepository {
 
   /** Owner-scoped list of a lesson's sessions, most-recent-first, each with ordered turns. */
   listTranscript(ownerId: string, lessonId: string): Promise<LiveSessionRecord[]>;
+
+  /**
+   * Correlate an ElevenLabs conversation id back to its session/lesson/owner. SERVICE-ROLE /
+   * non-owner-scoped (008-langsmith-tracing, R3): the post-call webhook caller has no owner in
+   * hand and must look it up. Returns null when no session carries the id (caller then forwards
+   * the trace uncorrelated + tagged "unmatched", FR-005).
+   */
+  findSessionByConversationId(conversationId: string): Promise<SessionCorrelation | null>;
+
+  /**
+   * Active sessions whose `lastActivityAt` is older than `idleOlderThan`, bounded by `limit`,
+   * oldest first — the abandonment sweep's work-list (008-langsmith-tracing, R5). SERVICE-ROLE
+   * / non-owner-scoped (operates across owners); each result still carries its `ownerId` so the
+   * sweep finalizes via the existing owner-scoped `endSession`.
+   */
+  findStaleActiveSessions(idleOlderThan: Date, limit: number): Promise<SessionCorrelation[]>;
 }

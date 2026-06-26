@@ -5,6 +5,7 @@ import type {
   LiveSessionRecord,
   LiveStoryRepository,
   OpenSessionInput,
+  SessionCorrelation,
   SessionTurnRecord,
 } from "@idiomatic/live-story";
 
@@ -36,6 +37,7 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
       elevenlabs_conversation_id: null,
       created_at: ts,
       ended_at: null,
+      last_activity_at: ts,
     });
     if (error) throw new Error(`openSession: ${error.message}`);
     return {
@@ -47,6 +49,7 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
       elevenlabsConversationId: null,
       createdAt: ts,
       endedAt: null,
+      lastActivityAt: ts,
       turns: [],
     };
   }
@@ -106,6 +109,14 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
       nextIndex += 1;
     }
 
+    // Bump the activity clock so the abandonment sweep (008) only closes truly idle sessions.
+    const { error: touchErr } = await this.db
+      .from("live_sessions")
+      .update({ last_activity_at: ts })
+      .eq("owner_id", ownerId)
+      .eq("id", sessionId);
+    if (touchErr) throw new Error(`appendTurns (touch): ${touchErr.message}`);
+
     const session = await this.getSession(ownerId, sessionId);
     if (!session) throw new Error("appendTurns: session not found/owned");
     return session;
@@ -114,7 +125,7 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
   async updateScenario(ownerId: string, sessionId: string, scenario: string | null): Promise<void> {
     const { error } = await this.db
       .from("live_sessions")
-      .update({ scenario })
+      .update({ scenario, last_activity_at: this.clock.now().toISOString() })
       .eq("owner_id", ownerId)
       .eq("id", sessionId);
     if (error) throw new Error(`updateScenario: ${error.message}`);
@@ -137,7 +148,10 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
     // Only set when not yet present (reproducibility; don't clobber a prior id).
     const { error } = await this.db
       .from("live_sessions")
-      .update({ elevenlabs_conversation_id: conversationId })
+      .update({
+        elevenlabs_conversation_id: conversationId,
+        last_activity_at: this.clock.now().toISOString(),
+      })
       .eq("owner_id", ownerId)
       .eq("id", sessionId)
       .is("elevenlabs_conversation_id", null);
@@ -177,6 +191,49 @@ export class SupabaseLiveStoryRepository implements LiveStoryRepository {
     return rows.map((r) => toSessionRecord(r, turnsBySession.get(r.id as string) ?? []));
   }
 
+  async findSessionByConversationId(
+    conversationId: string,
+  ): Promise<SessionCorrelation | null> {
+    // SERVICE-ROLE (008-langsmith-tracing, R3): no owner filter — the webhook caller has no
+    // owner in hand and looks it up from the conversation id. Uses live_sessions_conversation_idx.
+    const { data, error } = await this.db
+      .from("live_sessions")
+      .select("id, lesson_id, owner_id")
+      .eq("elevenlabs_conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`findSessionByConversationId: ${error.message}`);
+    if (!data) return null;
+    const r = data as Row;
+    return {
+      sessionId: r.id as string,
+      lessonId: r.lesson_id as string,
+      ownerId: r.owner_id as string,
+    };
+  }
+
+  async findStaleActiveSessions(
+    idleOlderThan: Date,
+    limit: number,
+  ): Promise<SessionCorrelation[]> {
+    // SERVICE-ROLE (008-langsmith-tracing, R5): active sessions idle past the cutoff, oldest
+    // first, bounded. Uses live_sessions_stale_idx (status, last_activity_at).
+    const { data, error } = await this.db
+      .from("live_sessions")
+      .select("id, lesson_id, owner_id")
+      .eq("status", "active")
+      .lt("last_activity_at", idleOlderThan.toISOString())
+      .order("last_activity_at", { ascending: true })
+      .limit(limit);
+    if (error) throw new Error(`findStaleActiveSessions: ${error.message}`);
+    return ((data ?? []) as Row[]).map((r) => ({
+      sessionId: r.id as string,
+      lessonId: r.lesson_id as string,
+      ownerId: r.owner_id as string,
+    }));
+  }
+
   private async loadTurns(ownerId: string, sessionId: string): Promise<SessionTurnRecord[]> {
     const { data, error } = await this.db
       .from("session_turns")
@@ -211,6 +268,8 @@ function toSessionRecord(r: Row, turns: SessionTurnRecord[]): LiveSessionRecord 
     elevenlabsConversationId: (r.elevenlabs_conversation_id as string | null) ?? null,
     createdAt: r.created_at as string,
     endedAt: (r.ended_at as string | null) ?? null,
+    // Backfill to createdAt for any pre-0007 row read before the column default applied.
+    lastActivityAt: (r.last_activity_at as string | null) ?? (r.created_at as string),
     turns,
   };
 }

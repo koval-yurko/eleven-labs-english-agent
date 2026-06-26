@@ -55,24 +55,24 @@ and session cost renders in LangSmith; with `LANGSMITH_API_KEY` unset the route 
 
 ### Tests for User Story 1 ⚠️ (write first, ensure they fail)
 
-- [ ] T008 [P] [US1] Contract test the telemetry envelope schema in `packages/live-story/tests/unit/telemetry-delivery.test.ts`: a captured OTel fixture parses, a captured JSON-variant fixture parses, a truncated/garbage body fails `safeParse`.
-- [ ] T009 [P] [US1] Contract test HMAC verification in `packages/live-story/tests/unit/hmac.test.ts`: a correctly-signed `{timestamp}.{rawBody}` passes; wrong secret, tampered body, and missing header all fail.
-- [ ] T010 [P] [US1] Contract test the pure enricher in `packages/live-story/tests/unit/otel-enrich.test.ts`: `lessonId`/`ownerId` attributes present on output; `unmatched:true` omits lesson/owner and adds the `unmatched` tag.
-- [ ] T011 [P] [US1] Contract test the OTLP forwarder in `packages/generator/tests/unit/otlp-forward.test.ts`: no `LANGSMITH_API_KEY` → `{ok:false, reason:"no_sink"}` and no fetch call; with key → POST to `${endpoint}/otel/v1/traces` carrying `x-api-key` + `Langsmith-Project`; a non-2xx downstream → `{ok:false, reason:"forward_failed"}`.
-- [ ] T012 [P] [US1] Extend `packages/generator/tests/unit/tracing-runtime.test.ts` for Tier A: captured `createRun` payload has one child run per turn, `start_time` from the session's `createdAt` (not wall-clock), `end_time` only when ended, and `scenario`/`status`/`turnCount`/`termination_reason` metadata.
-- [ ] T013 [US1] Integration test the webhook route in `apps/web/tests/integration/otel-webhook.test.ts` (mocked fetch + in-memory repo): valid signature + known conversation → enriched spans forwarded (`status:forwarded`); unknown conversation → `status:unmatched` (forwarded, no lesson/owner); bad signature → 401, no forward; no `LANGSMITH_API_KEY` → `status:no_sink`; a forward failure still returns 200 (FR-008).
+- [X] T008 [P] [US1] Contract test the telemetry envelope schema in `packages/live-story/tests/unit/telemetry-delivery.test.ts`: a captured OTel fixture parses, a captured JSON-variant fixture parses, a truncated/garbage body fails `safeParse`.
+- [X] T009 [P] [US1] Contract test HMAC verification in `packages/live-story/tests/unit/hmac.test.ts`: a correctly-signed `{timestamp}.{rawBody}` passes; wrong secret, tampered body, and missing header all fail.
+- [X] T010 [P] [US1] Contract test the pure enricher in `packages/live-story/tests/unit/otel-enrich.test.ts`: `lessonId`/`ownerId` attributes present on output; `unmatched:true` omits lesson/owner and adds the `unmatched` tag.
+- [X] T011 [P] [US1] Contract test the OTLP forwarder in `packages/generator/tests/unit/otlp-forward.test.ts`: no `LANGSMITH_API_KEY` → `{ok:false, reason:"no_sink"}` and no fetch call; with key → POST to `${endpoint}/otel/v1/traces` carrying `x-api-key` + `Langsmith-Project`; a non-2xx downstream → `{ok:false, reason:"forward_failed"}`.
+- [X] T012 [P] [US1] Extend `packages/generator/tests/unit/tracing-runtime.test.ts` for Tier A: captured `createRun` payload has one child run per turn, `start_time` from the session's `createdAt` (not wall-clock), `end_time` only when ended, and `scenario`/`status`/`turnCount`/`termination_reason` metadata.
+- [X] T013 [US1] Integration test the webhook route in `apps/web/tests/integration/otel-webhook.test.ts` (mocked fetch + in-memory repo): valid signature + known conversation → enriched spans forwarded (`status:forwarded`); unknown conversation → `status:unmatched` (forwarded, no lesson/owner); bad signature → 401, no forward; no `LANGSMITH_API_KEY` → `status:no_sink`; a forward failure still returns 200 (FR-008).
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Define the `TelemetryDelivery` Zod schema + type in `packages/live-story/src/services/telemetry-delivery.ts` (discriminates `post_call_transcription_otel` vs `post_call_transcription`; `data.conversation_id`/`agent_id` required; `passthrough`).
-- [ ] T015 [P] [US1] Implement ElevenLabs HMAC-SHA256 verification over the raw body in `packages/live-story/src/services/hmac.ts` (parse `t=,v0=`, constant-time compare; pure, secret injected).
-- [ ] T016 [P] [US1] Implement the pure `enrichResourceSpans(resourceSpans, { lessonId, ownerId, unmatched })` in `packages/live-story/src/services/otel-enrich.ts` (R4 — lesson/owner attrs + `unmatched` tag; threading attrs added in US3).
-- [ ] T017 [P] [US1] Implement the soft OTLP forwarder `forwardOtlpToLangSmith(resourceSpans, { project, env, fetchImpl })` in `packages/generator/src/observability/otlp-forward.ts` (R7 — `fetch` POST, no new dep; no-key → `no_sink`); export it from `packages/generator/src/observability/index.ts` and `packages/generator/src/index.ts`.
-- [ ] T018 [US1] Implement `OtelWebhookService` in `packages/live-story/src/services/otel-webhook-service.ts` orchestrating verify → parse → `findSessionByConversationId` → enrich → forward, returning `{status: forwarded|unmatched|no_sink}`; best-effort, never throws (depends on T014–T017 + T004).
-- [ ] T019 [US1] Add the webhook route `apps/web/app/api/live-story/elevenlabs/otel-webhook/route.ts` (unauthenticated by Auth0; reads the raw body for HMAC; calls the service; maps to 200/400/401; never 5xx on downstream failure) (depends on T018).
-- [ ] T020 [US1] Wire `OtelWebhookService` into `apps/web/lib/container.ts` (`getOtelWebhookService()`), injecting the service-role live-story repo, the forwarder, and `liveStoryTracingConfig()`.
-- [ ] T021 [US1] **Tier A** (FR-013): in `packages/generator/src/observability/session-tracer.ts` add `createdAt` to `SessionTrace`, set `start_time` from it, set `end_time` only on `ended`, emit a child run per turn, and add `scenario`/`status`/`turnCount`/`termination_reason` run metadata; update `packages/live-story/src/services/transcript-service.ts` to pass `createdAt` into the trace.
-- [ ] T022 [US1] **Capture spike** (R2): with the dead-drop relay, run one real story session, save the raw envelope to `packages/live-story/tests/fixtures/otel-delivery.json`, and record the span-fidelity decision (verbatim OTel forward vs B1 JSON hand-built) in `research.md`. If thin, add the JSON parser branch behind the same `OtelWebhookService` seam.
+- [X] T014 [P] [US1] Define the `TelemetryDelivery` Zod schema + type in `packages/live-story/src/services/telemetry-delivery.ts` (discriminates `post_call_transcription_otel` vs `post_call_transcription`; `data.conversation_id`/`agent_id` required; `passthrough`).
+- [X] T015 [P] [US1] Implement ElevenLabs HMAC-SHA256 verification over the raw body in `packages/live-story/src/services/hmac.ts` (parse `t=,v0=`, constant-time compare; pure, secret injected).
+- [X] T016 [P] [US1] Implement the pure `enrichResourceSpans(resourceSpans, { lessonId, ownerId, unmatched })` in `packages/live-story/src/services/otel-enrich.ts` (R4 — lesson/owner attrs + `unmatched` tag; threading attrs added in US3).
+- [X] T017 [P] [US1] Implement the soft OTLP forwarder `forwardOtlpToLangSmith(resourceSpans, { project, env, fetchImpl })` in `packages/generator/src/observability/otlp-forward.ts` (R7 — `fetch` POST, no new dep; no-key → `no_sink`); export it from `packages/generator/src/observability/index.ts` and `packages/generator/src/index.ts`.
+- [X] T018 [US1] Implement `OtelWebhookService` in `packages/live-story/src/services/otel-webhook-service.ts` orchestrating verify → parse → `findSessionByConversationId` → enrich → forward, returning `{status: forwarded|unmatched|no_sink}`; best-effort, never throws (depends on T014–T017 + T004).
+- [X] T019 [US1] Add the webhook route `apps/web/app/api/live-story/elevenlabs/otel-webhook/route.ts` (unauthenticated by Auth0; reads the raw body for HMAC; calls the service; maps to 200/400/401; never 5xx on downstream failure) (depends on T018).
+- [X] T020 [US1] Wire `OtelWebhookService` into `apps/web/lib/container.ts` (`getOtelWebhookService()`), injecting the service-role live-story repo, the forwarder, and `liveStoryTracingConfig()`.
+- [X] T021 [US1] **Tier A** (FR-013): in `packages/generator/src/observability/session-tracer.ts` add `createdAt` to `SessionTrace`, set `start_time` from it, set `end_time` only on `ended`, emit a child run per turn, and add `scenario`/`status`/`turnCount`/`termination_reason` run metadata; update `packages/live-story/src/services/transcript-service.ts` to pass `createdAt` into the trace.
+- [~] T022 [US1] **Capture spike** (R2): with the dead-drop relay, run one real story session, save the raw envelope to `packages/live-story/tests/fixtures/otel-delivery.json`, and record the span-fidelity decision (verbatim OTel forward vs B1 JSON hand-built) in `research.md`. If thin, add the JSON parser branch behind the same `OtelWebhookService` seam.
 
 **Checkpoint**: US1 fully functional — a real hierarchical trace renders from the webhook, and the self-reported tracer degrades gracefully. **This is the MVP.**
 
@@ -89,14 +89,14 @@ and a finalized trace; a re-run finalizes nothing (idempotent).
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T023 [P] [US2] Contract test `SweepService` in `packages/live-story/tests/unit/sweep-service.test.ts`: finalizes only stale `active` sessions, skips already-`ended` ones (idempotent → single finalized trace, FR-009), respects the batch limit, and records a finalized trace with `termination_reason: "abandoned"` per closed session.
-- [ ] T024 [P] [US2] Integration test the sweep route in `apps/web/tests/integration/live-story-sweep.test.ts`: missing/invalid cron secret → 401; valid secret → `{finalized, scanned}` and the stale session is now `ended`.
+- [X] T023 [P] [US2] Contract test `SweepService` in `packages/live-story/tests/unit/sweep-service.test.ts`: finalizes only stale `active` sessions, skips already-`ended` ones (idempotent → single finalized trace, FR-009), respects the batch limit, and records a finalized trace with `termination_reason: "abandoned"` per closed session.
+- [X] T024 [P] [US2] Integration test the sweep route in `apps/web/tests/integration/live-story-sweep.test.ts`: missing/invalid cron secret → 401; valid secret → `{finalized, scanned}` and the stale session is now `ended`.
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Implement `SweepService` in `packages/live-story/src/services/sweep-service.ts`: `findStaleActiveSessions(now - idle, limit)` → for each, `endSession(ownerId, sessionId)` + record a finalized `SessionTrace` (`ended:true`, `termination_reason:"abandoned"`) via the injected `SessionTracer`; best-effort (depends on T004/T021).
-- [ ] T026 [US2] Add the sweep route `apps/web/app/api/live-story/sweep/route.ts` (cron-secret guarded; calls the service; returns `{finalized, scanned}`) and wire `getSweepService()` in `apps/web/lib/container.ts`.
-- [ ] T027 [US2] Configure the schedule (cron) to POST `/api/live-story/sweep` periodically (deployment cron config + a note in `quickstart.md`/`README.md`).
+- [X] T025 [US2] Implement `SweepService` in `packages/live-story/src/services/sweep-service.ts`: `findStaleActiveSessions(now - idle, limit)` → for each, `endSession(ownerId, sessionId)` + record a finalized `SessionTrace` (`ended:true`, `termination_reason:"abandoned"`) via the injected `SessionTracer`; best-effort (depends on T004/T021).
+- [X] T026 [US2] Add the sweep route `apps/web/app/api/live-story/sweep/route.ts` (cron-secret guarded; calls the service; returns `{finalized, scanned}`) and wire `getSweepService()` in `apps/web/lib/container.ts`.
+- [X] T027 [US2] Configure the schedule (cron) to POST `/api/live-story/sweep` periodically (deployment cron config + a note in `quickstart.md`/`README.md`).
 
 **Checkpoint**: US1 + US2 work independently — abandoned sessions no longer freeze.
 
@@ -112,12 +112,12 @@ appear under one lesson-keyed Thread in the same project and filter by lesson/ow
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T028 [P] [US3] Extend `packages/live-story/tests/unit/otel-enrich.test.ts`: thread key equals `lessonId` when present, and `scenario`/`status`/`turnCount`/`termination_reason` appear as filterable attributes.
-- [ ] T029 [US3] Integration test threading in `apps/web/tests/integration/live-story-trace-threading.test.ts`: a forwarded session trace carries `thread_id = lessonId` and lesson/owner filter attributes, matching the generation tracer's thread convention (FR-006).
+- [X] T028 [P] [US3] Extend `packages/live-story/tests/unit/otel-enrich.test.ts`: thread key equals `lessonId` when present, and `scenario`/`status`/`turnCount`/`termination_reason` appear as filterable attributes.
+- [X] T029 [US3] Integration test threading in `apps/web/tests/integration/live-story-trace-threading.test.ts`: a forwarded session trace carries `thread_id = lessonId` and lesson/owner filter attributes, matching the generation tracer's thread convention (FR-006).
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] Extend `enrichResourceSpans` in `packages/live-story/src/services/otel-enrich.ts` to inject `thread_id = lessonId` plus `scenario`/`status`/`turnCount`/`termination_reason` resource attributes (R4/FR-006/FR-012), and have `OtelWebhookService` (T018) pass the session's scenario/status/turnCount through (depends on T016/T018).
+- [X] T030 [US3] Extend `enrichResourceSpans` in `packages/live-story/src/services/otel-enrich.ts` to inject `thread_id = lessonId` plus `scenario`/`status`/`turnCount`/`termination_reason` resource attributes (R4/FR-006/FR-012), and have `OtelWebhookService` (T018) pass the session's scenario/status/turnCount through (depends on T016/T018).
 
 **Checkpoint**: All three stories independently functional; generation + sessions share one timeline.
 
@@ -125,10 +125,10 @@ appear under one lesson-keyed Thread in the same project and filter by lesson/ow
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T031 [P] Add `story.trace`/`story.sweep`/`story.unavailable`-style `EventId`s to `packages/generator/src/observability/events.ts` and emit them (best-effort) from the webhook + sweep services for operability.
-- [ ] T032 [P] Update `CLAUDE.md` "Adaptive live story note" / add a tracing note documenting the webhook relay, sweep, Tier A, and the soft-dependency posture.
-- [ ] T033 Run `quickstart.md` end-to-end validation (capture → replay → verify hierarchy/correlation/sweep/degradation).
-- [ ] T034 Run `pnpm test && pnpm typecheck && pnpm lint` and resolve any failures.
+- [X] T031 [P] Add `story.trace`/`story.sweep`/`story.unavailable`-style `EventId`s to `packages/generator/src/observability/events.ts` and emit them (best-effort) from the webhook + sweep services for operability.
+- [X] T032 [P] Update `CLAUDE.md` "Adaptive live story note" / add a tracing note documenting the webhook relay, sweep, Tier A, and the soft-dependency posture.
+- [~] T033 Run `quickstart.md` end-to-end validation (capture → replay → verify hierarchy/correlation/sweep/degradation).
+- [X] T034 Run `pnpm test && pnpm typecheck && pnpm lint` and resolve any failures.
 
 ---
 
@@ -198,3 +198,26 @@ Task: "forwardOtlpToLangSmith in packages/generator/src/observability/otlp-forwa
 - The one make-or-break unknown (span fidelity) is isolated to T022 behind the `OtelWebhookService` parser seam — its outcome swaps a parser, not the architecture.
 - Everything is best-effort and soft: no `LANGSMITH_API_KEY` ⇒ full no-op; tracing never throws into the live session or persistence.
 - Commit after each task or logical group; verify tests fail before implementing.
+
+---
+
+## Implementation status (executed 2026-06-25)
+
+All tasks implemented and the full gate is green: **`pnpm typecheck` ✓ · `pnpm test` (201
+tests, 42 files) ✓ · `pnpm lint` ✓**. New tests: repo-tracing, telemetry-delivery, hmac,
+otel-enrich, otlp-forward, session-tracer (Tier A), otel-webhook (integration), sweep-service,
+live-story-sweep (integration), live-story-trace-threading (integration).
+
+Two tasks are **partial (~)** because they require a live ElevenLabs session + LangSmith account
+that cannot run in this environment — their offline portions are complete:
+
+- **T022 (capture spike)**: a representative synthetic `post_call_transcription_otel` fixture is
+  committed (`packages/live-story/tests/fixtures/otel-delivery.json`) and the verbatim-OTel
+  forward path is implemented behind the `OtelWebhookService` parser seam. The make-or-break
+  decision (verbatim vs B1 JSON hand-built) still needs ONE real captured payload to confirm span
+  fidelity; if thin, add the JSON parser branch at the documented seam. Replace the synthetic
+  fixture with the real capture when available.
+- **T033 (quickstart end-to-end)**: steps 2–5 (replay → correlation → sweep → graceful
+  degradation) are covered offline by the integration tests; step 1 (configure the ElevenLabs
+  dashboard webhook + run a real session) and the live LangSmith waterfall check remain a manual
+  verification against a deployed/tunnelled URL.
