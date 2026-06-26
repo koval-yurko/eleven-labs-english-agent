@@ -28,6 +28,7 @@ supabase/
   migrations/   # Postgres schema (owner-scoped RLS) — applied via pnpm db:migrate
 scripts/        # migrate.mjs (db migration runner)
 spec/PRD-base.md  # the original product vision (reference)
+docs/           # research notes (Markdown, date-stamped — see Conventions)
 ```
 
 ## Commands
@@ -52,3 +53,6 @@ pnpm provision:agent   # create the ElevenLabs live-story agent; prints ELEVENLA
   With `LANGSMITH_API_KEY` set, calls auto-trace to LangSmith.
 - **The ElevenLabs agent prompt is a versioned source artifact** (`src/agent/agent-prompt.ts`).
   Re-provision with `pnpm provision:agent` after editing it.
+- **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
+  folder in Markdown format, and include the date in the file name (e.g.
+  `docs/2026-06-26-topic.md`) so the research history stays traceable.
