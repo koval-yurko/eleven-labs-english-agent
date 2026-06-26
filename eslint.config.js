@@ -1,4 +1,4 @@
-// Flat ESLint config (ESLint 9). Type-aware linting kept light for the workspace core.
+// Flat ESLint config (ESLint 9).
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
@@ -15,7 +15,11 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // TypeScript files: TS already checks undefined identifiers, and the app uses browser/
+    // Node globals (fetch, process, console). Let TS own that check.
+    files: ["**/*.ts", "**/*.tsx"],
     rules: {
+      "no-undef": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
     },
   },

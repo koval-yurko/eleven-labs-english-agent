@@ -23,7 +23,7 @@ import dotenv from "dotenv";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Load env from the usual places (first definition wins; process env always wins).
-for (const file of ["apps/web/.env.local", ".env.local", ".env"]) {
+for (const file of [".env.local", ".env"]) {
   dotenv.config({ path: join(root, file) });
 }
 
