@@ -5,6 +5,7 @@
 
 export interface ElevenLabsConfig {
   apiKey?: string;
+  /** The provisioned English-words-tutor agent (`pnpm provision:agent`). */
   agentId?: string;
   teacherVoiceId?: string;
 }

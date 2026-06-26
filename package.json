@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",
+    "@elevenlabs/react": "^1.9.0",
     "@langchain/anthropic": "^0.3.0",
     "@langchain/core": "^0.3.0",
     "@supabase/supabase-js": "^2.107.0",

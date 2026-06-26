@@ -1,22 +1,21 @@
-// Provision the adaptive live-story ElevenLabs Conversational AI agent.
+// Provision the "English words tutor" ElevenLabs Conversational AI agent.
 //
-// Creates an agent configured to match what the live-story client expects:
-//   - the PINNED teacher voice (the single teacher voice),
-//   - a native Claude LLM (Haiku 4.5 by default — narration latency),
-//   - the VERSIONED narrator/tutor/steering system prompt from ./agent-prompt.ts
+// A deliberately MINIMAL agent (see docs/2026-06-26-minimal-english-words-voice-agent.md):
+//   - the PINNED teacher voice (voice consistency),
+//   - a native Claude LLM (Sonnet 4.6 by default — explanation depth over latency),
+//   - the VERSIONED teacher system prompt from ./agent-prompt.ts
 //     (prompts live in source control, never as untracked strings),
-//   - the FOUR client tools the narration loop calls (advanceNarration, markItemTaught,
-//     setScenario, concludeLesson), declared inline with expects_response so the agent reads
-//     each tool's returned instruction string, and
-//   - the five dynamic-variable placeholders the plan grounding fills at startSession.
+//   - NO client tools (the tutor just talks; nothing in the browser to call back),
+//   - a SINGLE dynamic-variable placeholder ({{items_list}}) filled per session from the
+//     UI textbox at startSession.
 //
 // Prints the agent_id to put in ELEVENLABS_STORY_AGENT_ID.
 //
 // Idempotency: this CREATES a new agent each run. Run it once, save the id, and don't re-run
 // unless you intend to provision a fresh agent.
 //
-//   pnpm provision:agent                                   # create from your .env keys
-//   LIVE_STORY_LLM=claude-sonnet-4-6 pnpm provision:agent  # override the LLM
+//   pnpm provision:agent                                  # create from your .env keys
+//   LIVE_STORY_LLM=claude-haiku-4-5 pnpm provision:agent  # cheaper/faster LLM
 //   LIVE_STORY_TTS_MODEL=eleven_turbo_v2 pnpm provision:agent  # override the TTS model
 //
 // Reads ELEVENLABS_API_KEY + ELEVENLABS_TEACHER_VOICE_ID (and optional LIVE_STORY_LLM,
@@ -27,9 +26,8 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
 import {
-  LIVE_STORY_SYSTEM_PROMPT,
-  LIVE_STORY_PROMPT_VERSION,
-  LIVE_STORY_CLIENT_TOOL_DESCRIPTIONS,
+  WORDS_TUTOR_SYSTEM_PROMPT,
+  WORDS_TUTOR_PROMPT_VERSION,
 } from "./agent-prompt";
 
 // src/agent/ → src → repo root.
@@ -45,85 +43,33 @@ const voiceId = env.ELEVENLABS_TEACHER_VOICE_ID?.trim();
 // (`eleven_flash_v2`) or Turbo v2 (`eleven_turbo_v2`); multilingual v2.5 / Eleven v3 are
 // rejected/gated. Flash v2 is the low-latency default.
 const ttsModelId = env.LIVE_STORY_TTS_MODEL?.trim() || "eleven_flash_v2";
-const llm = env.LIVE_STORY_LLM?.trim() || "claude-haiku-4-5";
+// Sonnet by default: this tutor explains meaning/forms/usage per item, where depth matters
+// more than the ~100ms latency edge.
+const llm = env.LIVE_STORY_LLM?.trim() || "claude-sonnet-4-6";
 
 if (!apiKey) {
   console.error("✗ Missing ELEVENLABS_API_KEY in .env / .env.local");
   process.exit(1);
 }
 if (!voiceId) {
-  console.error("✗ Missing ELEVENLABS_TEACHER_VOICE_ID — the live story needs a pinned teacher voice.");
+  console.error("✗ Missing ELEVENLABS_TEACHER_VOICE_ID — the tutor needs a pinned teacher voice.");
   process.exit(1);
 }
 
-const D = LIVE_STORY_CLIENT_TOOL_DESCRIPTIONS;
-
-// The four client tools the narrator agent calls. Each handler runs in the browser and
-// returns a short instruction string — so expects_response is true (the agent waits for it).
-const tools = [
-  {
-    type: "client",
-    name: "advanceNarration",
-    description: D.advanceNarration,
-    parameters: { type: "object", properties: {}, required: [] },
-    expects_response: true,
-    response_timeout_secs: 10,
-  },
-  {
-    type: "client",
-    name: "markItemTaught",
-    description: D.markItemTaught,
-    parameters: {
-      type: "object",
-      properties: {
-        itemId: { type: "string", description: 'The item\'s text, e.g. "break the ice".' },
-      },
-      required: ["itemId"],
-    },
-    expects_response: true,
-    response_timeout_secs: 10,
-  },
-  {
-    type: "client",
-    name: "setScenario",
-    description: D.setScenario,
-    parameters: {
-      type: "object",
-      properties: {
-        scenario: { type: "string", description: "The new story setting, in a few words." },
-      },
-      required: ["scenario"],
-    },
-    expects_response: true,
-    response_timeout_secs: 10,
-  },
-  {
-    type: "client",
-    name: "concludeLesson",
-    description: D.concludeLesson,
-    parameters: { type: "object", properties: {}, required: [] },
-    expects_response: true,
-    response_timeout_secs: 10,
-  },
-];
-
-// Per-session grounding is injected at runtime via dynamic variables; these are just the
-// placeholder defaults the agent validates its prompt against. Keys must match the {{...}}
-// placeholders in agent-prompt.ts.
+// Per-session grounding is injected at runtime via the items_list dynamic variable; this is
+// just the placeholder default the agent validates its prompt against. The key must match the
+// {{items_list}} placeholder in agent-prompt.ts.
 const body = {
-  name: `idiomatic-live-story (${LIVE_STORY_PROMPT_VERSION})`,
+  name: `english-words-tutor (${WORDS_TUTOR_PROMPT_VERSION})`,
   conversation_config: {
     agent: {
-      prompt: { prompt: LIVE_STORY_SYSTEM_PROMPT, llm, tools },
-      first_message: "", // narration begins on the kickoff contextual update, not a greeting
+      prompt: { prompt: WORDS_TUTOR_SYSTEM_PROMPT, llm },
+      first_message: "", // teaching begins on the kickoff contextual update, not a greeting
       language: "en",
       dynamic_variables: {
         dynamic_variable_placeholders: {
-          lesson_summary: "A short spoken English lesson told as a story.",
-          items_list: "1. break the ice; 2. piece of cake",
-          beats_outline: "1. Two strangers meet (teaches: break the ice)",
-          target_minutes: "7",
-          scenario: "the lesson's original everyday setting",
+          // items may be single words OR phrases/sentences
+          items_list: "1. ephemeral; 2. break the ice; 3. I couldn't agree more",
         },
       },
     },
@@ -131,11 +77,10 @@ const body = {
   },
 };
 
-console.log("▶ creating live-story agent");
+console.log("▶ creating english-words-tutor agent");
 console.log(`  llm:   ${llm}   (override with LIVE_STORY_LLM)`);
 console.log(`  voice: ${voiceId}   tts model: ${ttsModelId}`);
-console.log(`  prompt version: ${LIVE_STORY_PROMPT_VERSION}`);
-console.log(`  client tools:   ${tools.map((t) => t.name).join(", ")}`);
+console.log(`  prompt version: ${WORDS_TUTOR_PROMPT_VERSION}`);
 
 const res = await fetch("https://api.elevenlabs.io/v1/convai/agents/create", {
   method: "POST",
@@ -168,11 +113,6 @@ if (!res.ok) {
         "  dashboard, pick the Claude model from the LLM dropdown to see its exact id,\n" +
         "  then re-run with LIVE_STORY_LLM=<that-id>.",
     );
-  } else if (lower.includes("tool")) {
-    console.error(
-      "\n  Hint: the client-tools schema was rejected. Verify your account/API version still\n" +
-        "  accepts inline conversation_config.agent.prompt.tools with type:\"client\".",
-    );
   }
   process.exit(1);
 }
@@ -183,6 +123,6 @@ if (!data.agent_id) {
   process.exit(1);
 }
 
-console.log(`\n✅ created live-story agent: ${data.agent_id}`);
+console.log(`\n✅ created english-words-tutor agent: ${data.agent_id}`);
 console.log("\n  Add this to .env (server-only):");
 console.log(`\n    ELEVENLABS_STORY_AGENT_ID=${data.agent_id}\n`);

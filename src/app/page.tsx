@@ -48,7 +48,8 @@ export default async function HomePage() {
         <Status label="ElevenLabs" check={elevenlabs} />
         <Status label="LangChain + Claude" check={anthropic} />
         <p className="muted" style={{ marginTop: "1rem" }}>
-          <a href="/auth/logout">Log out</a> · <a href="/api/health">/api/health</a>
+          <a href="/words">🎙️ English words tutor</a> · <a href="/auth/logout">Log out</a> ·{" "}
+          <a href="/api/health">/api/health</a>
         </p>
       </section>
 
