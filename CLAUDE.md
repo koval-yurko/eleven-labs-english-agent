@@ -15,7 +15,7 @@ integrations are wired and working:
 The home page (`src/app/page.tsx`) is an integration smoke test that surfaces the health of
 each and lets you exercise a Supabase write and a live Claude call.
 
-TypeScript (strict), Node 20 LTS, single pnpm package (no workspace).
+TypeScript (strict), Node 22 LTS, single pnpm package (no workspace).
 
 ## Layout
 
