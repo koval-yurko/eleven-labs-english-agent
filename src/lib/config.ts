@@ -5,15 +5,12 @@
 
 export interface ElevenLabsConfig {
   apiKey?: string;
-  /** The provisioned English-words-tutor agent (`pnpm provision:agent`). */
-  agentId?: string;
   teacherVoiceId?: string;
 }
 
 export function elevenLabsConfig(env: NodeJS.ProcessEnv = process.env): ElevenLabsConfig {
   return {
     apiKey: env.ELEVENLABS_API_KEY?.trim() || undefined,
-    agentId: env.ELEVENLABS_STORY_AGENT_ID?.trim() || undefined,
     teacherVoiceId: env.ELEVENLABS_TEACHER_VOICE_ID?.trim() || undefined,
   };
 }

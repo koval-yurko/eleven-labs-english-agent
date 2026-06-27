@@ -14,6 +14,9 @@ import { ConversationProvider, useConversation } from "@elevenlabs/react";
 
 type Line = { role: "user" | "agent"; text: string };
 
+/** A tutor prompt version offered in the picker (active versions from the lockfile registry). */
+export type VersionOption = { version: string; label: string };
+
 const PLACEHOLDER = `ephemeral
 break the ice
 I couldn't agree more`;
@@ -24,8 +27,9 @@ I couldn't agree more`;
 // from the transcript below so it reads as the teacher speaking first.
 const KICKOFF = "Let's begin. Greet me in one sentence and start teaching the first item now.";
 
-function Tutor() {
+function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaultVersion: string }) {
   const [raw, setRaw] = useState(PLACEHOLDER);
+  const [version, setVersion] = useState(defaultVersion);
   const [lines, setLines] = useState<Line[]>([]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +72,7 @@ function Tutor() {
       // Prompt for the mic up front so a denial surfaces here, not mid-connect.
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const res = await fetch("/api/words-agent/signed-url");
+      const res = await fetch(`/api/words-agent/signed-url?version=${encodeURIComponent(version)}`);
       const body = (await res.json()) as { signedUrl?: string; error?: { message: string } };
       if (!res.ok || !body.signedUrl) {
         throw new Error(body.error?.message ?? "Could not get a signed URL.");
@@ -97,6 +101,24 @@ function Tutor() {
       <section className="panel">
         <h2>Words to discuss</h2>
         <p className="muted">One word, phrase, or sentence per line. The tutor teaches each one.</p>
+        {versions.length > 1 ? (
+          <label
+            style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}
+          >
+            <span className="muted">Tutor version</span>
+            <select
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+              disabled={connected || busy}
+            >
+              {versions.map((v) => (
+                <option key={v.version} value={v.version}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <textarea
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
@@ -146,10 +168,16 @@ function Tutor() {
   );
 }
 
-export function WordsTutor() {
+export function WordsTutor({
+  versions,
+  defaultVersion,
+}: {
+  versions: VersionOption[];
+  defaultVersion: string;
+}) {
   return (
     <ConversationProvider>
-      <Tutor />
+      <Tutor versions={versions} defaultVersion={defaultVersion} />
     </ConversationProvider>
   );
 }

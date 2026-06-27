@@ -23,7 +23,7 @@ TypeScript (strict), Node 20 LTS, single pnpm package (no workspace).
 src/
   app/          # Next.js App Router: layout, smoke-test dashboard, server actions, /api/health
   lib/          # auth0 + session, supabase (service & user clients), config, health, llm
-  agent/        # ElevenLabs live-story agent: versioned prompt + provisioning script
+  agent/        # ElevenLabs tutor agents: prompts/ version registry, sync-agents.ts, agents.lock.json
 supabase/
   migrations/   # Postgres schema (owner-scoped RLS) — applied via pnpm db:migrate
 scripts/        # migrate.mjs (db migration runner)
@@ -39,7 +39,8 @@ pnpm build             # production build
 pnpm typecheck         # strict TS (tsc --noEmit)
 pnpm lint              # ESLint flat config
 pnpm db:migrate        # apply Supabase migrations (needs SUPABASE_DB_URL)
-pnpm provision:agent   # create the ElevenLabs live-story agent; prints ELEVENLABS_STORY_AGENT_ID
+pnpm sync:agents       # reconcile ElevenLabs agents with src/agent/prompts/ (writes agents.lock.json)
+pnpm sync:agents:plan  # dry-run: print the reconcile plan, change nothing
 ```
 
 ## Conventions
@@ -51,8 +52,13 @@ pnpm provision:agent   # create the ElevenLabs live-story agent; prints ELEVENLA
 - **LLM access goes through LangChain.** `src/lib/llm.ts` builds a `ChatAnthropic`
   (`@langchain/anthropic`) defaulting to `claude-opus-4-8` (override with `ANTHROPIC_MODEL`).
   With `LANGSMITH_API_KEY` set, calls auto-trace to LangSmith.
-- **The ElevenLabs agent prompt is a versioned source artifact** (`src/agent/agent-prompt.ts`).
-  Re-provision with `pnpm provision:agent` after editing it.
+- **Tutor prompts are a versioned source registry** (`src/agent/prompts/` — one self-describing
+  module per version). The filesystem is the source of truth; `pnpm sync:agents` reconciles
+  ElevenLabs to match (create / update-in-place / retire) and records each version's agent id in
+  the committed `src/agent/agents.lock.json`. The runtime/UI read the lockfile via
+  `src/lib/agent-registry.ts`; the `/words` page lets you pick a version per session. After adding,
+  editing, or deleting a prompt version, run `pnpm sync:agents` and commit the lockfile. See
+  `docs/2026-06-27-agent-prompt-version-switching.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.

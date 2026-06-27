@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:status": "node scripts/migrate.mjs --status",
-    "provision:agent": "tsx src/agent/create-agent.ts"
+    "sync:agents": "tsx src/agent/sync-agents.ts",
+    "sync:agents:plan": "tsx src/agent/sync-agents.ts --dry-run"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",

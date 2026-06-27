@@ -1,5 +1,6 @@
 import { getServiceSupabase, hasSupabaseEnv } from "./supabase/server";
 import { elevenLabsConfig } from "./config";
+import { activeVersions } from "./agent-registry";
 import { hasAnthropicEnv } from "./llm";
 
 /** Result of a single integration health probe. */
@@ -30,17 +31,23 @@ export async function checkSupabase(): Promise<Check> {
  * while still having full ConvAI access — probing /convai validates the scope we depend on.
  */
 export async function checkElevenLabs(): Promise<Check> {
-  const { apiKey, agentId } = elevenLabsConfig();
+  const { apiKey } = elevenLabsConfig();
   if (!apiKey) return { ok: false, detail: "ELEVENLABS_API_KEY not set" };
+  // Probe the newest active tutor agent if one is provisioned; otherwise list agents (validates
+  // the ConvAI scope the app depends on without needing a specific id).
+  const active = activeVersions();
+  const newest = active[active.length - 1];
   try {
-    const url = agentId
-      ? `https://api.elevenlabs.io/v1/convai/agents/${agentId}`
+    const url = newest
+      ? `https://api.elevenlabs.io/v1/convai/agents/${newest.agentId}`
       : "https://api.elevenlabs.io/v1/convai/agents";
     const res = await fetch(url, { headers: { "xi-api-key": apiKey } });
     if (!res.ok) return { ok: false, detail: `ElevenLabs API returned HTTP ${res.status}` };
     return {
       ok: true,
-      detail: agentId ? `key valid · story agent ${agentId}` : "key valid · ELEVENLABS_STORY_AGENT_ID not set",
+      detail: newest
+        ? `key valid · ${active.length} active version(s) · default ${newest.version}`
+        : "key valid · no agents provisioned (run `pnpm sync:agents`)",
     };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : String(e) };

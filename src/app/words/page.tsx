@@ -1,12 +1,14 @@
-import { elevenLabsConfig } from "../../lib/config";
+import { activeVersions } from "../../lib/agent-registry";
 import { WordsTutor } from "./WordsTutor";
 
-// Read the env gate at request time, not build time (the agent id may be set after build).
+// Read the registry at request time, not build time (the lockfile may change between deploys).
 export const dynamic = "force-dynamic";
 
 /** Voice page: talk through a list of English words/sentences with the proactive tutor agent. */
 export default function WordsPage() {
-  const { agentId } = elevenLabsConfig();
+  const versions = activeVersions();
+  // Newest active version is the default (registry is ordered oldest → newest).
+  const defaultVersion = versions[versions.length - 1]?.version ?? "";
 
   return (
     <>
@@ -16,13 +18,16 @@ export default function WordsPage() {
         English teacher. Interrupt any time to ask follow-ups. <a href="/">← back</a>
       </p>
 
-      {agentId ? (
-        <WordsTutor />
+      {versions.length > 0 ? (
+        <WordsTutor
+          versions={versions.map((v) => ({ version: v.version, label: v.label ?? v.version }))}
+          defaultVersion={defaultVersion}
+        />
       ) : (
         <section className="panel">
           <p className="muted" style={{ color: "var(--error)" }}>
-            <code>ELEVENLABS_STORY_AGENT_ID</code> is not set. Run{" "}
-            <code>pnpm provision:agent</code>, paste the printed id into your env, and restart
+            No tutor agents are provisioned yet. Run <code>pnpm sync:agents</code> to create them
+            from <code>src/agent/prompts/</code>, commit <code>agents.lock.json</code>, and restart
             the dev server.
           </p>
         </section>

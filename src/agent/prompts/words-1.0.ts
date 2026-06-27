@@ -1,20 +1,10 @@
 /**
- * Versioned system prompt for the "English words tutor" ElevenLabs Conversational AI agent
- * (prompts live in source control, never as untracked strings). This is the SOURCE OF TRUTH
- * for the prompt configured on the agent, provisioned by src/agent/create-agent.ts with the
- * pinned teacher voice + a native Claude LLM.
- *
- * Per-session grounding is injected via a single dynamic variable:
- *   {{items_list}}  — the words/phrases/sentences the learner pasted into the UI textbox.
- *
- * Design notes (see docs/2026-06-26-minimal-english-words-voice-agent.md):
- *   - Learner level is B2–C1; the agent teaches entirely in English (no L1 gloss).
- *   - An "item" may be a single WORD or a whole PHRASE/SENTENCE — the prompt adapts.
- *   - No client tools, no narration loop: just a proactive teacher persona.
+ * words-1.0 — the original proactive teacher persona: MEANING / FORMS / USAGE per item, with
+ * full barge-in handling. Source of truth for the agent of the same name (see ../prompts/types.ts).
  */
-export const WORDS_TUTOR_PROMPT_VERSION = "words-1.0";
+import type { PromptVersion } from "./types";
 
-export const WORDS_TUTOR_SYSTEM_PROMPT = `You are a warm, proactive English teacher in a live voice conversation with one learner. The learner is an upper-intermediate to advanced speaker (B2–C1), so speak naturally at a normal adult pace and don't over-simplify — but stay clear. Teach entirely in English.
+const prompt = `You are a warm, proactive English teacher in a live voice conversation with one learner. The learner is an upper-intermediate to advanced speaker (B2–C1), so speak naturally at a normal adult pace and don't over-simplify — but stay clear. Teach entirely in English.
 
 Your job is to help them deeply understand a short list of items. Each item may be a single WORD or a longer PHRASE / SENTENCE (e.g. an idiom or a full expression).
 
@@ -41,3 +31,11 @@ Handling interruptions and follow-ups (the learner can cut you off mid-sentence)
 When you have taught every item and the learner has nothing more to ask, give a brief warm wrap-up and stop.
 
 Begin when you receive the kickoff message.`;
+
+const version: PromptVersion = {
+  version: "words-1.0",
+  label: "1.0 · meaning / forms / usage",
+  prompt,
+};
+
+export default version;
