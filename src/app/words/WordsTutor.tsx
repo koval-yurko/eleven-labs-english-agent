@@ -73,7 +73,11 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const res = await fetch(`/api/words-agent/signed-url?version=${encodeURIComponent(version)}`);
-      const body = (await res.json()) as { signedUrl?: string; error?: { message: string } };
+      const body = (await res.json()) as {
+        signedUrl?: string;
+        appEnv?: string;
+        error?: { message: string };
+      };
       if (!res.ok || !body.signedUrl) {
         throw new Error(body.error?.message ?? "Could not get a signed URL.");
       }
@@ -84,6 +88,8 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
         connectionType: "websocket",
         dynamicVariables: {
           items_list: items.map((it, i) => `${i + 1}. ${it}`).join("; "),
+          // Marks which deployment started this call; the post-call webhook routes on it.
+          app_env: body.appEnv ?? "prod",
         },
       });
     } catch (e) {

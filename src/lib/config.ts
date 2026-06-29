@@ -4,10 +4,11 @@
  */
 
 export interface ElevenLabsConfig {
+  appEnv: string;
   apiKey?: string;
   teacherVoiceId?: string;
-  /** Shared secret for verifying post-call webhook HMAC signatures (workspace → webhooks). */
   webhookSecret?: string;
+  webhookForwardUrl?: string;
 }
 
 export function elevenLabsConfig(env: NodeJS.ProcessEnv = process.env): ElevenLabsConfig {
@@ -15,5 +16,7 @@ export function elevenLabsConfig(env: NodeJS.ProcessEnv = process.env): ElevenLa
     apiKey: env.ELEVENLABS_API_KEY?.trim() || undefined,
     teacherVoiceId: env.ELEVENLABS_TEACHER_VOICE_ID?.trim() || undefined,
     webhookSecret: env.ELEVENLABS_WEBHOOK_SECRET?.trim() || undefined,
+    appEnv: env.APP_ENV?.trim() || "prod",
+    webhookForwardUrl: env.ELEVENLABS_WEBHOOK_FORWARD_URL?.trim() || undefined,
   };
 }

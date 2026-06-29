@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * No auth/persistence by design (docs/2026-06-26-minimal-english-words-voice-agent.md).
  */
 export async function GET(req: Request) {
-  const { apiKey } = elevenLabsConfig();
+  const { apiKey, appEnv } = elevenLabsConfig();
   if (!apiKey) return apiError(500, "config", "ELEVENLABS_API_KEY is not set.");
 
   const requested = new URL(req.url).searchParams.get("version");
@@ -43,7 +43,9 @@ export async function GET(req: Request) {
     if (!data.signed_url) {
       return apiError(502, "elevenlabs", "ElevenLabs response had no signed_url.");
     }
-    return json({ signedUrl: data.signed_url, version: agent.version });
+    // appEnv is echoed back so the client stamps it onto the conversation (app_env dynamic
+    // variable) — the post-call webhook reads it to route the event to the right env.
+    return json({ signedUrl: data.signed_url, version: agent.version, appEnv });
   } catch (e) {
     return apiError(502, "elevenlabs", e instanceof Error ? e.message : String(e));
   }
