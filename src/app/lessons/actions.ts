@@ -3,7 +3,13 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getOwnerId } from "../../lib/auth/session";
-import { createLesson, getLesson, upsertLessonSession } from "../../lib/lessons";
+import {
+  addLessonItems,
+  createLesson,
+  getLesson,
+  removeLessonItem,
+  upsertLessonSession,
+} from "../../lib/lessons";
 import type { TranscriptLine } from "../../lib/tutor";
 
 const MAX_ITEMS = 50;
@@ -28,6 +34,47 @@ export async function createLessonAction(formData: FormData): Promise<void> {
   const id = await createLesson(ownerId, title, items);
   revalidatePath("/");
   redirect(`/lessons/${id}`);
+}
+
+/** Add words/sentences (one per line) to an existing lesson, then re-render its page. */
+export async function addLessonItemsAction(formData: FormData): Promise<void> {
+  const ownerId = await getOwnerId();
+  if (!ownerId) return;
+
+  const lessonId = String(formData.get("lessonId") ?? "");
+  if (!lessonId) return;
+
+  // The lesson must exist AND belong to the caller — never trust ids from the browser.
+  const lesson = await getLesson(ownerId, lessonId);
+  if (!lesson) return;
+
+  // Cap the TOTAL active items at MAX_ITEMS: only take as many new lines as there's room for.
+  const room = Math.max(0, MAX_ITEMS - lesson.items.length);
+  const texts = String(formData.get("items") ?? "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, room);
+  if (texts.length === 0) return;
+
+  await addLessonItems(ownerId, lessonId, texts);
+  revalidatePath(`/lessons/${lessonId}`);
+  revalidatePath("/");
+}
+
+/** Soft-delete one item from a lesson (by its uuid — never free text), then re-render. */
+export async function removeLessonItemAction(formData: FormData): Promise<void> {
+  const ownerId = await getOwnerId();
+  if (!ownerId) return;
+
+  const lessonId = String(formData.get("lessonId") ?? "");
+  const itemId = String(formData.get("itemId") ?? "");
+  if (!lessonId || !itemId) return;
+
+  // Owner + lesson + id are all matched in the write, so a foreign id is a safe no-op.
+  await removeLessonItem(ownerId, lessonId, itemId);
+  revalidatePath(`/lessons/${lessonId}`);
+  revalidatePath("/");
 }
 
 /**

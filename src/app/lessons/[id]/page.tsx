@@ -1,7 +1,14 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
-import { getLesson, listLessonSessions, type LessonSession } from "../../../lib/lessons";
+import {
+  getLesson,
+  listLessonSessions,
+  listLessonItemHistory,
+  type LessonSession,
+  type LessonItem,
+} from "../../../lib/lessons";
 import { activeVersions } from "../../../lib/agent-registry";
+import { addLessonItemsAction, removeLessonItemAction } from "../actions";
 import { LessonTutor } from "./LessonTutor";
 
 // Per-request rendering: owner-scoped data + the lockfile registry may change between deploys.
@@ -12,6 +19,46 @@ function formatDuration(secs: number | null): string | null {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+/**
+ * The lesson's add/remove log, derived straight from the item rows: each row is an "added"
+ * event (created_at) and, if soft-deleted, also a "removed" event (removed_at). Newest first.
+ */
+function ItemChanges({ history }: { history: LessonItem[] }) {
+  const events = history
+    .flatMap((it) => {
+      const evs: { at: string; kind: "added" | "removed"; text: string }[] = [
+        { at: it.created_at, kind: "added", text: it.text },
+      ];
+      if (it.removed_at) evs.push({ at: it.removed_at, kind: "removed", text: it.text });
+      return evs;
+    })
+    .sort((a, b) => (a.at < b.at ? 1 : -1));
+
+  if (events.length === 0) return null;
+
+  return (
+    <details className="panel">
+      <summary style={{ cursor: "pointer" }}>
+        <strong>Word changes</strong>{" "}
+        <span className="muted">
+          — {events.length} {events.length === 1 ? "event" : "events"}
+        </span>
+      </summary>
+      <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
+        {events.map((e, i) => (
+          <li key={i} style={{ marginBottom: "0.35rem" }}>
+            <span style={{ color: e.kind === "added" ? "var(--ok)" : "var(--error)" }}>
+              {e.kind === "added" ? "＋ added" : "－ removed"}
+            </span>{" "}
+            <strong>{e.text}</strong>{" "}
+            <span className="muted">— {new Date(e.at).toLocaleString()}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 function SessionHistory({ sessions }: { sessions: LessonSession[] }) {
@@ -66,7 +113,15 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
   const lesson = await getLesson(ownerId, id).catch(() => null);
   if (!lesson) notFound();
 
-  const sessions = await listLessonSessions(ownerId, lesson.id);
+  const [sessions, itemHistory] = await Promise.all([
+    listLessonSessions(ownerId, lesson.id),
+    listLessonItemHistory(ownerId, lesson.id),
+  ]);
+  // Active items (with ids, for remove buttons), in display order.
+  const activeItems = itemHistory
+    .filter((it) => it.removed_at === null)
+    .sort((a, b) => a.position - b.position);
+  const atCap = activeItems.length >= 50;
   const versions = activeVersions();
   // Newest active version is the default (registry is ordered oldest → newest).
   const defaultVersion = versions[versions.length - 1]?.version ?? "";
@@ -81,11 +136,65 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
 
       <section className="panel">
         <h2>Words in this lesson</h2>
-        <ul style={{ margin: 0 }}>
-          {lesson.items.map((item, i) => (
-            <li key={i}>{item}</li>
-          ))}
-        </ul>
+        {activeItems.length === 0 ? (
+          <p className="muted">No words yet — add some below.</p>
+        ) : (
+          <ul style={{ margin: 0, listStyle: "none", padding: 0 }}>
+            {activeItems.map((it) => (
+              <li
+                key={it.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  padding: "0.25rem 0",
+                }}
+              >
+                <span>{it.text}</span>
+                <form action={removeLessonItemAction} style={{ margin: 0 }}>
+                  <input type="hidden" name="lessonId" value={lesson.id} />
+                  <input type="hidden" name="itemId" value={it.id} />
+                  <button
+                    type="submit"
+                    aria-label={`Remove ${it.text}`}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--error)",
+                      padding: 0,
+                    }}
+                  >
+                    remove
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          action={addLessonItemsAction}
+          style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}
+        >
+          <input type="hidden" name="lessonId" value={lesson.id} />
+          <textarea
+            name="items"
+            rows={3}
+            placeholder="Add words or sentences — one per line"
+            style={{ width: "100%" }}
+            disabled={atCap}
+          />
+          <div>
+            <button type="submit" disabled={atCap}>
+              Add words
+            </button>{" "}
+            <span className="muted">
+              {atCap ? "Lesson is full (50 items)." : `${activeItems.length}/50 items`}
+            </span>
+          </div>
+        </form>
       </section>
 
       {versions.length > 0 ? (
@@ -105,6 +214,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
         </section>
       )}
 
+      <ItemChanges history={itemHistory} />
       <SessionHistory sessions={sessions} />
     </>
   );
