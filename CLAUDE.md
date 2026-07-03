@@ -56,7 +56,8 @@ pnpm sync:agents:plan  # dry-run: print the reconcile plan, change nothing
   module per version). The filesystem is the source of truth; `pnpm sync:agents` reconciles
   ElevenLabs to match (create / update-in-place / retire) and records each version's agent id in
   the committed `src/agent/agents.lock.json`. The runtime/UI read the lockfile via
-  `src/lib/agent-registry.ts`; the `/words` page lets you pick a version per session. After adding,
+  `src/lib/agent-registry.ts`; a lesson page (`/lessons/[id]`) lets you pick a version per
+  session. After adding,
   editing, or deleting a prompt version, run `pnpm sync:agents` and commit the lockfile. See
   `docs/2026-06-27-agent-prompt-version-switching.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`

@@ -3,7 +3,15 @@ import { after } from "next/server";
 
 import { elevenLabsConfig } from "../../../../lib/config";
 import { json, apiError } from "../../../../lib/http";
-import { traceConversation, type PostCallWebhookEvent } from "../../../../lib/langsmith-trace";
+import {
+  traceConversation,
+  type PostCallData,
+  type PostCallWebhookEvent,
+} from "../../../../lib/langsmith-trace";
+import { hasSupabaseEnv } from "../../../../lib/supabase/server";
+import { getLessonById, upsertLessonSession } from "../../../../lib/lessons";
+import { versionForAgentId } from "../../../../lib/agent-registry";
+import { KICKOFF_MESSAGE, type TranscriptLine } from "../../../../lib/tutor";
 
 // Must run per-request (reads secrets, verifies a signature, calls out to LangSmith).
 export const dynamic = "force-dynamic";
@@ -71,6 +79,18 @@ export async function POST(req: Request) {
     return json({ ok: true, ignored: `env:${eventEnv}`, env: appEnv });
   }
 
+  // Persist the conversation into the lesson's history first (best-effort, independent of
+  // tracing) — the browser already saved a bare transcript at session end; this upserts the
+  // richer copy (summary, duration) onto the same conversation_id row.
+  try {
+    await persistLessonSession(event.data);
+  } catch (e) {
+    console.error(
+      `[elevenlabs-webhook] failed to persist session ${event.data?.conversation_id}:`,
+      e,
+    );
+  }
+
   try {
     await traceConversation(event.data);
   } catch (e) {
@@ -83,6 +103,40 @@ export async function POST(req: Request) {
   }
 
   return json({ ok: true, traced: true, conversationId: event.data.conversation_id });
+}
+
+/**
+ * Attach the finished conversation to its lesson's history. The lesson id rides in on the
+ * `lesson_id` dynamic variable stamped at session start; the owner is taken from the lesson
+ * row itself (dynamic variables come from the browser and are never trusted for ownership).
+ * Sessions without a lesson_id (or for an unknown lesson) are skipped silently.
+ */
+async function persistLessonSession(data: PostCallData): Promise<void> {
+  const lessonId = data.conversation_initiation_client_data?.dynamic_variables?.lesson_id as
+    | string
+    | undefined;
+  if (!lessonId || !hasSupabaseEnv()) return;
+
+  const lesson = await getLessonById(lessonId);
+  if (!lesson) return;
+
+  const transcript: TranscriptLine[] = (data.transcript ?? [])
+    .filter((t) => t.message && !(t.role === "user" && t.message === KICKOFF_MESSAGE))
+    .map((t) => ({
+      role: t.role,
+      text: t.message as string,
+      ...(t.time_in_call_secs != null ? { timeInCallSecs: t.time_in_call_secs } : {}),
+    }));
+
+  await upsertLessonSession({
+    lessonId: lesson.id,
+    ownerId: lesson.owner_id,
+    conversationId: data.conversation_id,
+    agentVersion: versionForAgentId(data.agent_id),
+    transcript,
+    summary: data.analysis?.transcript_summary ?? null,
+    durationSecs: data.metadata?.call_duration_secs ?? null,
+  });
 }
 
 /**

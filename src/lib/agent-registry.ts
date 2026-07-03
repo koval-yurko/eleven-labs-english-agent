@@ -42,3 +42,14 @@ export function resolveAgent(version?: string | null): ActiveVersion | null {
   if (version) return all.find((v) => v.version === version) ?? null;
   return all[all.length - 1] ?? null;
 }
+
+/**
+ * Map an ElevenLabs agent id back to its prompt version — retired versions included, since
+ * a post-call webhook can arrive for an agent that was retired mid-flight. Null when unknown.
+ */
+export function versionForAgentId(agentId: string): string | null {
+  for (const [version, a] of Object.entries(lock.agents)) {
+    if (a.agentId === agentId) return version;
+  }
+  return null;
+}

@@ -1,45 +1,79 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
+import { KICKOFF_MESSAGE, type TranscriptLine } from "../../../lib/tutor";
+import { saveLessonSessionAction } from "../actions";
 
 /**
- * Browser UI for the English-words-tutor voice agent. A textbox supplies the items (words OR
- * phrases/sentences, one per line); Start opens a mic conversation over a server-minted signed
- * URL and injects the list as the {{items_list}} dynamic variable. The agent leads; the learner
- * can interrupt and ask follow-ups at any time (barge-in is native to ElevenLabs convai).
- *
- * See docs/2026-06-26-minimal-english-words-voice-agent.md.
+ * Browser UI for one lesson's voice tutor. The word list comes from the lesson (server-side);
+ * Start opens a mic conversation over a server-minted signed URL and injects the list as the
+ * {{items_list}} dynamic variable. The agent leads; the learner can interrupt at any time
+ * (barge-in is native to ElevenLabs convai). When the session ends, the transcript is saved
+ * to the lesson's history right away — the post-call webhook enriches it later.
  */
-
-type Line = { role: "user" | "agent"; text: string };
 
 /** A tutor prompt version offered in the picker (active versions from the lockfile registry). */
 export type VersionOption = { version: string; label: string };
 
-const PLACEHOLDER = `ephemeral
-break the ice
-I couldn't agree more`;
-
-// Hidden message we send to the agent the instant we connect, so it greets and starts teaching
-// the first item ON ITS OWN — the learner never has to speak first. An empty first_message makes
-// the agent wait; a user message reliably triggers its opening (LLM-generated) turn. Suppressed
-// from the transcript below so it reads as the teacher speaking first.
-const KICKOFF = "Let's begin. Greet me in one sentence and start teaching the first item now.";
-
-function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaultVersion: string }) {
-  const [raw, setRaw] = useState(PLACEHOLDER);
+function Tutor({
+  lessonId,
+  items,
+  versions,
+  defaultVersion,
+}: {
+  lessonId: string;
+  items: string[];
+  versions: VersionOption[];
+  defaultVersion: string;
+}) {
+  const router = useRouter();
   const [version, setVersion] = useState(defaultVersion);
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const kickedOff = useRef(false);
 
+  // Mirrors for the SDK callbacks (they close over the first render's state).
+  const linesRef = useRef<TranscriptLine[]>([]);
+  const versionRef = useRef(defaultVersion);
+  const conversationIdRef = useRef<string | null>(null);
+  const savedForRef = useRef<string | null>(null);
+
+  // Persist the finished conversation once per conversation id, then refresh the
+  // server-rendered history below. Best-effort: a failed save must not break the UI.
+  async function persistSession() {
+    const conversationId = conversationIdRef.current;
+    if (!conversationId || savedForRef.current === conversationId) return;
+    if (linesRef.current.length === 0) return;
+    savedForRef.current = conversationId;
+    try {
+      await saveLessonSessionAction({
+        lessonId,
+        conversationId,
+        agentVersion: versionRef.current,
+        lines: linesRef.current,
+      });
+      router.refresh();
+    } catch {
+      // History will still arrive via the post-call webhook.
+    }
+  }
+
   const conversation = useConversation({
+    onConnect: ({ conversationId }) => {
+      conversationIdRef.current = conversationId;
+    },
     onMessage: ({ message, role }) => {
       // Don't show our hidden kickoff line — it's the trigger, not something the learner said.
-      if (role === "user" && message === KICKOFF) return;
-      setLines((prev) => [...prev, { role, text: message }]);
+      if (role === "user" && message === KICKOFF_MESSAGE) return;
+      const line: TranscriptLine = { role, text: message };
+      linesRef.current = [...linesRef.current, line];
+      setLines(linesRef.current);
+    },
+    onDisconnect: () => {
+      void persistSession();
     },
     onError: (message) => setError(message),
   });
@@ -51,22 +85,13 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
   useEffect(() => {
     if (status === "connected" && !kickedOff.current) {
       kickedOff.current = true;
-      sendUserMessage(KICKOFF);
+      sendUserMessage(KICKOFF_MESSAGE);
     }
     if (status === "disconnected") kickedOff.current = false;
   }, [status, sendUserMessage]);
 
   async function start() {
     setError(null);
-    const items = raw
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (items.length === 0) {
-      setError("Add at least one word or sentence to discuss.");
-      return;
-    }
-
     setStarting(true);
     try {
       // Prompt for the mic up front so a denial surfaces here, not mid-connect.
@@ -83,11 +108,16 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
       }
 
       setLines([]);
+      linesRef.current = [];
+      conversationIdRef.current = null;
+      versionRef.current = version;
       startSession({
         signedUrl: body.signedUrl,
         connectionType: "websocket",
         dynamicVariables: {
           items_list: items.map((it, i) => `${i + 1}. ${it}`).join("; "),
+          // Ties the post-call webhook payload back to this lesson's history.
+          lesson_id: lessonId,
           // Marks which deployment started this call; the post-call webhook routes on it.
           app_env: body.appEnv ?? "prod",
         },
@@ -105,8 +135,10 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
   return (
     <>
       <section className="panel">
-        <h2>Words to discuss</h2>
-        <p className="muted">One word, phrase, or sentence per line. The tutor teaches each one.</p>
+        <h2>Practice</h2>
+        <p className="muted">
+          Press start and discuss the words out loud with the tutor. Interrupt any time.
+        </p>
         {versions.length > 1 ? (
           <label
             style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}
@@ -125,13 +157,6 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
             </select>
           </label>
         ) : null}
-        <textarea
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          rows={5}
-          disabled={connected || busy}
-          style={{ width: "100%", fontFamily: "inherit" }}
-        />
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.5rem" }}>
           {connected ? (
             <button type="button" onClick={() => endSession()}>
@@ -139,7 +164,7 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
             </button>
           ) : (
             <button type="button" onClick={start} disabled={busy}>
-              {busy ? "Connecting…" : "Start lesson"}
+              {busy ? "Connecting…" : "Start conversation"}
             </button>
           )}
           <span className="muted">
@@ -159,7 +184,7 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
 
       {lines.length > 0 ? (
         <section className="panel">
-          <h2>Transcript</h2>
+          <h2>Live transcript</h2>
           <ul style={{ listStyle: "none", padding: 0 }}>
             {lines.map((l, i) => (
               <li key={i} style={{ marginBottom: "0.5rem" }}>
@@ -174,16 +199,15 @@ function Tutor({ versions, defaultVersion }: { versions: VersionOption[]; defaul
   );
 }
 
-export function WordsTutor({
-  versions,
-  defaultVersion,
-}: {
+export function LessonTutor(props: {
+  lessonId: string;
+  items: string[];
   versions: VersionOption[];
   defaultVersion: string;
 }) {
   return (
     <ConversationProvider>
-      <Tutor versions={versions} defaultVersion={defaultVersion} />
+      <Tutor {...props} />
     </ConversationProvider>
   );
 }
