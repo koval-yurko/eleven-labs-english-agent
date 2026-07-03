@@ -12,8 +12,11 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
 
   const { pathname } = request.nextUrl;
 
-  // Auth0 mounts its routes under /auth (login, logout, callback).
-  if (pathname.startsWith("/auth")) {
+  // Auth0 mounts its routes under /auth (login, logout, callback). The web manifest must also
+  // stay public — installers (iOS/Android) fetch it without credentials, so gating it would
+  // redirect the fetch into the login page and break "Add to Home Screen". PWA icons already
+  // bypass the gate via the `*.png` exclusion in `config.matcher` below.
+  if (pathname.startsWith("/auth") || pathname === "/manifest.webmanifest") {
     return authRes;
   }
 

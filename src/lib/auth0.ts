@@ -10,8 +10,25 @@ import { Auth0Client } from "@auth0/nextjs-auth0/server";
  * (see supabase/README.md).
  */
 const audience = process.env.AUTH0_AUDIENCE?.trim();
-export const auth0 = new Auth0Client(
-  audience
+
+const DAY = 60 * 60 * 24;
+
+export const auth0 = new Auth0Client({
+  ...(audience
     ? { authorizationParameters: { audience, scope: "openid profile email offline_access" } }
-    : {},
-);
+    : {}),
+  // PWA-friendly session. Installed to the Home Screen, the app should stay signed in across
+  // launches instead of re-prompting after the SDK default 1-day inactivity window. Rolling
+  // sessions extend on each use, capped by an absolute lifetime.
+  session: {
+    rolling: true,
+    inactivityDuration: 30 * DAY, // logged out only after 30 days of no use
+    absoluteDuration: 90 * DAY, // hard cap regardless of activity
+    cookie: {
+      // Lax is the SDK default and is required for the OAuth callback: the return from Auth0
+      // is a top-level GET navigation, which sends Lax cookies (Strict would drop them and
+      // break login). Stated explicitly so it is not silently changed.
+      sameSite: "lax",
+    },
+  },
+});

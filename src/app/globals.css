@@ -65,6 +65,10 @@ textarea {
   resize: vertical;
 }
 
+select {
+  min-height: 30px;
+}
+
 button {
   background: var(--accent);
   color: #0c0e12;
@@ -102,3 +106,4 @@ pre {
 .ok {
   color: var(--ok);
 }
+
