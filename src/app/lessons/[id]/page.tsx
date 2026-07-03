@@ -32,7 +32,7 @@ function SessionHistory({ sessions }: { sessions: LessonSession[] }) {
             .filter(Boolean)
             .join(" · ");
           return (
-            <details key={s.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid #2a2e37" }}>
+            <details key={s.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
               <summary style={{ cursor: "pointer" }}>
                 <strong>Conversation</strong> <span className="muted">— {meta}</span>
               </summary>

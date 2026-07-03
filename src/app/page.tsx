@@ -1,89 +1,66 @@
-import { getOwnerId, getUserEmail } from "../lib/auth/session";
-import { getServiceSupabase, hasSupabaseEnv } from "../lib/supabase/server";
-import { checkSupabase, checkElevenLabs, checkAnthropic, type Check } from "../lib/health";
-import { addPing } from "./actions";
-import { AskClaude } from "./AskClaude";
+import { getOwnerId } from "../../lib/auth/session";
+import { listLessons } from "../../lib/lessons";
+import { createLessonAction } from "./actions";
 
-function Status({ label, check }: { label: string; check: Check }) {
-  return (
-    <div className="row">
-      <span className="dot" style={{ color: check.ok ? "var(--ok)" : "var(--error)" }}>
-        ●
-      </span>
-      <strong>{label}</strong>
-      <span className="muted">— {check.detail}</span>
-    </div>
-  );
-}
+// Per-request rendering: the list is owner-scoped (cookies) and changes between visits.
+export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const [ownerId, email] = await Promise.all([getOwnerId(), getUserEmail()]);
-  const [supabase, elevenlabs] = await Promise.all([checkSupabase(), checkElevenLabs()]);
-  const anthropic = checkAnthropic();
-
-  let pings: { note: string; created_at: string }[] = [];
-  if (ownerId && hasSupabaseEnv()) {
-    const { data } = await getServiceSupabase()
-      .from("health_pings")
-      .select("note, created_at")
-      .eq("owner_id", ownerId)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    pings = (data as { note: string; created_at: string }[] | null) ?? [];
-  }
-
-  const auth: Check = {
-    ok: Boolean(ownerId),
-    detail: ownerId ? `signed in as ${email ?? ownerId}` : "not signed in",
-  };
+/** Lessons page: the learner's word sets — create a new one or open one to practice. */
+export default async function LessonsPage() {
+  const ownerId = await getOwnerId();
+  const lessons = ownerId ? await listLessons(ownerId) : [];
 
   return (
     <>
-      <h1>Integration smoke test</h1>
-      <p className="muted">Confirms the four pieces this scaffold keeps are wired correctly.</p>
+      <h1>Lessons</h1>
+      <p className="muted">
+        A lesson is a set of words, phrases, or sentences you&apos;re learning. Open one to talk
+        it through with the tutor and revisit past conversations. <a href="/">← back</a>
+      </p>
 
       <section className="panel">
-        <Status label="Auth0" check={auth} />
-        <Status label="Supabase" check={supabase} />
-        <Status label="ElevenLabs" check={elevenlabs} />
-        <Status label="LangChain + Claude" check={anthropic} />
-        <p className="muted" style={{ marginTop: "1rem" }}>
-          <a href="/lessons">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
-          <a href="/api/health">/api/health</a>
-        </p>
+        <h2>New lesson</h2>
+        <form action={createLessonAction}>
+          <input
+            name="title"
+            placeholder="Title (optional — defaults to the first word)"
+            maxLength={120}
+            style={{ marginBottom: "0.5rem" }}
+          />
+          <textarea
+            name="items"
+            required
+            rows={5}
+            placeholder={"One word, phrase, or sentence per line, e.g.\nephemeral\nbreak the ice\nI couldn't agree more"}
+          />
+          <button type="submit">Create lesson</button>
+        </form>
       </section>
 
       <section className="panel">
-        <h2>Supabase write test</h2>
-        <p className="muted">
-          Inserts an owner-scoped row into <code>health_pings</code>, then reads it back.
-        </p>
-        <form action={addPing}>
-          <input name="note" placeholder="a short note" maxLength={200} />
-          <button type="submit" disabled={!ownerId}>
-            Insert ping row
-          </button>
-        </form>
-        {pings.length > 0 ? (
-          <ul>
-            {pings.map((p, i) => (
-              <li key={i}>
-                {p.note || "(empty)"}{" "}
-                <span className="muted">· {new Date(p.created_at).toLocaleString()}</span>
+        <h2>Your lessons</h2>
+        {lessons.length === 0 ? (
+          <p className="muted">No lessons yet — create your first one above.</p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {lessons.map((l) => (
+              <li key={l.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
+                <a href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
+                  {l.title}
+                </a>
+                <div className="muted" style={{ fontSize: "0.9rem" }}>
+                  {l.items.length} {l.items.length === 1 ? "item" : "items"} · {l.sessionCount}{" "}
+                  {l.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
+                  {new Date(l.created_at).toLocaleDateString()}
+                </div>
+                <div className="muted" style={{ fontSize: "0.9rem" }}>
+                  {l.items.slice(0, 4).join(" · ")}
+                  {l.items.length > 4 ? " · …" : ""}
+                </div>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="muted">No rows yet for this account.</p>
         )}
-      </section>
-
-      <section className="panel">
-        <h2>Ask Claude (LangChain)</h2>
-        <p className="muted">
-          Sends your prompt through <code>@langchain/anthropic</code> on the server.
-        </p>
-        <AskClaude />
       </section>
     </>
   );
