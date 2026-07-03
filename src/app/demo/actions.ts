@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getOwnerId } from "../lib/auth/session";
-import { getServiceSupabase } from "../lib/supabase/server";
-import { askClaude } from "../lib/llm";
+import { getOwnerId } from "../../lib/auth/session";
+import { getServiceSupabase } from "../../lib/supabase/server";
+import { askClaude } from "../../lib/llm";
 
 /** Insert an owner-scoped row — proves Supabase write + the owner_id pattern. */
 export async function addPing(formData: FormData): Promise<void> {
@@ -11,7 +11,7 @@ export async function addPing(formData: FormData): Promise<void> {
   if (!ownerId) return;
   const note = String(formData.get("note") ?? "").slice(0, 200);
   await getServiceSupabase().from("health_pings").insert({ owner_id: ownerId, note });
-  revalidatePath("/");
+  revalidatePath("/demo");
 }
 
 /** Ask Claude (via LangChain) — proves the LLM path end-to-end. Returns the answer text. */

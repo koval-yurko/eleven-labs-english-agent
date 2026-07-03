@@ -26,7 +26,7 @@ export async function createLessonAction(formData: FormData): Promise<void> {
   const title = (String(formData.get("title") ?? "").trim() || fallback).slice(0, 120);
 
   const id = await createLesson(ownerId, title, items);
-  revalidatePath("/lessons");
+  revalidatePath("/");
   redirect(`/lessons/${id}`);
 }
 

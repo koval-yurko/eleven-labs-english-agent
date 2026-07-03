@@ -1,12 +1,12 @@
-import { getOwnerId } from "../../lib/auth/session";
-import { listLessons } from "../../lib/lessons";
-import { createLessonAction } from "./actions";
+import { getOwnerId } from "../lib/auth/session";
+import { listLessons } from "../lib/lessons";
+import { createLessonAction } from "./lessons/actions";
 
 // Per-request rendering: the list is owner-scoped (cookies) and changes between visits.
 export const dynamic = "force-dynamic";
 
-/** Lessons page: the learner's word sets — create a new one or open one to practice. */
-export default async function LessonsPage() {
+/** Home page: the learner's word sets — create a new lesson or open one to practice. */
+export default async function HomePage() {
   const ownerId = await getOwnerId();
   const lessons = ownerId ? await listLessons(ownerId) : [];
 
@@ -15,7 +15,7 @@ export default async function LessonsPage() {
       <h1>Lessons</h1>
       <p className="muted">
         A lesson is a set of words, phrases, or sentences you&apos;re learning. Open one to talk
-        it through with the tutor and revisit past conversations. <a href="/">← back</a>
+        it through with the tutor and revisit past conversations.
       </p>
 
       <section className="panel">

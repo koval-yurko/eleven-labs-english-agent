@@ -1,8 +1,13 @@
-import { getOwnerId, getUserEmail } from "../lib/auth/session";
-import { getServiceSupabase, hasSupabaseEnv } from "../lib/supabase/server";
-import { checkSupabase, checkElevenLabs, checkAnthropic, type Check } from "../lib/health";
+import type { Metadata } from "next";
+import { getOwnerId, getUserEmail } from "../../lib/auth/session";
+import { getServiceSupabase, hasSupabaseEnv } from "../../lib/supabase/server";
+import { checkSupabase, checkElevenLabs, checkAnthropic, type Check } from "../../lib/health";
 import { addPing } from "./actions";
 import { AskClaude } from "./AskClaude";
+
+export const metadata: Metadata = {
+  title: "Demo — integration smoke test",
+};
 
 function Status({ label, check }: { label: string; check: Check }) {
   return (
@@ -16,7 +21,7 @@ function Status({ label, check }: { label: string; check: Check }) {
   );
 }
 
-export default async function HomePage() {
+export default async function DemoPage() {
   const [ownerId, email] = await Promise.all([getOwnerId(), getUserEmail()]);
   const [supabase, elevenlabs] = await Promise.all([checkSupabase(), checkElevenLabs()]);
   const anthropic = checkAnthropic();
@@ -48,7 +53,7 @@ export default async function HomePage() {
         <Status label="ElevenLabs" check={elevenlabs} />
         <Status label="LangChain + Claude" check={anthropic} />
         <p className="muted" style={{ marginTop: "1rem" }}>
-          <a href="/lessons">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
+          <a href="/">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
           <a href="/api/health">/api/health</a>
         </p>
       </section>

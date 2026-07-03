@@ -76,7 +76,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
       <h1>{lesson.title}</h1>
       <p className="muted">
         Created {new Date(lesson.created_at).toLocaleDateString()} ·{" "}
-        <a href="/lessons">← all lessons</a>
+        <a href="/">← all lessons</a>
       </p>
 
       <section className="panel">
