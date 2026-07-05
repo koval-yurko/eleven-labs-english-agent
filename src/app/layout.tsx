@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { ThemeToggle } from "./ThemeToggle";
+import { ServiceWorkerRegister } from "./ServiceWorkerRegister";
+import { SyncProvider } from "./SyncProvider";
 
 export const metadata: Metadata = {
   title: "Idiomatic — English tutor",
@@ -44,6 +46,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
+        <ServiceWorkerRegister />
+        <SyncProvider />
         <main>
           <header
             style={{

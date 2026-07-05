@@ -1,81 +1,24 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getOwnerId } from "../../lib/auth/session";
 import {
-  addLessonItems,
   createLesson,
   getLesson,
   removeLessonItem,
+  upsertLessonItems,
   upsertLessonSession,
 } from "../../lib/lessons";
 import type { TranscriptLine } from "../../lib/tutor";
+import type { FlushResult, OutboxOp, OutboxRecord } from "../../lib/sync/types";
 
 const MAX_ITEMS = 50;
 const MAX_LINES = 500;
 
-/** Create a lesson from the form (title optional — defaults to the first item) and open it. */
-export async function createLessonAction(formData: FormData): Promise<void> {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return;
-
-  const items = String(formData.get("items") ?? "")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, MAX_ITEMS);
-  const first = items[0];
-  if (!first) return;
-
-  const fallback = items.length > 1 ? `${first} +${items.length - 1} more` : first;
-  const title = (String(formData.get("title") ?? "").trim() || fallback).slice(0, 120);
-
-  const id = await createLesson(ownerId, title, items);
-  revalidatePath("/");
-  redirect(`/lessons/${id}`);
-}
-
-/** Add words/sentences (one per line) to an existing lesson, then re-render its page. */
-export async function addLessonItemsAction(formData: FormData): Promise<void> {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return;
-
-  const lessonId = String(formData.get("lessonId") ?? "");
-  if (!lessonId) return;
-
-  // The lesson must exist AND belong to the caller — never trust ids from the browser.
-  const lesson = await getLesson(ownerId, lessonId);
-  if (!lesson) return;
-
-  // Cap the TOTAL active items at MAX_ITEMS: only take as many new lines as there's room for.
-  const room = Math.max(0, MAX_ITEMS - lesson.items.length);
-  const texts = String(formData.get("items") ?? "")
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, room);
-  if (texts.length === 0) return;
-
-  await addLessonItems(ownerId, lessonId, texts);
-  revalidatePath(`/lessons/${lessonId}`);
-  revalidatePath("/");
-}
-
-/** Soft-delete one item from a lesson (by its uuid — never free text), then re-render. */
-export async function removeLessonItemAction(formData: FormData): Promise<void> {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return;
-
-  const lessonId = String(formData.get("lessonId") ?? "");
-  const itemId = String(formData.get("itemId") ?? "");
-  if (!lessonId || !itemId) return;
-
-  // Owner + lesson + id are all matched in the write, so a foreign id is a safe no-op.
-  await removeLessonItem(ownerId, lessonId, itemId);
-  revalidatePath(`/lessons/${lessonId}`);
-  revalidatePath("/");
-}
+// Lesson create/add/remove now flow through the offline outbox → `flushOutbox` below (the UI
+// writes to the IndexedDB mirror optimistically). The former FormData actions
+// (createLessonAction / addLessonItemsAction / removeLessonItemAction) were removed as the
+// mirror + outbox path supersedes them; `flushOutbox` reuses the same owner-scoped data layer.
 
 /**
  * Save the transcript of a just-finished tutor conversation, from the browser. The post-call
@@ -108,4 +51,67 @@ export async function saveLessonSessionAction(input: {
     transcript,
   });
   revalidatePath(`/lessons/${lesson.id}`);
+}
+
+const MAX_FLUSH_RECORDS = 500;
+
+/** The lesson id an op mutates — used to know which pages to revalidate after a flush. */
+function opLessonId(op: OutboxOp): string {
+  return op.kind === "createLesson" ? op.lesson.id : op.lessonId;
+}
+
+/** Apply one queued op idempotently. Returns false only if the owner gate rejected it. */
+async function applyOp(ownerId: string, op: OutboxOp): Promise<void> {
+  switch (op.kind) {
+    case "createLesson":
+      await createLesson(ownerId, {
+        id: op.lesson.id,
+        title: op.lesson.title.slice(0, 120),
+        items: op.lesson.items.slice(0, MAX_ITEMS),
+      });
+      return;
+    case "addItems":
+      await upsertLessonItems(ownerId, op.lessonId, op.items.slice(0, MAX_ITEMS));
+      return;
+    case "removeItem":
+      await removeLessonItem(ownerId, op.lessonId, op.itemId);
+      return;
+  }
+}
+
+/**
+ * Drain the offline outbox in one round-trip — the sync path chosen over a dedicated
+ * `/api/sync` route (see docs/2026-07-04-offline-support-and-sync.md). Reuses the
+ * owner-scoped data-layer functions and, like every action, re-derives the owner from the
+ * session (never trusts the payload). Applies ops in `seq` order; each is an idempotent
+ * upsert-by-id / soft-delete, so a partial flush is safe to retry wholesale. Returns the ids
+ * of records durably applied so the client can drop exactly those from its outbox.
+ *
+ * Non-redirecting on purpose (unlike `createLessonAction`): a background flush must not navigate.
+ */
+export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult> {
+  const ownerId = await getOwnerId();
+  if (!ownerId || !Array.isArray(records) || records.length === 0) return { applied: [] };
+
+  const ordered = [...records].slice(0, MAX_FLUSH_RECORDS).sort((a, b) => a.seq - b.seq);
+  const applied: string[] = [];
+  const touched = new Set<string>();
+  for (const record of ordered) {
+    try {
+      await applyOp(ownerId, record.op);
+      applied.push(record.id);
+      touched.add(opLessonId(record.op));
+    } catch {
+      // Stop at the first failure: later ops may depend on this one (e.g. add-items after
+      // create-lesson). The client keeps the unapplied tail and retries the whole batch —
+      // already-applied ops replay as no-ops.
+      break;
+    }
+  }
+
+  if (applied.length > 0) {
+    revalidatePath("/");
+    for (const lessonId of touched) revalidatePath(`/lessons/${lessonId}`);
+  }
+  return { applied };
 }

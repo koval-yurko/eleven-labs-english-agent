@@ -16,7 +16,16 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
   // stay public — installers (iOS/Android) fetch it without credentials, so gating it would
   // redirect the fetch into the login page and break "Add to Home Screen". PWA icons already
   // bypass the gate via the `*.png` exclusion in `config.matcher` below.
-  if (pathname.startsWith("/auth") || pathname === "/manifest.webmanifest") {
+  //
+  // The service worker (`/sw.js`) and its offline shell (`/offline`) must also stay public: the
+  // SW is fetched/registered with no guarantee of a validated session, and `/offline` is the
+  // credential-less fallback shown when navigations can't reach the network.
+  if (
+    pathname.startsWith("/auth") ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname === "/offline"
+  ) {
     return authRes;
   }
 

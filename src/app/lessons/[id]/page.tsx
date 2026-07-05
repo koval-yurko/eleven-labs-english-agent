@@ -8,8 +8,8 @@ import {
   type LessonItem,
 } from "../../../lib/lessons";
 import { activeVersions } from "../../../lib/agent-registry";
-import { addLessonItemsAction, removeLessonItemAction } from "../actions";
 import { LessonTutor } from "./LessonTutor";
+import { LessonItemsView } from "./LessonItemsView";
 
 // Per-request rendering: owner-scoped data + the lockfile registry may change between deploys.
 export const dynamic = "force-dynamic";
@@ -117,11 +117,10 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
     listLessonSessions(ownerId, lesson.id),
     listLessonItemHistory(ownerId, lesson.id),
   ]);
-  // Active items (with ids, for remove buttons), in display order.
+  // Active items (with ids), in display order — seeds the mirror-backed items island.
   const activeItems = itemHistory
     .filter((it) => it.removed_at === null)
     .sort((a, b) => a.position - b.position);
-  const atCap = activeItems.length >= 50;
   const versions = activeVersions();
   // Newest active version is the default (registry is ordered oldest → newest).
   const defaultVersion = versions[versions.length - 1]?.version ?? "";
@@ -136,65 +135,16 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
 
       <section className="panel">
         <h2>Words in this lesson</h2>
-        {activeItems.length === 0 ? (
-          <p className="muted">No words yet — add some below.</p>
-        ) : (
-          <ul style={{ margin: 0, listStyle: "none", padding: 0 }}>
-            {activeItems.map((it) => (
-              <li
-                key={it.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "0.75rem",
-                  padding: "0.25rem 0",
-                }}
-              >
-                <span>{it.text}</span>
-                <form action={removeLessonItemAction} style={{ margin: 0 }}>
-                  <input type="hidden" name="lessonId" value={lesson.id} />
-                  <input type="hidden" name="itemId" value={it.id} />
-                  <button
-                    type="submit"
-                    aria-label={`Remove ${it.text}`}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--error)",
-                      padding: 0,
-                    }}
-                  >
-                    remove
-                  </button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <form
-          action={addLessonItemsAction}
-          style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}
-        >
-          <input type="hidden" name="lessonId" value={lesson.id} />
-          <textarea
-            name="items"
-            rows={3}
-            placeholder="Add words or sentences — one per line"
-            style={{ width: "100%" }}
-            disabled={atCap}
-          />
-          <div>
-            <button type="submit" disabled={atCap}>
-              Add words
-            </button>{" "}
-            <span className="muted">
-              {atCap ? "Lesson is full (50 items)." : `${activeItems.length}/50 items`}
-            </span>
-          </div>
-        </form>
+        <LessonItemsView
+          ownerSub={ownerId}
+          lessonId={lesson.id}
+          initial={activeItems.map((it) => ({
+            id: it.id,
+            lesson_id: lesson.id,
+            text: it.text,
+            position: it.position,
+          }))}
+        />
       </section>
 
       {versions.length > 0 ? (

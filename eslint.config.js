@@ -24,6 +24,21 @@ export default tseslint.config(
     },
   },
   {
+    // The hand-rolled service worker runs in a ServiceWorkerGlobalScope (not Node/DOM), so its
+    // globals aren't otherwise known to ESLint.
+    files: ["public/sw.js"],
+    languageOptions: {
+      globals: {
+        self: "readonly",
+        caches: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+        Promise: "readonly",
+      },
+    },
+  },
+  {
     // Node CLI scripts (migrations, smoke tests) run under Node, not the browser.
     files: ["scripts/**"],
     languageOptions: {

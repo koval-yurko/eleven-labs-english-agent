@@ -97,32 +97,45 @@ export async function getLessonById(
   return (data as { id: string; owner_id: string } | null) ?? null;
 }
 
-/** Create a lesson with its initial items (one row each) and return its id. */
-export async function createLesson(
-  ownerId: string,
-  title: string,
-  items: string[],
-): Promise<string> {
-  const db = getServiceSupabase();
-  const { data, error } = await db
-    .from("lessons")
-    .insert({ owner_id: ownerId, title })
-    .select("id")
-    .single();
-  if (error) throw new Error(`createLesson: ${error.message}`);
-  const lessonId = (data as { id: string }).id;
+/** A brand-new lesson, with all ids minted by the caller (client) so it is fully-formed
+ *  before it ever reaches the server — the enabler for offline create + idempotent sync. */
+export interface NewLesson {
+  id: string;
+  title: string;
+  items: { id: string; text: string }[];
+}
 
-  const rows = items.map((text, i) => ({
-    lesson_id: lessonId,
+/**
+ * Create a lesson with its initial items (one row each) and return its id. Ids are
+ * client-supplied and the write is an **idempotent upsert-by-id** (INSERT … ON CONFLICT (id)
+ * DO NOTHING): re-running a create — e.g. an offline-queued op replayed on reconnect — is a
+ * no-op, and a client id that happens to collide with an existing row is ignored (never
+ * clobbering another owner's lesson). See docs/2026-07-04-offline-support-and-sync.md.
+ */
+export async function createLesson(ownerId: string, lesson: NewLesson): Promise<string> {
+  const db = getServiceSupabase();
+  const { error } = await db
+    .from("lessons")
+    .upsert(
+      { id: lesson.id, owner_id: ownerId, title: lesson.title },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+  if (error) throw new Error(`createLesson: ${error.message}`);
+
+  const rows = lesson.items.map((it, i) => ({
+    id: it.id,
+    lesson_id: lesson.id,
     owner_id: ownerId,
-    text,
+    text: it.text,
     position: i,
   }));
   if (rows.length > 0) {
-    const { error: itemsError } = await db.from("lesson_items").insert(rows);
+    const { error: itemsError } = await db
+      .from("lesson_items")
+      .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
     if (itemsError) throw new Error(`createLesson items: ${itemsError.message}`);
   }
-  return lessonId;
+  return lesson.id;
 }
 
 /** Bump lessons.updated_at so the home list can surface recently-edited lessons. */
@@ -135,50 +148,38 @@ async function touchLesson(lessonId: string, ownerId: string): Promise<void> {
 }
 
 /**
- * Append words/sentences to a lesson (one row each), after the current max position. Skips
- * exact duplicates of currently-active items (case-insensitive). Verifies the lesson belongs
- * to the caller before inserting — an item row is never attached to a foreign lesson. Returns
- * how many rows were actually added.
+ * Idempotent, id-driven add — the one add path, used by the offline sync replay (`flushOutbox`).
+ * The client mints each item's `id` and `position` and updates its mirror optimistically, so
+ * replaying a delivered "add items" op is a no-op (ON CONFLICT (id) DO NOTHING). Verifies the
+ * lesson belongs to the caller before inserting. Returns rows offered.
  */
-export async function addLessonItems(
+export async function upsertLessonItems(
   ownerId: string,
   lessonId: string,
-  texts: string[],
+  items: { id: string; text: string; position: number }[],
 ): Promise<number> {
-  // Ownership gate: never trust a lesson id from the browser.
+  const clean = items
+    .map((it) => ({ ...it, text: it.text.trim() }))
+    .filter((it) => it.id && it.text);
+  if (clean.length === 0) return 0;
+
+  // Ownership gate: never attach an item to a foreign / non-existent lesson.
   const lesson = await getLesson(ownerId, lessonId);
   if (!lesson) return 0;
 
-  const db = getServiceSupabase();
-  const { data: existing, error } = await db
+  const rows = clean.map((it) => ({
+    id: it.id,
+    lesson_id: lessonId,
+    owner_id: ownerId,
+    text: it.text,
+    position: it.position,
+  }));
+  const { error } = await getServiceSupabase()
     .from("lesson_items")
-    .select("normalized_text, position, removed_at")
-    .eq("owner_id", ownerId)
-    .eq("lesson_id", lessonId);
-  if (error) throw new Error(`addLessonItems read: ${error.message}`);
-
-  type Existing = { normalized_text: string; position: number; removed_at: string | null };
-  const rows = (existing as Existing[] | null) ?? [];
-  // Don't re-add something already active; position monotonically after every existing row.
-  const activeNorm = new Set(rows.filter((r) => r.removed_at === null).map((r) => r.normalized_text));
-  let pos = rows.reduce((max, r) => Math.max(max, r.position), -1);
-
-  const toInsert: { lesson_id: string; owner_id: string; text: string; position: number }[] = [];
-  for (const raw of texts) {
-    const text = raw.trim();
-    if (!text) continue;
-    const norm = text.toLowerCase();
-    if (activeNorm.has(norm)) continue;
-    activeNorm.add(norm); // also de-dupes within this batch
-    pos += 1;
-    toInsert.push({ lesson_id: lessonId, owner_id: ownerId, text, position: pos });
-  }
-  if (toInsert.length === 0) return 0;
-
-  const { error: insErr } = await db.from("lesson_items").insert(toInsert);
-  if (insErr) throw new Error(`addLessonItems: ${insErr.message}`);
+    .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+  if (error) throw new Error(`upsertLessonItems: ${error.message}`);
   await touchLesson(lessonId, ownerId);
-  return toInsert.length;
+  return rows.length;
 }
 
 /**
