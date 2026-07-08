@@ -7,7 +7,7 @@ import { OfflineApp } from "../OfflineApp";
 export const dynamic = "force-static";
 
 export const metadata: Metadata = {
-  title: "Offline — Idiomatic",
+  title: "Offline — English Tutor",
 };
 
 export default function OfflinePage() {

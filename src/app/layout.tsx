@@ -6,7 +6,7 @@ import { ServiceWorkerRegister } from "./ServiceWorkerRegister";
 import { SyncProvider } from "./SyncProvider";
 
 export const metadata: Metadata = {
-  title: "Idiomatic — English tutor",
+  title: "English Tutor",
   description: "Live-story English practice with an ElevenLabs voice tutor.",
   // Next also injects the manifest link from app/manifest.ts; naming it here is explicit + safe.
   manifest: "/manifest.webmanifest",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   // Emits the Apple standalone-mode meta tags (apple-mobile-web-app-*).
   appleWebApp: {
     capable: true,
-    title: "Idiomatic",
+    title: "English Tutor",
     statusBarStyle: "black-translucent",
   },
 };
@@ -58,7 +58,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             }}
           >
             <a href="/" style={{ fontWeight: 700, fontSize: "1.25rem", textDecoration: "none" }}>
-              🎧 Idiomatic
+              🎧 English Tutor
             </a>
             <ThemeToggle />
           </header>

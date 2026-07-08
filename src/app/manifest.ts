@@ -14,8 +14,8 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Idiomatic — English tutor",
-    short_name: "Idiomatic",
+    name: "English Tutor",
+    short_name: "English Tutor",
     description: "Live-story English practice with an ElevenLabs voice tutor.",
     start_url: "/",
     display: "standalone",

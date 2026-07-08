@@ -46,7 +46,7 @@ function OfflineNotice() {
     <section className="panel">
       <h1>You&rsquo;re offline</h1>
       <p className="muted">
-        Idiomatic can&rsquo;t reach the network right now. Your saved lessons are available from
+        English Tutor can&rsquo;t reach the network right now. Your saved lessons are available from
         here; reconnect for voice practice and history.
       </p>
       <p>

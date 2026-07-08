@@ -1,7 +1,7 @@
-# Idiomatic
+# English Tutor
 
 A minimal **Next.js (App Router)** scaffold — a clean starting point for rebuilding the
-Idiomatic English-lesson app. It keeps just enough to prove the four integrations work, and
+English Tutor English-lesson app. It keeps just enough to prove the four integrations work, and
 nothing else. The original product vision lives in [`spec/PRD-base.md`](./spec/PRD-base.md).
 
 ## What's wired
@@ -53,3 +53,6 @@ scripts/    migrate.mjs
 - Supabase uses the **same project** as before — the data was reset to a fresh baseline
   (`supabase/migrations/0001_baseline.sql`).
 - The LLM defaults to `claude-opus-4-8` (override with `ANTHROPIC_MODEL`).
+
+
+Grafana Traces for LLM calls

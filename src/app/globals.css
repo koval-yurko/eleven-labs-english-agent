@@ -44,7 +44,11 @@ body {
 main {
   max-width: 760px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 4rem;
+  /* Safe-area insets keep content clear of the iOS status bar / notch and home
+     indicator in standalone (Add to Home Screen) mode, where viewport-fit=cover
+     lets the page extend edge-to-edge. */
+  padding: calc(2rem + env(safe-area-inset-top)) calc(1.25rem + env(safe-area-inset-right))
+    calc(4rem + env(safe-area-inset-bottom)) calc(1.25rem + env(safe-area-inset-left));
 }
 
 a {
