@@ -5,16 +5,23 @@
     "words-1.0": {
       "agentId": "agent_5001kw5gpjyhfdvr3x4wrhk93te2",
       "status": "active",
-      "hash": "sha256:1c59aeb9c0b84e450e89dc4958833a8ca1e63c9a410060bd0aeb124d6f03831c",
+      "hash": "sha256:fbaa391210fc414a9e39144f6ce5025dc68354a966054b5133a1cc043bbd255b",
       "name": "english-words-tutor (words-1.0)",
-      "updatedAt": "2026-06-27T21:45:17.315Z"
+      "updatedAt": "2026-07-08T09:47:16.021Z"
     },
     "words-1.1": {
       "agentId": "agent_5201kw5gpm29e4sa8yswz7hvyr88",
       "status": "active",
-      "hash": "sha256:971b2db49202534335903b80d7c5d608c30ee7c0794bcb27243a020d47186d05",
+      "hash": "sha256:d9edcd82097fdffa8a73fb46af5fbef1a9652b42a3f89264da4d7d76a811c4c1",
       "name": "english-words-tutor (words-1.1)",
-      "updatedAt": "2026-06-27T21:45:17.315Z"
+      "updatedAt": "2026-07-08T09:47:16.021Z"
+    },
+    "words-1.2": {
+      "agentId": "agent_7501kx0j26jwfjcsk7vtb47fcrt4",
+      "status": "active",
+      "hash": "sha256:54525066bb3fda816eaa2d8e0016d3f851f9bc2ca9a5be581134249b371a375d",
+      "name": "english-words-tutor (words-1.2)",
+      "updatedAt": "2026-07-08T09:48:36.058Z"
     }
   }
 }

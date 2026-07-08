@@ -83,12 +83,16 @@ function hashConfig(c: EffectiveAgentConfig): string {
     llm: c.llm,
     voiceId: c.voiceId ?? null,
     ttsModelId: c.ttsModelId,
+    additionalLanguages: c.additionalLanguages,
   });
   return "sha256:" + createHash("sha256").update(canonical).digest("hex");
 }
 
 // ── ElevenLabs calls ───────────────────────────────────────────────────────────────────────
 function agentBody(c: EffectiveAgentConfig) {
+  const language_presets = Object.fromEntries(
+    c.additionalLanguages.map((lang) => [lang, { overrides: { agent: { language: lang } } }]),
+  );
   return {
     name: c.name,
     conversation_config: {
@@ -101,6 +105,7 @@ function agentBody(c: EffectiveAgentConfig) {
         },
       },
       tts: { model_id: c.ttsModelId, voice_id: c.voiceId },
+      ...(c.additionalLanguages.length > 0 ? { language_presets } : {}),
     },
   };
 }

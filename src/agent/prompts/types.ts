@@ -20,4 +20,6 @@ export interface PromptVersion {
   voiceId?: string;
   /** Real-time TTS model. Defaults to DEFAULT_TTS_MODEL (see ./index.ts). */
   ttsModelId?: string;
+  /** Extra languages (ISO codes, e.g. "ru") baked as language_presets.  */
+  additionalLanguages?: string[];
 }
