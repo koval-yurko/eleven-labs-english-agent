@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ASSET_VERSION } from "../lib/asset-version";
 
 /** Ask the browser to keep our storage durable, so iOS/Safari don't evict the offline cache +
  *  the IndexedDB mirror after ~7 idle days (the doc's iOS storage-eviction reality check). Safe
@@ -28,7 +29,9 @@ export function ServiceWorkerRegister() {
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
 
     const register = () => {
-      void navigator.serviceWorker.register("/sw.js").catch(() => {
+      // The ?v= makes the script URL part of the asset version: bumping ASSET_VERSION
+      // installs a fresh worker, which purges every previous cache on activate.
+      void navigator.serviceWorker.register(`/sw.js?v=${ASSET_VERSION}`).catch(() => {
         // A failed registration must never break the app — offline is a progressive enhancement.
       });
     };

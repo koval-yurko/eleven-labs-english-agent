@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import { ASSET_VERSION } from "../lib/asset-version";
 import { ThemeToggle } from "./ThemeToggle";
 import { ServiceWorkerRegister } from "./ServiceWorkerRegister";
 import { SyncProvider } from "./SyncProvider";
@@ -11,9 +12,11 @@ export const metadata: Metadata = {
   // Next also injects the manifest link from app/manifest.ts; naming it here is explicit + safe.
   manifest: "/manifest.webmanifest",
   // iOS reads apple-touch-icon (not the manifest) for the Home Screen glyph.
+  // ?v= busts the immutable HTTP cache on the generated icons — bump ASSET_VERSION
+  // whenever the artwork in src/app/pwa/[icon]/route.tsx changes.
   icons: {
-    icon: "/pwa/icon-192.png",
-    apple: "/pwa/apple-touch-icon.png", // 180×180
+    icon: `/pwa/icon-192.png?v=${ASSET_VERSION}`,
+    apple: `/pwa/apple-touch-icon.png?v=${ASSET_VERSION}`, // 180×180
   },
   // Emits the Apple standalone-mode meta tags (apple-mobile-web-app-*).
   appleWebApp: {

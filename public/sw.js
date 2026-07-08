@@ -14,8 +14,11 @@
  * hashed and immutable, so a cache-first strategy needs no build-time precache manifest.
  */
 
-const VERSION = "v2";
-const CACHE = `idiomatic-${VERSION}`;
+// The version arrives via the registration URL (`/sw.js?v=…`, see ServiceWorkerRegister.tsx),
+// so it has a single source of truth: src/lib/asset-version.ts. Bumping it there re-registers
+// this worker under a new URL → fresh install → activate purges every older cache.
+const VERSION = new URL(self.location.href).searchParams.get("v") ?? "dev";
+const CACHE = `english-tutor-${VERSION}`;
 const OFFLINE_URL = "/offline";
 
 // Precache the offline app-shell document AND every /_next/static asset it references, so a cold

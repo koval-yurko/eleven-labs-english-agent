@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { ASSET_VERSION } from "../lib/asset-version";
 
 /**
  * Web app manifest — Next serves this at `/manifest.webmanifest` and injects the
@@ -21,11 +22,12 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#0b0b12",
     theme_color: "#0b0b12",
+    // ?v= busts the immutable HTTP cache on the generated icons (see src/lib/asset-version.ts).
     icons: [
-      { src: "/pwa/icon-192.png", sizes: "192x192", type: "image/png" },
-      { src: "/pwa/icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: `/pwa/icon-192.png?v=${ASSET_VERSION}`, sizes: "192x192", type: "image/png" },
+      { src: `/pwa/icon-512.png?v=${ASSET_VERSION}`, sizes: "512x512", type: "image/png" },
       {
-        src: "/pwa/icon-512-maskable.png",
+        src: `/pwa/icon-512-maskable.png?v=${ASSET_VERSION}`,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
