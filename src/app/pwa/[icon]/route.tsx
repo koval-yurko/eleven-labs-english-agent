@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
  * `/pwa/icon-512-maskable.png`. The `.png` suffix keeps these OUT of the auth gate — the
  * `proxy.ts` matcher excludes any `*.png` path — so logged-out installs can fetch them.
  *
- * This is a branded PLACEHOLDER (gradient + "Id" wordmark). Drop real artwork by replacing
+ * This is a branded PLACEHOLDER (pink gradient + "ET" wordmark). Drop real artwork by replacing
  * these routes with static files in `public/` (or `app/apple-icon.png`) when you have it.
  */
 
@@ -41,7 +41,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ icon: stri
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          backgroundImage: "linear-gradient(135deg, #6366f1 0%, #a855f7 100%)",
+          backgroundImage: "linear-gradient(135deg, #ec4899 0%, #f472b6 100%)",
           color: "#ffffff",
         }}
       >
@@ -53,7 +53,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ icon: stri
             display: "flex",
           }}
         >
-          Id
+          ET
         </div>
       </div>
     ),
