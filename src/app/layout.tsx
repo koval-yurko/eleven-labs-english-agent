@@ -63,7 +63,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href="/" style={{ fontWeight: 700, fontSize: "1.25rem", textDecoration: "none" }}>
               🎧 English Tutor
             </a>
-            <ThemeToggle />
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <a href="/lesson-items">Words</a>
+              <ThemeToggle />
+            </div>
           </header>
           {children}
         </main>
