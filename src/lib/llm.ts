@@ -13,13 +13,19 @@ export function hasAnthropicEnv(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 }
 
-export function getChatModel(): ChatAnthropic {
+/**
+ * Deliberately no `temperature` / `top_p` / `top_k` override: they're removed on opus-4-8/4-7,
+ * sonnet-5, and fable-5 (400), while still working on the opus-4-5 default below — so adding one
+ * passes here and breaks the moment ANTHROPIC_MODEL moves. Steer with the prompt instead.
+ */
+export function getChatModel(overrides?: { maxTokens?: number }): ChatAnthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
   return new ChatAnthropic({
     apiKey,
     model: process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL,
     maxTokens: 1024,
+    ...overrides,
     // @langchain/anthropic@0.3.x defaults top_p/top_k to the sentinel -1 and only strips it
     // for a hardcoded model allowlist that predates claude-opus-4-8 — so it sends `top_p: -1`,
     // which newer models reject ("`top_p` cannot be set to -1"). invocationKwargs is spread

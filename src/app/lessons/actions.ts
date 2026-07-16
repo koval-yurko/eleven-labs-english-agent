@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { getOwnerId } from "../../lib/auth/session";
+import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import {
   createLesson,
   getLesson,
@@ -96,11 +98,13 @@ export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult>
   const ordered = [...records].slice(0, MAX_FLUSH_RECORDS).sort((a, b) => a.seq - b.seq);
   const applied: string[] = [];
   const touched = new Set<string>();
+  let addedItems = false;
   for (const record of ordered) {
     try {
       await applyOp(ownerId, record.op);
       applied.push(record.id);
       touched.add(opLessonId(record.op));
+      if (record.op.kind !== "removeItem") addedItems = true;
     } catch {
       // Stop at the first failure: later ops may depend on this one (e.g. add-items after
       // create-lesson). The client keeps the unapplied tail and retries the whole batch —
@@ -112,6 +116,26 @@ export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult>
   if (applied.length > 0) {
     revalidatePath("/");
     for (const lessonId of touched) revalidatePath(`/lessons/${lessonId}`);
+  }
+
+  // Fast path for the level job (docs/2026-07-16-level-assignment-background-job.md): new items get
+  // a level in seconds rather than waiting for the next `pnpm level:items` sweep. Runs after the
+  // response, so a slow LLM call never delays the add.
+  //
+  // One call, not one per record — a flush can carry MAX_FLUSH_RECORDS ops. levelItems reads its own
+  // queue, so there's nothing to pass in; that queue is newest-first, which is what makes the limit
+  // safe (any other order and the capped window could miss the word just typed). The cap keeps a
+  // first-ever flush from running a whole backfill here; the uncapped sweep takes the rest.
+  //
+  // Swallowed: best-effort, and a failure costs a chip until the next sweep.
+  if (addedItems) {
+    after(async () => {
+      try {
+        await levelItems(ownerId, { limit: LEVEL_AFTER_LIMIT });
+      } catch {
+        // The sweep is the backstop.
+      }
+    });
   }
   return { applied };
 }

@@ -44,6 +44,9 @@ importers:
       react-dom:
         specifier: ^19.2.7
         version: 19.2.7(react@19.2.7)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@eslint/js':
         specifier: ^9.17.0

@@ -41,6 +41,8 @@ pnpm lint              # ESLint flat config
 pnpm db:migrate        # apply Supabase migrations (needs SUPABASE_DB_URL)
 pnpm sync:agents       # reconcile ElevenLabs agents with src/agent/prompts/ (writes agents.lock.json)
 pnpm sync:agents:plan  # dry-run: print the reconcile plan, change nothing
+pnpm level:items       # assign CEFR levels (A2–C2) to vocabulary items that have none yet
+pnpm level:items:plan  # dry-run: print what would be levelled, make zero LLM calls
 ```
 
 ## Conventions
@@ -60,6 +62,13 @@ pnpm sync:agents:plan  # dry-run: print the reconcile plan, change nothing
   session. After adding,
   editing, or deleting a prompt version, run `pnpm sync:agents` and commit the lockfile. See
   `docs/2026-06-27-agent-prompt-version-switching.md`.
+- **CEFR levels are written only by the level job**, never by the UI. `lesson_item_attrs.level`
+  is filled in by `src/lib/levels.ts`, triggered two ways: `after()` on the item-write path (fast)
+  and `pnpm level:items` (the sweep that backfills and catches what the fast path dropped).
+  `level_at` is the processed flag — it is stamped when the job **attempted** an item, not when it
+  succeeded, so an item the model had no answer for is asked about once rather than on every
+  sweep. `level` is nullable forever ("unleveled" is a real state), so the job has no deadline and
+  the app needs no scheduler. See `docs/2026-07-16-level-assignment-background-job.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.
