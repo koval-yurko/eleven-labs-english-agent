@@ -4,6 +4,7 @@
  * `owner_id` (the Auth0 sub); RLS is defense-in-depth, same as the rest of the app.
  */
 import { getServiceSupabase } from "./supabase/server";
+import { resolveWords, wordInputKey } from "./words";
 import type { TranscriptLine } from "./tutor";
 
 export interface Lesson {
@@ -27,8 +28,18 @@ export interface LessonItem {
   removed_at: string | null;
 }
 
-// Shape of the embedded lesson_items rows in a lesson select.
-type EmbeddedItem = { text: string; position: number };
+// Shape of the embedded lesson_items rows in a lesson select. Since 0007 the text lives on `words`
+// and lesson_items is a join table, so the spelling comes one level deeper.
+//
+// `words` is an OBJECT here, not an array: lesson_items.word_id is a to-one FK, and PostgREST
+// embeds those as a single object. supabase-js can't see that without generated database types, so
+// it infers `{text}[]` from the select string alone — hence the `as unknown as` at each call site.
+type EmbeddedItem = { position: number; words: { text: string } | null };
+
+/** Active item texts in position order, out of a lesson select's embedded rows. */
+function embeddedTexts(items: EmbeddedItem[] | null | undefined): string[] {
+  return (items ?? []).map((i) => i.words?.text).filter((t): t is string => Boolean(t));
+}
 
 export interface LessonSession {
   id: string;
@@ -45,7 +56,7 @@ export async function listLessons(ownerId: string): Promise<LessonListItem[]> {
   const { data, error } = await getServiceSupabase()
     .from("lessons")
     .select(
-      "id, title, created_at, updated_at, lesson_sessions(count), lesson_items(text, position, removed_at)",
+      "id, title, created_at, updated_at, lesson_sessions(count), lesson_items(position, removed_at, words(text))",
     )
     .eq("owner_id", ownerId)
     // Filter the embedded items to active ones (keeps lessons with zero active items).
@@ -57,9 +68,9 @@ export async function listLessons(ownerId: string): Promise<LessonListItem[]> {
     lesson_sessions: { count: number }[];
     lesson_items: EmbeddedItem[];
   };
-  return ((data as Row[] | null) ?? []).map(({ lesson_sessions, lesson_items, ...lesson }) => ({
+  return ((data as unknown as Row[] | null) ?? []).map(({ lesson_sessions, lesson_items, ...lesson }) => ({
     ...lesson,
-    items: (lesson_items ?? []).map((i) => i.text),
+    items: embeddedTexts(lesson_items),
     sessionCount: lesson_sessions[0]?.count ?? 0,
   }));
 }
@@ -68,7 +79,7 @@ export async function listLessons(ownerId: string): Promise<LessonListItem[]> {
 export async function getLesson(ownerId: string, lessonId: string): Promise<Lesson | null> {
   const { data, error } = await getServiceSupabase()
     .from("lessons")
-    .select("id, title, created_at, updated_at, lesson_items(text, position, removed_at)")
+    .select("id, title, created_at, updated_at, lesson_items(position, removed_at, words(text))")
     .eq("owner_id", ownerId)
     .eq("id", lessonId)
     .is("lesson_items.removed_at", null)
@@ -76,9 +87,9 @@ export async function getLesson(ownerId: string, lessonId: string): Promise<Less
     .maybeSingle();
   if (error) throw new Error(`getLesson: ${error.message}`);
   if (!data) return null;
-  const row = data as Omit<Lesson, "items"> & { lesson_items: EmbeddedItem[] };
+  const row = data as unknown as Omit<Lesson, "items"> & { lesson_items: EmbeddedItem[] };
   const { lesson_items, ...lesson } = row;
-  return { ...lesson, items: (lesson_items ?? []).map((i) => i.text) };
+  return { ...lesson, items: embeddedTexts(lesson_items) };
 }
 
 /**
@@ -113,8 +124,7 @@ export interface NewLesson {
  * clobbering another owner's lesson). See docs/2026-07-04-offline-support-and-sync.md.
  */
 export async function createLesson(ownerId: string, lesson: NewLesson): Promise<string> {
-  const db = getServiceSupabase();
-  const { error } = await db
+  const { error } = await getServiceSupabase()
     .from("lessons")
     .upsert(
       { id: lesson.id, owner_id: ownerId, title: lesson.title },
@@ -122,20 +132,72 @@ export async function createLesson(ownerId: string, lesson: NewLesson): Promise<
     );
   if (error) throw new Error(`createLesson: ${error.message}`);
 
-  const rows = lesson.items.map((it, i) => ({
-    id: it.id,
-    lesson_id: lesson.id,
-    owner_id: ownerId,
-    text: it.text,
-    position: i,
-  }));
-  if (rows.length > 0) {
-    const { error: itemsError } = await db
-      .from("lesson_items")
-      .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
-    if (itemsError) throw new Error(`createLesson items: ${itemsError.message}`);
-  }
+  await linkWords(
+    ownerId,
+    lesson.id,
+    lesson.items.map((it, i) => ({ id: it.id, text: it.text, position: i })),
+  );
   return lesson.id;
+}
+
+/**
+ * Resolve texts → words (creating any the owner doesn't have yet) and link them to a lesson.
+ * The shared tail of both write paths; the caller owns the ownership gate.
+ *
+ * Two words are skipped rather than inserted: one already active in this lesson, and a second
+ * mention within the same batch. Both would be a second live link for one (lesson_id, word_id),
+ * which `lesson_items_lesson_word_active_idx` rejects — and the rejection would take the whole
+ * batch with it. The client can't prevent this for us: `addItemsLocal` dedupes with
+ * `text.trim().toLowerCase()`, so "Don't" and "dont" reach here as two texts and one word.
+ *
+ * Positions are the caller's and are left alone; a skip leaves a gap, which only orders rows.
+ */
+async function linkWords(
+  ownerId: string,
+  lessonId: string,
+  items: { id: string; text: string; position: number }[],
+): Promise<number> {
+  const clean = items
+    .map((it) => ({ ...it, text: wordInputKey(it.text) }))
+    .filter((it) => it.id && it.text);
+  if (clean.length === 0) return 0;
+
+  const db = getServiceSupabase();
+  const words = await resolveWords(
+    ownerId,
+    clean.map((it) => it.text),
+  );
+
+  const { data: existing, error: existingError } = await db
+    .from("lesson_items")
+    .select("word_id")
+    .eq("lesson_id", lessonId)
+    .is("removed_at", null);
+  if (existingError) throw new Error(`linkWords: ${existingError.message}`);
+  const linked = new Set(((existing as { word_id: string }[] | null) ?? []).map((r) => r.word_id));
+
+  const rows = [];
+  for (const it of clean) {
+    const word = words.get(it.text);
+    if (!word || linked.has(word.id)) continue;
+    linked.add(word.id); // also dedupes the batch against itself
+    rows.push({
+      id: it.id,
+      lesson_id: lessonId,
+      owner_id: ownerId,
+      word_id: word.id,
+      position: it.position,
+    });
+  }
+  if (rows.length === 0) return 0;
+
+  // Still ON CONFLICT (id) DO NOTHING: a replayed op whose word was since removed from the lesson
+  // passes the `linked` filter above, and its client-minted id is what makes the re-insert a no-op.
+  const { error } = await db
+    .from("lesson_items")
+    .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+  if (error) throw new Error(`linkWords: ${error.message}`);
+  return rows.length;
 }
 
 /** Bump lessons.updated_at so the home list can surface recently-edited lessons. */
@@ -150,36 +212,26 @@ async function touchLesson(lessonId: string, ownerId: string): Promise<void> {
 /**
  * Idempotent, id-driven add — the one add path, used by the offline sync replay (`flushOutbox`).
  * The client mints each item's `id` and `position` and updates its mirror optimistically, so
- * replaying a delivered "add items" op is a no-op (ON CONFLICT (id) DO NOTHING). Verifies the
- * lesson belongs to the caller before inserting. Returns rows offered.
+ * replaying a delivered "add items" op is a no-op. Verifies the lesson belongs to the caller
+ * before inserting. Returns rows inserted.
+ *
+ * Since 0007 this also puts each text in the owner's `words` collection (creating it if new) and
+ * links that word — so a word added inside a lesson and one added directly on /lesson-items end up
+ * as the same row.
  */
 export async function upsertLessonItems(
   ownerId: string,
   lessonId: string,
   items: { id: string; text: string; position: number }[],
 ): Promise<number> {
-  const clean = items
-    .map((it) => ({ ...it, text: it.text.trim() }))
-    .filter((it) => it.id && it.text);
-  if (clean.length === 0) return 0;
-
-  // Ownership gate: never attach an item to a foreign / non-existent lesson.
+  // Ownership gate: never attach an item to a foreign / non-existent lesson. Before resolveWords,
+  // so a rejected call cannot create words as a side effect.
   const lesson = await getLesson(ownerId, lessonId);
   if (!lesson) return 0;
 
-  const rows = clean.map((it) => ({
-    id: it.id,
-    lesson_id: lessonId,
-    owner_id: ownerId,
-    text: it.text,
-    position: it.position,
-  }));
-  const { error } = await getServiceSupabase()
-    .from("lesson_items")
-    .upsert(rows, { onConflict: "id", ignoreDuplicates: true });
-  if (error) throw new Error(`upsertLessonItems: ${error.message}`);
-  await touchLesson(lessonId, ownerId);
-  return rows.length;
+  const inserted = await linkWords(ownerId, lessonId, items);
+  if (inserted > 0) await touchLesson(lessonId, ownerId);
+  return inserted;
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * SERVER-ONLY: the CEFR level job — fills in `lesson_item_attrs.level` by asking the LLM.
+ * SERVER-ONLY: the CEFR level job — fills in `words.level` by asking the LLM.
  * See docs/2026-07-16-level-assignment-background-job.md.
  *
  * Called by `after()` on the item-write path (fast) and by `pnpm level:items` (the sweep that
@@ -24,6 +24,8 @@ const PAGE_SIZE = 1000;
 
 export interface PendingItem {
   owner_id: string;
+  /** The `words` row to stamp — the queue's rows ARE words since 0007. */
+  word_id: string;
   norm_key: string;
   text: string;
   kind: ItemKind;
@@ -71,12 +73,12 @@ function normalizeLevel(raw: string): CefrLevel | null {
  */
 export async function resetLevelFlags(ownerId: string | null): Promise<number> {
   let q = getServiceSupabase()
-    .from("lesson_item_attrs")
+    .from("words")
     .update({ level_at: null, updated_at: new Date().toISOString() })
     .not("level_at", "is", null);
   if (ownerId) q = q.eq("owner_id", ownerId);
 
-  const { data, error } = await q.select("norm_key");
+  const { data, error } = await q.select("id");
   if (error) throw new Error(`resetLevelFlags: ${error.message}`);
   return data?.length ?? 0;
 }
@@ -94,7 +96,7 @@ export async function listPendingItems(
   const page = (from: number, to: number) => {
     let q = getServiceSupabase()
       .from("owner_items_pending_level")
-      .select("owner_id, norm_key, text, kind, first_added_at");
+      .select("owner_id, word_id, norm_key, text, kind, first_added_at");
     if (ownerId) q = q.eq("owner_id", ownerId);
     return q
       .order("first_added_at", { ascending: false })
@@ -147,42 +149,46 @@ async function classifyBatch(items: PendingItem[]): Promise<Map<number, CefrLeve
  * Every item is stamped with `level_at` whether or not it got a level — that's what makes
  * "looked, no answer" terminal.
  *
- * Two upserts because unanswered rows must write `level_at` and NOT `level`: under `--force` the
- * item may already hold a good level, and writing null over it would also stamp it as done, so no
- * sweep would ever re-derive it. Splitting also keeps each payload's keys uniform, which PostgREST
- * needs — it builds one INSERT … ON CONFLICT from the union of the batch's keys, so a row missing
- * one gets it defaulted. That same property is what leaves `is_favorite` / `categories` alone.
+ * The answered/unanswered split is load-bearing: unanswered rows must write `level_at` and NOT
+ * `level`, because under `--force` the item may already hold a good level, and writing null over it
+ * would also stamp it as done — so no sweep would ever re-derive it.
+ *
+ * UPDATEs, not upserts (0007): the word row always exists — this job levels the collection, it does
+ * not populate it — and `words.text` is `not null`, so an upsert without a `text` would fail on the
+ * INSERT branch PostgREST always builds. Answered rows are grouped by level because one UPDATE
+ * carries one value: at most CEFR_LEVELS.length statements per batch, plus one for the unanswered.
+ * `id` is the primary key and comes from the queue this run read, so no owner filter is needed.
  */
 async function writeLevels(items: PendingItem[], levels: Map<number, CefrLevel>): Promise<void> {
   const now = new Date().toISOString();
   const db = getServiceSupabase();
 
-  const answered = items
-    .map((it, i) => ({ it, level: levels.get(i) }))
-    .filter((r): r is { it: PendingItem; level: CefrLevel } => r.level !== undefined)
-    .map(({ it, level }) => ({
-      owner_id: it.owner_id,
-      norm_key: it.norm_key,
-      level,
-      level_source: "job",
-      level_at: now,
-      updated_at: now,
-    }));
+  const byLevel = new Map<CefrLevel, string[]>();
+  const unanswered: string[] = [];
+  items.forEach((it, i) => {
+    const level = levels.get(i);
+    if (level === undefined) {
+      unanswered.push(it.word_id);
+      return;
+    }
+    const ids = byLevel.get(level) ?? [];
+    ids.push(it.word_id);
+    byLevel.set(level, ids);
+  });
 
-  const unanswered = items
-    .filter((_, i) => !levels.has(i))
-    .map((it) => ({
-      owner_id: it.owner_id,
-      norm_key: it.norm_key,
-      level_at: now,
-      updated_at: now,
-    }));
-
-  for (const rows of [answered, unanswered]) {
-    if (rows.length === 0) continue;
+  for (const [level, ids] of byLevel) {
     const { error } = await db
-      .from("lesson_item_attrs")
-      .upsert(rows, { onConflict: "owner_id,norm_key" });
+      .from("words")
+      .update({ level, level_source: "job", level_at: now, updated_at: now })
+      .in("id", ids);
+    if (error) throw new Error(`writeLevels: ${error.message}`);
+  }
+
+  if (unanswered.length > 0) {
+    const { error } = await db
+      .from("words")
+      .update({ level_at: now, updated_at: now })
+      .in("id", unanswered);
     if (error) throw new Error(`writeLevels: ${error.message}`);
   }
 }

@@ -11,6 +11,7 @@ import {
   type ItemsQuery,
   type SortKey,
 } from "../../lib/lesson-items";
+import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -100,6 +101,8 @@ export function ItemsBrowser({
 
   return (
     <>
+      <AddWordForm />
+
       <section className="panel">
         <input
           type="search"
@@ -191,13 +194,13 @@ export function ItemsBrowser({
         {visible.length === 0 ? (
           <p className="muted">
             {items.length === 0
-              ? "Nothing matches these filters yet — add words to a lesson and they'll show up here."
+              ? "Nothing here yet — add a word above, or add some to a lesson."
               : "No match for this search."}
           </p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {visible.map((item) => (
-              <ItemLine key={item.norm_key} item={item} />
+              <ItemLine key={item.id} item={item} />
             ))}
           </ul>
         )}

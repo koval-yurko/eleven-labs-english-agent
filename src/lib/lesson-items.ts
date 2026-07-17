@@ -6,9 +6,10 @@
  * explicitly in code, RLS as defense-in-depth. See
  * docs/2026-07-11-lesson-items-page-search-filters-stats-favorites.md.
  *
- * The list is DERIVED (the `owner_items` view over lesson_items + lesson_sessions); the only
- * thing stored per item is `lesson_item_attrs`, and the only thing this page writes to it is
- * `is_favorite`. Levels come from a future background job.
+ * The list is the `owner_items` view: the `words` collection, decorated with the cross-lesson
+ * statistics derived from lesson_items + lesson_sessions. A word in no lesson is a normal row here
+ * — either it was added directly (see `src/lib/words.ts`) or removed from every lesson it was in.
+ * The only column this page writes is `is_favorite`; `level` belongs to the job in `./levels.ts`.
  */
 import { getServiceSupabase } from "./supabase/server";
 
@@ -34,8 +35,10 @@ const SORT_COLUMNS = {
 export type SortKey = keyof typeof SORT_COLUMNS;
 export const SORT_KEYS = Object.keys(SORT_COLUMNS) as SortKey[];
 
-/** One row of `owner_items` — a distinct item plus its cross-lesson statistics. */
+/** One row of `owner_items` — a word plus its cross-lesson statistics. */
 export interface ItemRow {
+  /** The `words` row id. `norm_key` remains the display key the page renders by. */
+  id: string;
   norm_key: string;
   text: string; // the most recently typed spelling
   kind: ItemKind;
@@ -118,39 +121,23 @@ export async function listItemFacets(ownerId: string): Promise<ItemFacet[]> {
 }
 
 /**
- * Mark/unmark an item as a favorite — the page's only write. Upserts the sparse attrs row, so
- * favoriting an item nothing has ever touched creates it, and the (future) level job's columns
- * are left alone because only the columns in this payload are updated on conflict.
+ * Mark/unmark a word as a favorite — the page's only write.
  *
- * The item must be one the caller actually has (an owner_id + norm_key that exists in their
- * lesson_items); ids from the browser are never trusted.
+ * A plain UPDATE since 0007 folded the attributes onto `words`: matching on `owner_id` IS the
+ * ownership gate (a key the caller doesn't have updates zero rows), so the separate existence check
+ * this needed against the FK-less attrs table is gone. Returns whether a row matched.
  */
 export async function setItemFavorite(
   ownerId: string,
   normKey: string,
   isFavorite: boolean,
 ): Promise<boolean> {
-  const db = getServiceSupabase();
-
-  const { data: owned, error: ownerError } = await db
-    .from("lesson_items")
-    .select("norm_key")
+  const { data, error } = await getServiceSupabase()
+    .from("words")
+    .update({ is_favorite: isFavorite, updated_at: new Date().toISOString() })
     .eq("owner_id", ownerId)
     .eq("norm_key", normKey)
-    .limit(1)
-    .maybeSingle();
-  if (ownerError) throw new Error(`setItemFavorite: ${ownerError.message}`);
-  if (!owned) return false;
-
-  const { error } = await db.from("lesson_item_attrs").upsert(
-    {
-      owner_id: ownerId,
-      norm_key: normKey,
-      is_favorite: isFavorite,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "owner_id,norm_key" },
-  );
+    .select("id");
   if (error) throw new Error(`setItemFavorite: ${error.message}`);
-  return true;
+  return (data?.length ?? 0) > 0;
 }

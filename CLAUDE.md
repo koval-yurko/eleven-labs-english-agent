@@ -62,13 +62,21 @@ pnpm level:items:plan  # dry-run: print what would be levelled, make zero LLM ca
   session. After adding,
   editing, or deleting a prompt version, run `pnpm sync:agents` and commit the lockfile. See
   `docs/2026-06-27-agent-prompt-version-switching.md`.
-- **CEFR levels are written only by the level job**, never by the UI. `lesson_item_attrs.level`
-  is filled in by `src/lib/levels.ts`, triggered two ways: `after()` on the item-write path (fast)
+- **The vocabulary is `words`; lessons reference it many-to-many.** A word is owned by the learner,
+  not by a lesson: `words` holds the text, its `norm_key` identity, and its attributes, and
+  `lesson_items` is the join table (`lesson_id` + `word_id` + `position`). A word in no lesson is a
+  normal state — either added directly on `/lesson-items` or removed from every lesson it was in.
+  `norm_key` needs Postgres (unaccent + NFKC), so text → word id always goes through the
+  `resolve_words` RPC in `src/lib/words.ts`, never a client-side guess. See
+  `docs/2026-07-16-add-word-on-lesson-items-page.md`.
+- **CEFR levels are written only by the level job**, never by the UI. `words.level`
+  is filled in by `src/lib/levels.ts`, triggered two ways: `after()` on the word-write paths (fast)
   and `pnpm level:items` (the sweep that backfills and catches what the fast path dropped).
   `level_at` is the processed flag — it is stamped when the job **attempted** an item, not when it
   succeeded, so an item the model had no answer for is asked about once rather than on every
   sweep. `level` is nullable forever ("unleveled" is a real state), so the job has no deadline and
-  the app needs no scheduler. See `docs/2026-07-16-level-assignment-background-job.md`.
+  the app needs no scheduler. See `docs/2026-07-16-level-assignment-background-job.md` (written
+  against the pre-0007 `lesson_item_attrs` table; the design is unchanged, the columns moved).
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.
