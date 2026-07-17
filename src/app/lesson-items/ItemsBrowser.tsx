@@ -11,6 +11,13 @@ import {
   type ItemsQuery,
   type SortKey,
 } from "../../lib/lesson-items";
+import {
+  createLessonLocal,
+  flushOutboxNow,
+  requestFlush,
+  MAX_ITEMS,
+} from "../../lib/sync/engine";
+import { ensureOwner } from "../../lib/sync/mirror";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -37,11 +44,13 @@ const SORT_LABELS: Record<SortKey, string> = {
  *    without re-rendering the page on every character.
  */
 export function ItemsBrowser({
+  ownerSub,
   items,
   facets,
   query,
   initialSearch,
 }: {
+  ownerSub: string;
   items: ItemRow[];
   facets: ItemFacet[];
   query: ItemsQuery;
@@ -49,6 +58,61 @@ export function ItemsBrowser({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(initialSearch);
+
+  // Multi-select → "create a lesson from these words". Kept as an id → text map (not just an id set)
+  // and NOT pruned when a filter changes, so a learner can tick words across several filtered views
+  // and create one lesson from the union — `ItemRow.text` only exists for currently-visible rows, so
+  // the map is what lets create stay correct for selected words the active filter has scrolled out.
+  // Insertion order = selection order, which is the order they end up in the new lesson.
+  const [selected, setSelected] = useState<Map<string, string>>(new Map());
+  const [lessonTitle, setLessonTitle] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  function toggleSelect(id: string, text: string) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, text);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Map());
+    setLessonTitle("");
+  }
+
+  /** Create a new lesson from the selected words, reusing the offline outbox path (as NewLessonForm
+   *  does): mirror + queue the create, then online push to it / offline leave it queued. */
+  async function createFromSelection() {
+    if (creating) return;
+    const texts = [...selected.values()].slice(0, MAX_ITEMS);
+    const first = texts[0];
+    if (!first) return;
+
+    const fallback = texts.length > 1 ? `${first} +${texts.length - 1} more` : first;
+    const title = (lessonTitle.trim() || fallback).slice(0, 120);
+    const id = crypto.randomUUID();
+
+    setCreating(true);
+    try {
+      await ensureOwner(ownerSub); // guard the shared-device mirror before the first write
+      await createLessonLocal({
+        id,
+        title,
+        items: texts.map((text) => ({ id: crypto.randomUUID(), text })),
+      });
+      clearSelection();
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        await flushOutboxNow(); // apply the create so the RSC lesson page can load it
+        router.push(`/lessons/${id}`);
+      } else {
+        requestFlush(); // queued — applies on reconnect; already visible in the lessons list
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
 
   /** Rebuild the URL from the current query + one change. Absent/false values drop out. */
   function hrefWith(change: Partial<ItemsQuery>): string {
@@ -200,16 +264,75 @@ export function ItemsBrowser({
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {visible.map((item) => (
-              <ItemLine key={item.id} item={item} />
+              <ItemLine
+                key={item.id}
+                item={item}
+                selected={selected.has(item.id)}
+                onToggle={() => toggleSelect(item.id, item.text)}
+              />
             ))}
           </ul>
         )}
       </section>
+
+      {selected.size > 0 ? (
+        <div
+          style={{
+            position: "sticky",
+            bottom: "1rem",
+            marginTop: "1rem",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "0.6rem",
+            padding: "0.75rem 1rem",
+            background: "var(--panel)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+          }}
+        >
+          <strong>
+            {selected.size} selected
+            {selected.size > MAX_ITEMS ? ` (first ${MAX_ITEMS} used)` : ""}
+          </strong>
+          <input
+            value={lessonTitle}
+            onChange={(e) => setLessonTitle(e.target.value)}
+            placeholder="Lesson title (optional)"
+            maxLength={120}
+            aria-label="New lesson title"
+            style={{
+              flex: 1,
+              minWidth: "12rem",
+              background: "var(--field-bg)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "0.35rem 0.5rem",
+            }}
+          />
+          <button type="button" onClick={createFromSelection} disabled={creating}>
+            {creating ? "Creating…" : "Create lesson"}
+          </button>
+          <Chip active={false} onClick={clearSelection}>
+            Clear
+          </Chip>
+        </div>
+      ) : null}
     </>
   );
 }
 
-function ItemLine({ item }: { item: ItemRow }) {
+function ItemLine({
+  item,
+  selected,
+  onToggle,
+}: {
+  item: ItemRow;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const stats = [
     `${item.practice_count} ${item.practice_count === 1 ? "conversation" : "conversations"}`,
     `${item.lesson_count} ${item.lesson_count === 1 ? "lesson" : "lessons"}`,
@@ -220,34 +343,39 @@ function ItemLine({ item }: { item: ItemRow }) {
   ].filter(Boolean);
 
   return (
-    <li style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-        <FavoriteButton normKey={item.norm_key} text={item.text} initial={item.is_favorite} />
-        <strong style={{ flex: 1 }}>{item.text}</strong>
-        {item.level ? (
-          <span className="muted" style={{ fontSize: "0.85rem", border: "1px solid var(--border)", borderRadius: 999, padding: "0 0.5rem" }}>
-            {item.level}
-          </span>
-        ) : null}
+    <li
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.85rem",
+        padding: "0.6rem 0",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        aria-label={`Select ${item.text}`}
+        style={{ width: "1.25rem", height: "1.25rem", flexShrink: 0, cursor: "pointer" }}
+      />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <strong>
+          <a href={`/lesson-items/${item.id}`}>{item.text}</a>
+        </strong>
+        {/* The lessons this word is in live on its detail page now, not inline here. */}
+        <div className="muted" style={{ fontSize: "0.9rem" }}>
+          {stats.join(" · ")}
+        </div>
       </div>
 
-      <div className="muted" style={{ fontSize: "0.9rem" }}>
-        {stats.join(" · ")}
-      </div>
-
-      <div className="muted" style={{ fontSize: "0.9rem" }}>
-        {item.lessons.length > 0 ? (
-          item.lessons.map((l, i) => (
-            <span key={l.id}>
-              {i > 0 ? " · " : ""}
-              <a href={`/lessons/${l.id}`}>{l.title}</a>
-            </span>
-          ))
-        ) : (
-          // Removal detaches an item from a lesson; it never deletes it.
-          <em>in no lesson</em>
-        )}
-      </div>
+      {item.level ? (
+        <span className="muted" style={{ fontSize: "0.85rem", border: "1px solid var(--border)", borderRadius: 999, padding: "0 0.5rem" }}>
+          {item.level}
+        </span>
+      ) : null}
+      <FavoriteButton normKey={item.norm_key} text={item.text} initial={item.is_favorite} />
     </li>
   );
 }

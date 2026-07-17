@@ -86,6 +86,7 @@ export default async function LessonItemsPage({
 
       {ownerId ? (
         <ItemsBrowser
+          ownerSub={ownerId}
           items={items}
           facets={facets}
           query={query}

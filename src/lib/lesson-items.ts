@@ -108,6 +108,24 @@ export async function listItems(ownerId: string, query: ItemsQuery): Promise<Ite
   return (data as ItemRow[] | null) ?? [];
 }
 
+/**
+ * One item by its `words.id`, owner-scoped — backs the word detail page (`/lesson-items/[id]`).
+ * Same `owner_items` row the list renders, so the detail page gets the text, level, kind, stats,
+ * categories, and the lessons it currently participates in (the view's `lessons` is active-only) in
+ * a single read. Null when the id doesn't exist or isn't the caller's (the `owner_id` filter is the
+ * gate). See docs/2026-07-17-lesson-items-multiselect-and-word-detail.md.
+ */
+export async function getItem(ownerId: string, id: string): Promise<ItemRow | null> {
+  const { data, error } = await getServiceSupabase()
+    .from("owner_items")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`getItem: ${error.message}`);
+  return (data as ItemRow | null) ?? null;
+}
+
 /** The category (name:value) pairs actually in use — the source for the filter controls. */
 export async function listItemFacets(ownerId: string): Promise<ItemFacet[]> {
   const { data, error } = await getServiceSupabase()
