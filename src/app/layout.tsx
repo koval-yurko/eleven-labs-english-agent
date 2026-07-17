@@ -60,11 +60,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               marginBottom: "1.5rem",
             }}
           >
-            <a href="/" style={{ fontWeight: 700, fontSize: "1.25rem", textDecoration: "none" }}>
+            <a
+              href="/lesson-items"
+              style={{ fontWeight: 700, fontSize: "1.25rem", textDecoration: "none" }}
+            >
               🎧 English Tutor
             </a>
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
               <a href="/lesson-items">Words</a>
+              <a href="/lessons">Lessons</a>
               <ThemeToggle />
             </div>
           </header>

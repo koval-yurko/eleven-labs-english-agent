@@ -53,7 +53,7 @@ export default async function DemoPage() {
         <Status label="ElevenLabs" check={elevenlabs} />
         <Status label="LangChain + Claude" check={anthropic} />
         <p className="muted" style={{ marginTop: "1rem" }}>
-          <a href="/">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
+          <a href="/lessons">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
           <a href="/api/health">/api/health</a>
         </p>
       </section>

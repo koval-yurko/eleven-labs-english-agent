@@ -267,13 +267,19 @@ export async function listLessonItemHistory(
 ): Promise<LessonItem[]> {
   const { data, error } = await getServiceSupabase()
     .from("lesson_items")
-    .select("id, text, position, created_at, removed_at")
+    // Since 0007 the spelling lives on `words`, not `lesson_items` — embed it (same to-one FK cast
+    // as getLesson/listLessons) rather than selecting the dropped `lesson_items.text` column.
+    .select("id, position, created_at, removed_at, words(text)")
     .eq("owner_id", ownerId)
     .eq("lesson_id", lessonId)
     .order("created_at", { ascending: true })
     .order("position", { ascending: true });
   if (error) throw new Error(`listLessonItemHistory: ${error.message}`);
-  return (data as LessonItem[] | null) ?? [];
+  type Row = Omit<LessonItem, "text"> & { words: { text: string } | null };
+  return ((data as unknown as Row[] | null) ?? []).map(({ words, ...row }) => ({
+    ...row,
+    text: words?.text ?? "",
+  }));
 }
 
 /** Past tutor conversations for a lesson, newest first. */

@@ -13,6 +13,7 @@ import {
 } from "../../lib/lesson-items";
 import {
   createLessonLocal,
+  defaultLessonTitle,
   flushOutboxNow,
   requestFlush,
   MAX_ITEMS,
@@ -87,11 +88,9 @@ export function ItemsBrowser({
   async function createFromSelection() {
     if (creating) return;
     const texts = [...selected.values()].slice(0, MAX_ITEMS);
-    const first = texts[0];
-    if (!first) return;
+    if (texts.length === 0) return;
 
-    const fallback = texts.length > 1 ? `${first} +${texts.length - 1} more` : first;
-    const title = (lessonTitle.trim() || fallback).slice(0, 120);
+    const title = (lessonTitle.trim() || (await defaultLessonTitle())).slice(0, 120);
     const id = crypto.randomUUID();
 
     setCreating(true);

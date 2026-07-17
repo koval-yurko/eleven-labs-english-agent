@@ -47,8 +47,7 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
             {new Date(l.created_at).toLocaleDateString()}
           </div>
           <div className="muted" style={{ fontSize: "0.9rem" }}>
-            {l.items.slice(0, 4).join(" · ")}
-            {l.items.length > 4 ? " · …" : ""}
+            {l.items.join(" · ")}
           </div>
         </li>
       ))}

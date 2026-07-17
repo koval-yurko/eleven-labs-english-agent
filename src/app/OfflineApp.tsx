@@ -50,7 +50,7 @@ function OfflineNotice() {
         here; reconnect for voice practice and history.
       </p>
       <p>
-        <a href="/">← your lessons</a>
+        <a href="/lessons">← your lessons</a>
       </p>
     </section>
   );
@@ -89,7 +89,7 @@ function OfflineLesson({ id }: { id: string }) {
           Reconnect to load it.
         </p>
         <p>
-          <a href="/">← your lessons</a>
+          <a href="/lessons">← your lessons</a>
         </p>
       </section>
     );

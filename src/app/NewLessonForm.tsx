@@ -2,7 +2,13 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { createLessonLocal, flushOutboxNow, requestFlush, MAX_ITEMS } from "../lib/sync/engine";
+import {
+  createLessonLocal,
+  defaultLessonTitle,
+  flushOutboxNow,
+  requestFlush,
+  MAX_ITEMS,
+} from "../lib/sync/engine";
 
 /**
  * "New lesson" — an optimistic, offline-capable create. Mints all ids client-side, writes the
@@ -25,11 +31,12 @@ export function NewLessonForm() {
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, MAX_ITEMS);
-    const first = items[0];
-    if (!first) return;
+    if (!items[0]) return;
 
-    const fallback = items.length > 1 ? `${first} +${items.length - 1} more` : first;
-    const title = (String(fd.get("title") ?? "").trim() || fallback).slice(0, 120);
+    const title = (String(fd.get("title") ?? "").trim() || (await defaultLessonTitle())).slice(
+      0,
+      120,
+    );
     const id = crypto.randomUUID();
 
     setBusy(true);
@@ -55,7 +62,7 @@ export function NewLessonForm() {
     <form ref={formRef} onSubmit={onSubmit}>
       <input
         name="title"
-        placeholder="Title (optional — defaults to the first word)"
+        placeholder="Title (optional — defaults to today's date)"
         maxLength={120}
         style={{ marginBottom: "0.5rem" }}
       />

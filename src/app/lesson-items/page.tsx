@@ -81,7 +81,7 @@ export default async function LessonItemsPage({
       <h1>Words &amp; sentences</h1>
       <p className="muted">
         Everything across all your lessons. Removing an item from a lesson doesn&rsquo;t delete it
-        — it stays here, keeping the practice it earned. <a href="/">← lessons</a>
+        — it stays here, keeping the practice it earned.
       </p>
 
       {ownerId ? (

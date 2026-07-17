@@ -20,6 +20,29 @@ function now(): string {
   return new Date().toISOString();
 }
 
+/** Today as `dd-mm-yyyy` — the stem of the default lesson title. */
+function todayStamp(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}-${mm}-${d.getFullYear()}`;
+}
+
+/**
+ * The title a new lesson gets when the learner doesn't type one: today's date (`dd-mm-yyyy`),
+ * then `dd-mm-yyyy 1`, `dd-mm-yyyy 2`, … if a lesson with that title already exists, so several
+ * lessons created the same day stay distinct. Deduped against the mirror (the client's full view
+ * of the owner's lessons), which is authoritative for the list.
+ */
+export async function defaultLessonTitle(): Promise<string> {
+  const base = todayStamp();
+  const taken = new Set((await getDb().lessons.toArray()).map((l) => l.title));
+  if (!taken.has(base)) return base;
+  let n = 1;
+  while (taken.has(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
+}
+
 /** Next monotonic outbox sequence number (call inside the same transaction as the write). */
 async function nextSeq(db: MirrorDb): Promise<number> {
   const last = await db.outbox.orderBy("seq").last();
