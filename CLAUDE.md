@@ -43,6 +43,8 @@ pnpm sync:agents       # reconcile ElevenLabs agents with src/agent/prompts/ (wr
 pnpm sync:agents:plan  # dry-run: print the reconcile plan, change nothing
 pnpm level:items       # assign CEFR levels (A2–C2) to vocabulary items that have none yet
 pnpm level:items:plan  # dry-run: print what would be levelled, make zero LLM calls
+pnpm enrich:words      # fill words.details (RU translations, forms, examples) for un-enriched words
+pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM calls
 ```
 
 ## Conventions
@@ -77,6 +79,15 @@ pnpm level:items:plan  # dry-run: print what would be levelled, make zero LLM ca
   sweep. `level` is nullable forever ("unleveled" is a real state), so the job has no deadline and
   the app needs no scheduler. See `docs/2026-07-16-level-assignment-background-job.md` (written
   against the pre-0007 `lesson_item_attrs` table; the design is unchanged, the columns moved).
+- **Word details (`words.details`) are written only by the enrichment job**, never by the UI — the
+  level job's machinery a second time. `src/lib/word-details.ts` asks the LLM for a per-word payload
+  (RU translations, part of speech, word-family forms with their translations, example sentences),
+  triggered two ways: `after()` on the word-write paths (fast) and `pnpm enrich:words` (the sweep).
+  `details_at` is the ATTEMPTED flag (stamped whether or not a payload came back, so an un-enrichable
+  item is asked about once, not every sweep); `details` is nullable forever. Batches are small (4)
+  because each answer is a large object — a big batch truncates and loses data. The word detail page
+  (`/lesson-items/[id]`) renders it; `getItem` reads `details` with its own narrow query so the list
+  view stays lean. See `docs/2026-07-18-word-details-enrichment-job.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.

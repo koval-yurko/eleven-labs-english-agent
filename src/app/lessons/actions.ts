@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { getOwnerId } from "../../lib/auth/session";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
+import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
 import {
   createLesson,
   deleteLesson,
@@ -142,6 +143,16 @@ export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult>
         await levelItems(ownerId, { limit: LEVEL_AFTER_LIMIT });
       } catch {
         // The sweep is the backstop.
+      }
+    });
+    // The word-details job's fast path — same shape, its own sweep
+    // (docs/2026-07-18-word-details-enrichment-job.md). A separate call from the level job on
+    // purpose: different batch size and model, and one job's failure shouldn't sink the other.
+    after(async () => {
+      try {
+        await enrichWords(ownerId, { limit: DETAILS_AFTER_LIMIT });
+      } catch {
+        // `pnpm enrich:words` is the backstop.
       }
     });
   }

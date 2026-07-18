@@ -19,7 +19,9 @@
     "sync:agents": "tsx src/agent/sync-agents.ts",
     "sync:agents:plan": "tsx src/agent/sync-agents.ts --dry-run",
     "level:items": "tsx scripts/level-items.ts",
-    "level:items:plan": "tsx scripts/level-items.ts --dry-run"
+    "level:items:plan": "tsx scripts/level-items.ts --dry-run",
+    "enrich:words": "tsx scripts/enrich-words.ts",
+    "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",

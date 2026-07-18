@@ -1,16 +1,15 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
-import { getItem } from "../../../lib/lesson-items";
+import { getItem, type ItemDetail } from "../../../lib/lesson-items";
 import { FavoriteButton } from "../FavoriteButton";
 
 // Per-request rendering: owner-scoped data that changes as the word is practiced / re-levelled.
 export const dynamic = "force-dynamic";
 
 /**
- * One word / phrase / sentence: its attributes, cross-lesson stats, and the lessons it currently
- * participates in. Deliberately thin for now — the placeholder sections below mark where the richer
- * details (translations, word forms, examples, notes) will land later. See
- * docs/2026-07-17-lesson-items-multiselect-and-word-detail.md.
+ * One word / phrase / sentence: its attributes, cross-lesson stats, the lessons it currently
+ * participates in, and the LLM-generated enrichment (translations, word-family forms, examples)
+ * filled in by the word-details job. See docs/2026-07-18-word-details-enrichment-job.md.
  */
 export default async function WordDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -57,6 +56,23 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
         {stats.join(" · ")}
       </p>
 
+      <WordDetailsSection details={item.details} attemptedAt={item.details_at} />
+
+      {categories.length > 0 ? (
+        <section className="panel">
+          <h2>Categories</h2>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {categories.map(([name, value]) => (
+              <li key={name}>
+                <span className="muted">{name}:</span> {value}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {/* Kept at the bottom: the enrichment (translation / forms / examples) is what the learner
+          opens this page for; the lesson membership is secondary context. */}
       <section className="panel">
         <h2>In lessons</h2>
         {item.lessons.length > 0 ? (
@@ -72,26 +88,101 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
           <p className="muted">In no lesson right now.</p>
         )}
       </section>
+    </>
+  );
+}
 
-      {categories.length > 0 ? (
+/**
+ * The enrichment payload from the word-details job. Three states, per `getItem`:
+ *   - `details` set → render translations / forms / examples.
+ *   - both null → queued or in flight (the job runs after the write / on the next sweep).
+ *   - `details` null but `attemptedAt` set → the model had no usable answer (a non-English token, a
+ *     made-up word). A terminal, normal state.
+ */
+function WordDetailsSection({
+  details,
+  attemptedAt,
+}: {
+  details: ItemDetail["details"];
+  attemptedAt: string | null;
+}) {
+  if (!details) {
+    return (
+      <section className="panel">
+        <h2>Details</h2>
+        <p className="muted">
+          {attemptedAt ? "No extra details for this one." : "Details are being prepared…"}
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="panel">
+        <h2>Translation</h2>
+        <p style={{ margin: 0 }}>
+          <span className="muted" style={{ fontSize: "0.9rem" }}>
+            {details.pos}
+          </span>
+          {details.translations_ru.length > 0 ? (
+            <>
+              {" — "}
+              {details.translations_ru.join(", ")}
+            </>
+          ) : null}
+        </p>
+      </section>
+
+      {details.forms.length > 0 ? (
         <section className="panel">
-          <h2>Categories</h2>
+          <h2>Forms</h2>
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {categories.map(([name, value]) => (
-              <li key={name}>
-                <span className="muted">{name}:</span> {value}
+            {details.forms.map((f) => (
+              <li
+                key={`${f.pos}:${f.text}`}
+                style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}
+              >
+                <strong>{f.text}</strong>{" "}
+                <span className="muted" style={{ fontSize: "0.85rem" }}>
+                  {f.pos}
+                </span>
+                {f.translations_ru.length > 0 ? (
+                  <div className="muted" style={{ fontSize: "0.9rem" }}>
+                    {f.translations_ru.join(", ")}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         </section>
       ) : null}
 
-      {/* Room for the richer word details (translations, forms, example sentences, notes) added
-          later — see docs/2026-07-17-lesson-items-multiselect-and-word-detail.md. */}
-      <section className="panel">
-        <h2>Details</h2>
-        <p className="muted">More about this word is coming soon.</p>
-      </section>
+      {details.examples.length > 0 ? (
+        <section className="panel">
+          <h2>Examples</h2>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {details.examples.map((e, i) => (
+              <li key={i} style={{ padding: "0.4rem 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  {e.text}
+                  {e.form ? (
+                    <span className="muted" style={{ fontSize: "0.8rem" }}>
+                      {" "}
+                      · {e.form}
+                    </span>
+                  ) : null}
+                </div>
+                {e.translation_ru ? (
+                  <div className="muted" style={{ fontSize: "0.9rem" }}>
+                    {e.translation_ru}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </>
   );
 }

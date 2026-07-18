@@ -12,6 +12,7 @@
  * The only column this page writes is `is_favorite`; `level` belongs to the job in `./levels.ts`.
  */
 import { getServiceSupabase } from "./supabase/server";
+import type { WordDetails } from "./word-details";
 
 export const CEFR_LEVELS = ["A2", "B1", "B2", "C1", "C2"] as const;
 export type CefrLevel = (typeof CEFR_LEVELS)[number];
@@ -53,6 +54,17 @@ export interface ItemRow {
   level_source: "job" | "user" | null;
   is_favorite: boolean;
   categories: Record<string, string>;
+}
+
+/**
+ * One `owner_items` row plus the enrichment payload for the word detail page. `details` lives on
+ * `words` (not `owner_items`), so it's read separately — see `getItem`. The three-way state the page
+ * renders: `details` set = show it; both null = queued / in flight; `details` null but `details_at`
+ * set = attempted, nothing came back.
+ */
+export interface ItemDetail extends ItemRow {
+  details: WordDetails | null;
+  details_at: string | null;
 }
 
 /** One (name, value) pair in use, for rendering the category filter from the data itself. */
@@ -114,16 +126,34 @@ export async function listItems(ownerId: string, query: ItemsQuery): Promise<Ite
  * categories, and the lessons it currently participates in (the view's `lessons` is active-only) in
  * a single read. Null when the id doesn't exist or isn't the caller's (the `owner_id` filter is the
  * gate). See docs/2026-07-17-lesson-items-multiselect-and-word-detail.md.
+ *
+ * The enrichment payload (`words.details`) is read with a second, narrow query rather than added to
+ * `owner_items`: the list page does `select *` from that view, and a fat jsonb blob per row has no
+ * business in a payload the list neither needs nor renders. See
+ * docs/2026-07-18-word-details-enrichment-job.md.
  */
-export async function getItem(ownerId: string, id: string): Promise<ItemRow | null> {
-  const { data, error } = await getServiceSupabase()
+export async function getItem(ownerId: string, id: string): Promise<ItemDetail | null> {
+  const db = getServiceSupabase();
+  const { data, error } = await db
     .from("owner_items")
     .select("*")
     .eq("owner_id", ownerId)
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(`getItem: ${error.message}`);
-  return (data as ItemRow | null) ?? null;
+  const row = (data as ItemRow | null) ?? null;
+  if (!row) return null;
+
+  const { data: d, error: dErr } = await db
+    .from("words")
+    .select("details, details_at")
+    .eq("owner_id", ownerId)
+    .eq("id", id)
+    .maybeSingle();
+  if (dErr) throw new Error(`getItem details: ${dErr.message}`);
+  const details = (d as { details: WordDetails | null; details_at: string | null } | null) ?? null;
+
+  return { ...row, details: details?.details ?? null, details_at: details?.details_at ?? null };
 }
 
 /** The category (name:value) pairs actually in use — the source for the filter controls. */
