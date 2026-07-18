@@ -8,6 +8,7 @@ import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
 import words11 from "./words-1.1";
 import words12 from "./words-1.2";
+import words13 from "./words-1.3";
 
 export type { PromptVersion } from "./types";
 
@@ -19,7 +20,7 @@ export const DEFAULT_TTS_MODEL = "eleven_v3_conversational";
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
  * drives the version picker; it is the canonical ordering (the lockfile is an unordered map).
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13];
 
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {

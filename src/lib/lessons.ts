@@ -5,7 +5,8 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { resolveWords, wordInputKey } from "./words";
-import type { TranscriptLine } from "./tutor";
+import type { TranscriptLine, TutorItem } from "./tutor";
+import type { WordDetails } from "./word-details";
 
 export interface Lesson {
   id: string;
@@ -13,6 +14,12 @@ export interface Lesson {
   items: string[]; // derived convenience: active item texts in position order
   created_at: string;
   updated_at: string;
+}
+
+/** A lesson plus its active items' curated enrichment payloads — the fat shape the tutor needs.
+ *  Only `getLesson` builds this; the list view stays on the lean text-only `Lesson`. */
+export interface LessonDetail extends Lesson {
+  itemsDetailed: TutorItem[];
 }
 
 export interface LessonListItem extends Lesson {
@@ -78,11 +85,22 @@ export async function listLessons(ownerId: string): Promise<LessonListItem[]> {
   }));
 }
 
-/** One lesson, owner-scoped, with its active items. Null when it doesn't exist / isn't yours. */
-export async function getLesson(ownerId: string, lessonId: string): Promise<Lesson | null> {
+// Wider embed for getLesson: it also pulls `words.details` (the curated enrichment payload) so the
+// tutor can present it. The list query (listLessons) deliberately stays on the lean `words(text)`
+// embed — a fat jsonb blob per row is exactly what that payload doesn't want.
+type EmbeddedDetailItem = {
+  position: number;
+  words: { text: string; details: WordDetails | null } | null;
+};
+
+/** One lesson, owner-scoped, with its active items and each item's enrichment payload. Null when
+ *  it doesn't exist / isn't yours. */
+export async function getLesson(ownerId: string, lessonId: string): Promise<LessonDetail | null> {
   const { data, error } = await getServiceSupabase()
     .from("lessons")
-    .select("id, title, created_at, updated_at, lesson_items(position, removed_at, words(text))")
+    .select(
+      "id, title, created_at, updated_at, lesson_items(position, removed_at, words(text, details))",
+    )
     .eq("owner_id", ownerId)
     .eq("id", lessonId)
     // A soft-deleted lesson is gone as far as the tutor/detail pages are concerned: this returns
@@ -93,9 +111,12 @@ export async function getLesson(ownerId: string, lessonId: string): Promise<Less
     .maybeSingle();
   if (error) throw new Error(`getLesson: ${error.message}`);
   if (!data) return null;
-  const row = data as unknown as Omit<Lesson, "items"> & { lesson_items: EmbeddedItem[] };
+  const row = data as unknown as Omit<Lesson, "items"> & { lesson_items: EmbeddedDetailItem[] };
   const { lesson_items, ...lesson } = row;
-  return { ...lesson, items: embeddedTexts(lesson_items) };
+  const itemsDetailed: TutorItem[] = (lesson_items ?? [])
+    .map((i) => (i.words ? { text: i.words.text, details: i.words.details ?? null } : null))
+    .filter((x): x is TutorItem => x !== null);
+  return { ...lesson, items: itemsDetailed.map((i) => i.text), itemsDetailed };
 }
 
 /**

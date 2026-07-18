@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
-import { KICKOFF_MESSAGE, type TranscriptLine } from "../../../lib/tutor";
+import {
+  KICKOFF_MESSAGE,
+  formatItemsList,
+  type TranscriptLine,
+  type TutorItem,
+} from "../../../lib/tutor";
 import { saveLessonSessionAction } from "../actions";
 
 /**
@@ -24,7 +29,7 @@ function Tutor({
   defaultVersion,
 }: {
   lessonId: string;
-  items: string[];
+  items: TutorItem[];
   versions: VersionOption[];
   defaultVersion: string;
 }) {
@@ -115,7 +120,7 @@ function Tutor({
         signedUrl: body.signedUrl,
         connectionType: "websocket",
         dynamicVariables: {
-          items_list: items.map((it, i) => `${i + 1}. ${it}`).join("; "),
+          items_list: formatItemsList(items),
           // Ties the post-call webhook payload back to this lesson's history.
           lesson_id: lessonId,
           // Marks which deployment started this call; the post-call webhook routes on it.
@@ -201,7 +206,7 @@ function Tutor({
 
 export function LessonTutor(props: {
   lessonId: string;
-  items: string[];
+  items: TutorItem[];
   versions: VersionOption[];
   defaultVersion: string;
 }) {

@@ -150,7 +150,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
       {versions.length > 0 ? (
         <LessonTutor
           lessonId={lesson.id}
-          items={lesson.items}
+          items={lesson.itemsDetailed}
           versions={versions.map((v) => ({ version: v.version, label: v.label ?? v.version }))}
           defaultVersion={defaultVersion}
         />
