@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type MirrorLesson } from "../lib/sync/db";
 import { ensureOwner, seedLessons } from "../lib/sync/mirror";
+import { deleteLessonLocal, requestFlush } from "../lib/sync/engine";
+import { TrashIcon } from "./icons";
 
 /**
  * The "Your lessons" list, rendered from the IndexedDB mirror. On the online home page the server
@@ -21,6 +23,10 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
     })();
   }, [ownerSub, initial]);
 
+  // Which lesson's delete is awaiting confirmation (inline, not a blocking window.confirm — which
+  // would stall the optimistic offline write).
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
   const lessons =
     useLiveQuery(
       () => getDb().lessons.orderBy("created_at").reverse().toArray(),
@@ -34,13 +40,41 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
     return <p className="muted">No lessons yet — create your first one above.</p>;
   }
 
+  async function onDelete(lessonId: string) {
+    setConfirmId(null);
+    await deleteLessonLocal(lessonId);
+    requestFlush();
+  }
+
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
       {lessons.map((l) => (
         <li key={l.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
-          <a href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
-            {l.title}
-          </a>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}>
+            <a href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
+              {l.title}
+            </a>
+            {confirmId === l.id ? null : (
+              <button
+                type="button"
+                onClick={() => setConfirmId(l.id)}
+                aria-label={`Delete ${l.title}`}
+                title="Delete lesson"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  flexShrink: 0,
+                  color: "var(--error)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                <TrashIcon size={18} />
+              </button>
+            )}
+          </div>
           <div className="muted" style={{ fontSize: "0.9rem" }}>
             {l.items.length} {l.items.length === 1 ? "item" : "items"} · {l.sessionCount}{" "}
             {l.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
@@ -49,6 +83,29 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
           <div className="muted" style={{ fontSize: "0.9rem" }}>
             {l.items.join(" · ")}
           </div>
+          {confirmId === l.id ? (
+            <div
+              style={{
+                marginTop: "0.5rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.75rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <span className="muted" style={{ fontSize: "0.9rem" }}>
+                Delete this lesson? Your words and their practice history stay in your collection.
+              </span>
+              <span style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+                <button type="button" onClick={() => void onDelete(l.id)} style={{ color: "var(--error)" }}>
+                  Delete
+                </button>
+                <button type="button" onClick={() => setConfirmId(null)}>
+                  Cancel
+                </button>
+              </span>
+            </div>
+          ) : null}
         </li>
       ))}
     </ul>

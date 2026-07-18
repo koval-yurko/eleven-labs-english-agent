@@ -59,6 +59,9 @@ export async function listLessons(ownerId: string): Promise<LessonListItem[]> {
       "id, title, created_at, updated_at, lesson_sessions(count), lesson_items(position, removed_at, words(text))",
     )
     .eq("owner_id", ownerId)
+    // Active lessons only — a soft-deleted lesson (deleted_at set) leaves the list but keeps its
+    // rows (see 0008 / docs/2026-07-17-delete-lesson-keep-words.md).
+    .is("deleted_at", null)
     // Filter the embedded items to active ones (keeps lessons with zero active items).
     .is("lesson_items.removed_at", null)
     .order("created_at", { ascending: false })
@@ -82,6 +85,9 @@ export async function getLesson(ownerId: string, lessonId: string): Promise<Less
     .select("id, title, created_at, updated_at, lesson_items(position, removed_at, words(text))")
     .eq("owner_id", ownerId)
     .eq("id", lessonId)
+    // A soft-deleted lesson is gone as far as the tutor/detail pages are concerned: this returns
+    // null for it, so getLesson-gated callers (LessonPage, saveLessonSessionAction) treat it as 404.
+    .is("deleted_at", null)
     .is("lesson_items.removed_at", null)
     .order("position", { referencedTable: "lesson_items", ascending: true })
     .maybeSingle();
@@ -95,6 +101,10 @@ export async function getLesson(ownerId: string, lessonId: string): Promise<Less
 /**
  * Look a lesson up by id WITHOUT owner scoping — only for the post-call webhook, which has
  * no user session and takes the owner FROM the row (never from the webhook payload).
+ *
+ * Intentionally does NOT filter `deleted_at`: a late webhook for a since-soft-deleted lesson should
+ * still record its session, because that session is part of the practice credit soft delete
+ * preserves (0008 / docs/2026-07-17-delete-lesson-keep-words.md).
  */
 export async function getLessonById(
   lessonId: string,
@@ -255,6 +265,28 @@ export async function removeLessonItem(
   const changed = ((data as { id: string }[] | null) ?? []).length > 0;
   if (changed) await touchLesson(lessonId, ownerId);
   return changed;
+}
+
+/**
+ * Soft-delete a whole lesson: set deleted_at so it drops out of the UI and its words read as
+ * unattached, while its lesson_items / lesson_sessions rows stay — preserving each word's practice
+ * credit and the row the Archive page will show. `words` is never touched (there is no FK from a
+ * lesson to a word; see docs/2026-07-17-delete-lesson-keep-words.md).
+ *
+ * Owner-scoped and idempotent: a foreign, missing, or already-deleted lesson matches nothing (the
+ * `deleted_at is null` guard also keeps a replayed op from bumping the original deletion time).
+ * Returns whether a row changed.
+ */
+export async function deleteLesson(ownerId: string, lessonId: string): Promise<boolean> {
+  const { data, error } = await getServiceSupabase()
+    .from("lessons")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("owner_id", ownerId)
+    .eq("id", lessonId)
+    .is("deleted_at", null)
+    .select("id");
+  if (error) throw new Error(`deleteLesson: ${error.message}`);
+  return ((data as { id: string }[] | null) ?? []).length > 0;
 }
 
 /**

@@ -26,13 +26,31 @@ export async function ensureOwner(sub: string): Promise<void> {
 }
 
 /**
- * Upsert the owner's lessons list into the mirror. Upsert-only (no stale-deletion): lesson
- * deletion isn't a feature yet, and deleting here would clobber a lesson created optimistically
- * offline but not yet pulled back from the server.
+ * Lesson ids with a still-pending `deleteLesson` op: removed locally but not yet confirmed by the
+ * server, so a server payload may still list them as active. Guards the seeders below from
+ * resurrecting a lesson the learner just deleted. (Once the delete flushes, listLessons stops
+ * returning the lesson, so nothing reseeds it anyway — this only covers the pre-flush window.)
+ */
+async function pendingDeletedLessonIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const record of await getDb().outbox.toArray()) {
+    if (record.op.kind === "deleteLesson") ids.add(record.op.lessonId);
+  }
+  return ids;
+}
+
+/**
+ * Upsert the owner's lessons list into the mirror. Upsert-only for existing lessons (no
+ * stale-deletion, which would clobber a lesson created optimistically offline but not yet pulled
+ * back) — except lessons with a still-pending local delete, which are skipped so a stale payload
+ * can't resurrect them.
  */
 export async function seedLessons(lessons: MirrorLesson[]): Promise<void> {
   if (lessons.length === 0) return;
-  await getDb().lessons.bulkPut(lessons);
+  const deleted = await pendingDeletedLessonIds();
+  const effective = deleted.size === 0 ? lessons : lessons.filter((l) => !deleted.has(l.id));
+  if (effective.length === 0) return;
+  await getDb().lessons.bulkPut(effective);
 }
 
 /**
@@ -61,6 +79,8 @@ async function pendingItemState(): Promise<{ add: Set<string>; remove: Set<strin
  */
 export async function seedLessonItems(lessonId: string, items: MirrorItem[]): Promise<void> {
   const db = getDb();
+  // A lesson with a pending local delete is gone from the mirror; don't reseed its items.
+  if ((await pendingDeletedLessonIds()).has(lessonId)) return;
   const { add, remove } = await pendingItemState();
   const effective = items.filter((i) => !remove.has(i.id));
   await db.transaction("rw", db.items, async () => {

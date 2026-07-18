@@ -28,7 +28,14 @@ export interface RemoveItemOp {
   itemId: string;
 }
 
-export type OutboxOp = CreateLessonOp | AddItemsOp | RemoveItemOp;
+/** Soft-delete a whole lesson. The server keeps its rows (items + sessions); only the active list
+ *  loses it. Idempotent like the rest — a re-applied delete is a no-op. */
+export interface DeleteLessonOp {
+  kind: "deleteLesson";
+  lessonId: string;
+}
+
+export type OutboxOp = CreateLessonOp | AddItemsOp | RemoveItemOp | DeleteLessonOp;
 
 /** One queued mutation. `seq` is a per-client monotonic counter defining replay order. */
 export interface OutboxRecord {

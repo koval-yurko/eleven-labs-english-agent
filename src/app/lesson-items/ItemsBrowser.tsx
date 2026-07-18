@@ -19,6 +19,7 @@ import {
   MAX_ITEMS,
 } from "../../lib/sync/engine";
 import { ensureOwner } from "../../lib/sync/mirror";
+import { SortArrowIcon, StarIcon } from "../icons";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -205,7 +206,10 @@ export function ItemsBrowser({
               active={query.favoritesOnly}
               onClick={() => apply({ favoritesOnly: !query.favoritesOnly })}
             >
-              ★ favorites
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                <StarIcon state={query.favoritesOnly ? "filled" : "empty"} size={14} />
+                favorites
+              </span>
             </Chip>
             <Chip
               active={query.unassignedOnly}
@@ -244,7 +248,10 @@ export function ItemsBrowser({
               ))}
             </select>
             <Chip active={false} onClick={() => apply({ dir: query.dir === "asc" ? "desc" : "asc" })}>
-              {query.dir === "asc" ? "↑ ascending" : "↓ descending"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                <SortArrowIcon dir={query.dir} size={14} />
+                {query.dir === "asc" ? "ascending" : "descending"}
+              </span>
             </Chip>
           </FilterGroup>
         </div>

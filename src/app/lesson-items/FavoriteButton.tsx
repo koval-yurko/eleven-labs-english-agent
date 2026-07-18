@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { setItemFavoriteAction } from "./actions";
+import { StarIcon } from "../icons";
 
 /**
  * Mark/unmark one item as a favorite — the only mutation on this page.
@@ -47,12 +48,12 @@ export function FavoriteButton({
         padding: 0,
         margin: 0,
         cursor: "pointer",
-        fontSize: "1.1rem",
-        lineHeight: 1,
+        display: "inline-flex",
+        alignItems: "center",
         color: isFavorite ? "var(--warn)" : "var(--muted)",
       }}
     >
-      {isFavorite ? "★" : "☆"}
+      <StarIcon state={isFavorite ? "filled" : "empty"} size={18} />
     </button>
   );
 }

@@ -140,6 +140,24 @@ export async function removeItemLocal(lessonId: string, itemId: string): Promise
   });
 }
 
+/**
+ * Optimistically soft-delete a lesson: drop it and its items from the mirror (so it leaves the list
+ * instantly) and queue the delete op. The op is appended unconditionally rather than collapsing an
+ * unsynced create-then-delete: replay converges either way, and collapsing would race a concurrent
+ * flush that had already sent the create — leaving the lesson stranded server-side. The server keeps
+ * the lesson's rows (this is a soft delete); the mirror only holds active lessons, so locally it just
+ * disappears. See docs/2026-07-17-delete-lesson-keep-words.md.
+ */
+export async function deleteLessonLocal(lessonId: string): Promise<void> {
+  const db = getDb();
+  await db.transaction("rw", db.lessons, db.items, db.outbox, async () => {
+    await db.lessons.delete(lessonId);
+    const itemIds = await db.items.where("lesson_id").equals(lessonId).primaryKeys();
+    if (itemIds.length > 0) await db.items.bulkDelete(itemIds);
+    await appendOutbox(db, { kind: "deleteLesson", lessonId });
+  });
+}
+
 /** Ask the (single) SyncProvider to flush — decoupled so any island can request it. */
 export function requestFlush(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("sync:flush"));

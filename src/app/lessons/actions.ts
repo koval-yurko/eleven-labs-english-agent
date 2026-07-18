@@ -6,6 +6,7 @@ import { getOwnerId } from "../../lib/auth/session";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import {
   createLesson,
+  deleteLesson,
   getLesson,
   removeLessonItem,
   upsertLessonItems,
@@ -78,6 +79,9 @@ async function applyOp(ownerId: string, op: OutboxOp): Promise<void> {
     case "removeItem":
       await removeLessonItem(ownerId, op.lessonId, op.itemId);
       return;
+    case "deleteLesson":
+      await deleteLesson(ownerId, op.lessonId);
+      return;
   }
 }
 
@@ -99,12 +103,14 @@ export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult>
   const applied: string[] = [];
   const touched = new Set<string>();
   let addedItems = false;
+  let changedAttachment = false; // a delete detaches words → the /lesson-items view changed
   for (const record of ordered) {
     try {
       await applyOp(ownerId, record.op);
       applied.push(record.id);
       touched.add(opLessonId(record.op));
-      if (record.op.kind !== "removeItem") addedItems = true;
+      if (record.op.kind === "createLesson" || record.op.kind === "addItems") addedItems = true;
+      if (record.op.kind === "deleteLesson") changedAttachment = true;
     } catch {
       // Stop at the first failure: later ops may depend on this one (e.g. add-items after
       // create-lesson). The client keeps the unapplied tail and retries the whole batch —
@@ -116,6 +122,8 @@ export async function flushOutbox(records: OutboxRecord[]): Promise<FlushResult>
   if (applied.length > 0) {
     revalidatePath("/");
     for (const lessonId of touched) revalidatePath(`/lessons/${lessonId}`);
+    // A deleted lesson's words become unattached, which the collection page shows.
+    if (changedAttachment) revalidatePath("/lesson-items");
   }
 
   // Fast path for the level job (docs/2026-07-16-level-assignment-background-job.md): new items get
