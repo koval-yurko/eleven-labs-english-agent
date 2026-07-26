@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
 import { getItem, type ItemDetail } from "../../../lib/lesson-items";
+import { NavLink } from "../../NavLink";
 import { FavoriteButton } from "../FavoriteButton";
 
 // Per-request rendering: owner-scoped data that changes as the word is practiced / re-levelled.
@@ -33,7 +34,7 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
   return (
     <>
       <p className="muted">
-        <a href="/lesson-items">← words &amp; sentences</a>
+        <NavLink href="/lesson-items">← words &amp; sentences</NavLink>
       </p>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem" }}>
@@ -79,7 +80,7 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {item.lessons.map((l) => (
               <li key={l.id} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border)" }}>
-                <a href={`/lessons/${l.id}`}>{l.title}</a>
+                <NavLink href={`/lessons/${l.id}`}>{l.title}</NavLink>
               </li>
             ))}
           </ul>

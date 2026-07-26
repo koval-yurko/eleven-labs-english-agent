@@ -6,6 +6,7 @@ import { getDb, type MirrorLesson } from "../lib/sync/db";
 import { ensureOwner, seedLessons } from "../lib/sync/mirror";
 import { deleteLessonLocal, requestFlush } from "../lib/sync/engine";
 import { formatDate } from "../lib/format-date";
+import { NavLink } from "./NavLink";
 import { TrashIcon } from "./icons";
 
 /**
@@ -52,9 +53,9 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
       {lessons.map((l) => (
         <li key={l.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}>
-            <a href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
+            <NavLink href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
               {l.title}
-            </a>
+            </NavLink>
             {confirmId === l.id ? null : (
               <button
                 type="button"

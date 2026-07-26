@@ -41,6 +41,10 @@ function OfflineBanner() {
   );
 }
 
+/* The links out of the offline shell stay plain anchors on purpose: this page exists precisely
+   when the network is down, and a hard navigation is what lets the service worker answer (a
+   client-side one would fetch an RSC payload the SW doesn't intercept). Once connectivity is back,
+   the anchor navigates for real. See docs/2026-07-26-navigation-progress-bar.md. */
 function OfflineNotice() {
   return (
     <section className="panel">

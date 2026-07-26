@@ -9,6 +9,7 @@ import {
   requestFlush,
   MAX_ITEMS,
 } from "../lib/sync/engine";
+import { useNavigationTransition } from "./nav-progress";
 
 /**
  * "New lesson" — an optimistic, offline-capable create. Mints all ids client-side, writes the
@@ -19,6 +20,8 @@ import {
  */
 export function NewLessonForm() {
   const router = useRouter();
+  // Puts the hop to the new lesson on the top progress bar, like a <NavLink> click.
+  const startNavigation = useNavigationTransition();
   const formRef = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +52,7 @@ export function NewLessonForm() {
       formRef.current?.reset();
       if (typeof navigator !== "undefined" && navigator.onLine) {
         await flushOutboxNow(); // apply the create so the RSC lesson page can load it
-        router.push(`/lessons/${id}`);
+        startNavigation(() => router.push(`/lessons/${id}`));
       } else {
         requestFlush(); // queued — will apply on reconnect; already visible in the list
       }

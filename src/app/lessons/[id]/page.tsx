@@ -8,6 +8,7 @@ import {
   type LessonItem,
 } from "../../../lib/lessons";
 import { activeVersions } from "../../../lib/agent-registry";
+import { NavLink } from "../../NavLink";
 import { LessonTutor } from "./LessonTutor";
 import { LessonItemsView } from "./LessonItemsView";
 
@@ -130,7 +131,7 @@ export default async function LessonPage({ params }: { params: Promise<{ id: str
       <h1>{lesson.title}</h1>
       <p className="muted">
         Created {new Date(lesson.created_at).toLocaleDateString()} ·{" "}
-        <a href="/lessons">← all lessons</a>
+        <NavLink href="/lessons">← all lessons</NavLink>
       </p>
 
       <section className="panel">

@@ -20,6 +20,8 @@ import {
 } from "../../lib/sync/engine";
 import { ensureOwner } from "../../lib/sync/mirror";
 import { formatDate } from "../../lib/format-date";
+import { useNavigationTransition } from "../nav-progress";
+import { NavLink } from "../NavLink";
 import { SortArrowIcon, StarIcon } from "../icons";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
@@ -60,6 +62,9 @@ export function ItemsBrowser({
   initialSearch: string;
 }) {
   const router = useRouter();
+  // Both navigations below are real server round-trips; running them inside this transition is
+  // what puts them on the top progress bar. See docs/2026-07-26-navigation-progress-bar.md.
+  const startNavigation = useNavigationTransition();
   const [search, setSearch] = useState(initialSearch);
 
   // Multi-select → "create a lesson from these words". Kept as an id → text map (not just an id set)
@@ -106,7 +111,7 @@ export function ItemsBrowser({
       clearSelection();
       if (typeof navigator !== "undefined" && navigator.onLine) {
         await flushOutboxNow(); // apply the create so the RSC lesson page can load it
-        router.push(`/lessons/${id}`);
+        startNavigation(() => router.push(`/lessons/${id}`));
       } else {
         requestFlush(); // queued — applies on reconnect; already visible in the lessons list
       }
@@ -131,8 +136,10 @@ export function ItemsBrowser({
     return qs ? `/lesson-items?${qs}` : "/lesson-items";
   }
 
+  // Every filter/sort chip re-runs the query on the server, so the bar shows here too — it is the
+  // only feedback these controls have, and it reflects work that genuinely is happening.
   function apply(change: Partial<ItemsQuery>) {
-    router.replace(hrefWith(change), { scroll: false });
+    startNavigation(() => router.replace(hrefWith(change), { scroll: false }));
   }
 
   function onSearch(value: string) {
@@ -367,7 +374,7 @@ function ItemLine({
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <strong>
-          <a href={`/lesson-items/${item.id}`}>{item.text}</a>
+          <NavLink href={`/lesson-items/${item.id}`}>{item.text}</NavLink>
         </strong>
         {/* The lessons this word is in live on its detail page now, not inline here. */}
         <div className="muted" style={{ fontSize: "0.9rem" }}>

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import { ASSET_VERSION } from "../lib/asset-version";
 import { ThemeToggle } from "./ThemeToggle";
+import { NavLink } from "./NavLink";
+import { NavProgressBar } from "./NavProgressBar";
 import { ServiceWorkerRegister } from "./ServiceWorkerRegister";
 import { SyncProvider } from "./SyncProvider";
 
@@ -49,6 +51,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
+        <NavProgressBar />
         <ServiceWorkerRegister />
         <SyncProvider />
         <main>
@@ -60,15 +63,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               marginBottom: "1.5rem",
             }}
           >
-            <a
+            <NavLink
               href="/lesson-items"
               style={{ fontWeight: 700, fontSize: "1.25rem", textDecoration: "none" }}
             >
               🎧 English Tutor
-            </a>
+            </NavLink>
             <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-              <a href="/lesson-items">Words</a>
-              <a href="/lessons">Lessons</a>
+              <NavLink href="/lesson-items">Words</NavLink>
+              <NavLink href="/lessons">Lessons</NavLink>
               <ThemeToggle />
             </div>
           </header>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getOwnerId, getUserEmail } from "../../lib/auth/session";
 import { getServiceSupabase, hasSupabaseEnv } from "../../lib/supabase/server";
 import { checkSupabase, checkElevenLabs, checkAnthropic, type Check } from "../../lib/health";
+import { NavLink } from "../NavLink";
 import { addPing } from "./actions";
 import { AskClaude } from "./AskClaude";
 
@@ -53,7 +54,8 @@ export default async function DemoPage() {
         <Status label="ElevenLabs" check={elevenlabs} />
         <Status label="LangChain + Claude" check={anthropic} />
         <p className="muted" style={{ marginTop: "1rem" }}>
-          <a href="/lessons">🎙️ Lessons</a> · <a href="/auth/logout">Log out</a> ·{" "}
+          {/* /auth and /api must leave the Next router — they stay plain anchors. */}
+          <NavLink href="/lessons">🎙️ Lessons</NavLink> · <a href="/auth/logout">Log out</a> ·{" "}
           <a href="/api/health">/api/health</a>
         </p>
       </section>
