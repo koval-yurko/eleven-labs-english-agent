@@ -5,6 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type MirrorLesson } from "../lib/sync/db";
 import { ensureOwner, seedLessons } from "../lib/sync/mirror";
 import { deleteLessonLocal, requestFlush } from "../lib/sync/engine";
+import { formatDate } from "../lib/format-date";
 import { TrashIcon } from "./icons";
 
 /**
@@ -78,7 +79,7 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
           <div className="muted" style={{ fontSize: "0.9rem" }}>
             {l.items.length} {l.items.length === 1 ? "item" : "items"} · {l.sessionCount}{" "}
             {l.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
-            {new Date(l.created_at).toLocaleDateString()}
+            {formatDate(l.created_at)}
           </div>
           <div className="muted" style={{ fontSize: "0.9rem" }}>
             {l.items.join(" · ")}

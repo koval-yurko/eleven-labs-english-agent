@@ -19,6 +19,7 @@ import {
   MAX_ITEMS,
 } from "../../lib/sync/engine";
 import { ensureOwner } from "../../lib/sync/mirror";
+import { formatDate } from "../../lib/format-date";
 import { SortArrowIcon, StarIcon } from "../icons";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
@@ -342,10 +343,8 @@ function ItemLine({
   const stats = [
     `${item.practice_count} ${item.practice_count === 1 ? "conversation" : "conversations"}`,
     `${item.lesson_count} ${item.lesson_count === 1 ? "lesson" : "lessons"}`,
-    `added ${new Date(item.first_added_at).toLocaleDateString()}`,
-    item.last_practiced_at
-      ? `last practiced ${new Date(item.last_practiced_at).toLocaleDateString()}`
-      : null,
+    `added ${formatDate(item.first_added_at)}`,
+    item.last_practiced_at ? `last practiced ${formatDate(item.last_practiced_at)}` : null,
   ].filter(Boolean);
 
   return (
