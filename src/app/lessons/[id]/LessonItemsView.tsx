@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { Field } from "@base-ui/react/field";
+import { Button } from "../../Button";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type MirrorItem } from "../../../lib/sync/db";
 import { ensureOwner, seedLessonItems } from "../../../lib/sync/mirror";
@@ -87,20 +89,14 @@ export function LessonItemsView({
               }}
             >
               <span>{it.text}</span>
-              <button
-                type="button"
+              <Button
+                variant="inline"
+                tone="danger"
                 onClick={() => void onRemove(it.id)}
                 aria-label={`Remove ${it.text}`}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "var(--error)",
-                  padding: 0,
-                }}
               >
                 remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -110,21 +106,28 @@ export function LessonItemsView({
         onSubmit={onAdd}
         style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}
       >
-        <textarea
-          name="items"
-          rows={3}
-          placeholder="Add words or sentences — one per line"
-          style={{ width: "100%" }}
-          disabled={atCap}
-        />
-        <div>
-          <button type="submit" disabled={atCap || busy}>
-            Add words
-          </button>{" "}
-          <span className="muted">
-            {atCap ? "Lesson is full (50 items)." : `${items.length}/50 items`}
-          </span>
-        </div>
+        <Field.Root>
+          <Field.Control
+            render={<textarea rows={3} />}
+            name="items"
+            // The placeholder was the only thing naming this control, and a placeholder disappears
+            // the moment you type into it.
+            aria-label="Words or sentences to add — one per line"
+            placeholder="Add words or sentences — one per line"
+            style={{ width: "100%" }}
+            disabled={atCap}
+          />
+          <div>
+            <Button type="submit" disabled={atCap || busy}>
+              Add words
+            </Button>{" "}
+            {/* The count and the cap notice are this field's description, not loose prose beside
+                it — as Field.Description they reach a screen reader with the control. */}
+            <Field.Description render={<span />} className="muted">
+              {atCap ? "Lesson is full (50 items)." : `${items.length}/50 items`}
+            </Field.Description>
+          </div>
+        </Field.Root>
       </form>
     </>
   );

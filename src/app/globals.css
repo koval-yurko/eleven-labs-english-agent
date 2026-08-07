@@ -90,6 +90,20 @@ textarea {
   font: inherit;
 }
 
+/* Chrome and Safari draw their own clear button inside a search field; Firefox draws none. It's
+   unstyled, ignores the theme, and the design never asked for it — so drop it and match Firefox.
+   (The list filters as you type and the field is easy to select-all, so nothing is lost.) */
+input[type="search"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+/* One focus ring for the whole app. Each engine's default differs, and until now only
+   .select-trigger overrode it — so the app had three rings depending on the browser. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 textarea {
   min-height: 90px;
   resize: vertical;
@@ -103,19 +117,14 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  /* Overrides the accent-filled `button` rule below — this is a field, not an action. */
+  /* A field, not an action — it takes the field palette rather than .btn's. */
   background: var(--field-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
-  /* The whole point of the exercise: a control that is the same size and typeface as everything
-     else, which the OS-rendered <select> never was. */
-  font: inherit;
-  font-weight: 400;
-  margin-top: 0;
   /* Comfortable on a touch screen without towering over the chips beside it. */
-  min-height: 2.25rem;
+  min-height: var(--control-height-sm);
   max-width: 100%;
   /* Both call sites put the trigger in a flex row, where the default `min-width: auto` would let a
      long label push the control past the panel instead of letting it shrink. Zeroing it is what
@@ -124,10 +133,7 @@ textarea {
   cursor: pointer;
 }
 
-.select-trigger:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
+/* focus ring comes from the shared :focus-visible rule above */
 
 .select-trigger[data-popup-open] {
   border-color: var(--accent);
@@ -213,6 +219,173 @@ textarea {
   min-width: 0;
 }
 
+/* Filter chips (src/app/lesson-items/ItemsBrowser.tsx). Same pill for two different things: a
+   Base UI Toggle inside a ToggleGroup (where [data-pressed] drives the active look), and a plain
+   <button> for the two controls that only look like chips — sort direction and "Clear". */
+.chip {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  margin: 0;
+  font-weight: 500;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.chip[data-pressed] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The row of chips. As a ToggleGroup it's one tab stop with arrow keys between the chips, rather
+   than twelve consecutive tab stops. */
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.filter-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Form field text (Base UI Field). Description carries helper text and, on the add-word form,
+   doubles as the live region that announces the result of a submit. */
+.field-description,
+.field-error {
+  font-size: 0.9rem;
+  margin: 0.4rem 0 0;
+}
+
+.field-error {
+  color: var(--error);
+}
+
+/* Checkbox (src/app/Checkbox.tsx) — Base UI Checkbox parts, replacing the OS-drawn control. */
+.checkbox {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.checkbox[data-checked] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.checkbox[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkbox-indicator {
+  display: inline-flex;
+  /* The tick is ours, in --on-accent — the native one used the OS accent colour, which is a
+     per-user system setting we could never match. */
+  color: var(--on-accent);
+}
+
+/* Tooltip (src/app/Tooltip.tsx) and the tappable InfoPopover (src/app/InfoPopover.tsx) — same
+   look, different input model: the tooltip is hover/focus only, the popover also opens on tap. */
+.tooltip-popup,
+.info-popup {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  max-width: min(18rem, 90vw);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+  transition: opacity 120ms ease;
+}
+
+.tooltip-popup[data-starting-style],
+.tooltip-popup[data-ending-style],
+.info-popup[data-starting-style],
+.info-popup[data-ending-style] {
+  opacity: 0;
+}
+
+/* Inherits the muted span it wraps rather than the accent-filled `button` rule. */
+.info-trigger {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: help;
+}
+
+/* Disclosure (src/app/Disclosure.tsx) — Base UI Collapsible, replacing <details>/<summary>. */
+.disclosure-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.disclosure-marker {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 150ms ease-out;
+  transform: rotate(-90deg); /* collapsed: pointing right, like a details marker */
+}
+
+.disclosure-trigger[data-panel-open] .disclosure-marker {
+  transform: rotate(0deg);
+}
+
+/* The height transition native <details> can't do outside Chromium: Collapsible measures the panel
+   and publishes --collapsible-panel-height, so the same animation runs in every engine. */
+.disclosure-panel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  transition: height 150ms ease-out;
+}
+
+.disclosure-panel[data-starting-style],
+.disclosure-panel[data-ending-style] {
+  height: 0;
+}
+
+/* `hidden="until-found"` must stay findable by the browser's find-in-page, so only a plain
+   `hidden` collapses the box. */
+.disclosure-panel[hidden]:not([hidden="until-found"]) {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-panel,
+  .disclosure-marker {
+    transition-duration: 1ms;
+  }
+}
+
 /* Confirmation dialog (src/app/ConfirmDialog.tsx) — Base UI AlertDialog parts. */
 .dialog-backdrop {
   position: fixed;
@@ -288,38 +461,113 @@ textarea {
   margin-top: 1.25rem;
 }
 
-/* The global `button` rule adds a top margin meant for stacked forms; here the flex gap does the
-   spacing and that margin would knock the two buttons out of line. */
-.dialog-actions button {
-  margin-top: 0;
-}
-
-/* Cancel reads as the quiet option so the destructive one isn't the only thing the eye lands on. */
-.dialog-cancel {
-  background: var(--field-bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-}
-
-.dialog-confirm {
-  background: var(--error);
-  color: #fff;
-}
-
+/* Reset only. This rule used to paint every <button> accent-filled, which meant any button that
+   wasn't a primary action had to undo it inline, and it hid the real problem below: the UA gives
+   buttons their own font family and size (Arial 13.3px here) unless told otherwise, and that
+   default varies by OS and engine. `font: inherit` is the single most valuable line in this file.
+   Appearance now comes from .btn — an unstyled <button> looks unstyled, on purpose. */
 button {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: 8px;
-  padding: 0.6rem 1.1rem;
-  font-weight: 600;
+  font: inherit;
   cursor: pointer;
-  margin-top: 0.6rem;
 }
 
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Two control sizes, both named here so nothing invents a third.
+   - --control-height: 24px line box + 2 × 0.6rem padding + 2 × 1px border = 45.2px, i.e. exactly
+     what `input`/`textarea` above already compute to. This is the size that stands beside a field.
+   - --control-height-sm: the compact tier the Select trigger already used, for controls that sit
+     among navigation or chips rather than in a form.
+   In rem so both track the root font size rather than pinning pixels the fields wouldn't follow. */
+:root {
+  --control-height: 2.825rem;
+  --control-height-sm: 2.25rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: var(--control-height);
+  padding: 0.6rem 1.1rem;
+  /* Transparent rather than absent, so variants with a visible border are the same size as those
+     without — this is half of why buttons and fields now line up. */
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* A size tier, orthogonal to the variants below — `icon` and `inline` size themselves, so `sm`
+   pairs with primary/secondary/quiet. Same 0.4rem padding as .select-trigger, so a small button and
+   the Select land on the same height. */
+.btn--sm {
+  min-height: var(--control-height-sm);
+  padding: 0.4rem 0.75rem;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn--secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+/* Square and chrome-free, and deliberately NOT --control-height. Both icon buttons in this app
+   (the favourite star, the delete bin) sit in dense list rows next to a 20px checkbox, where a
+   45px square would inflate every row. The height contract is for controls that stand beside a
+   field; a glyph affordance inside a row isn't one. 2rem still gives a comfortable target once the
+   row's own 0.6rem padding is counted. */
+.btn--icon {
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+/* No box at all — for a button inside a sentence, where a control-sized block would break the
+   line. Inherits the surrounding type so it reads as part of the text. */
+.btn--inline {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: inherit;
+  line-height: inherit;
+  white-space: normal;
+  text-decoration: underline;
+}
+
+/* Tone recolours whichever shape is in use; solid variants get a solid danger fill, the rest just
+   take the error colour for their text. */
+.btn--primary.btn--danger {
+  background: var(--error);
+  color: #fff;
+}
+
+.btn--secondary.btn--danger,
+.btn--quiet.btn--danger,
+.btn--icon.btn--danger,
+.btn--inline.btn--danger {
+  background: transparent;
+  color: var(--error);
 }
 
 pre {

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { MoonIcon, SunIcon } from "./icons";
+import { Button } from "./Button";
+import { Tooltip } from "./Tooltip";
 
 type Theme = "light" | "dark";
 
@@ -47,24 +49,21 @@ export function ThemeToggle() {
   const isLight = theme === "light";
 
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(isLight ? "dark" : "light")}
-      aria-label={`Switch to ${isLight ? "dark" : "light"} theme`}
-      title={`Switch to ${isLight ? "dark" : "light"} theme`}
-      style={{
-        marginTop: 0,
-        background: "transparent",
-        color: "var(--text)",
-        border: "1px solid var(--border)",
-        fontWeight: 600,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.4rem",
-      }}
-    >
-      {isLight ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-      {isLight ? "Light" : "Dark"}
-    </button>
+    // The `title=` this replaced was a native tooltip — OS-drawn, and invisible on touch. The label
+    // is redundant with aria-label and the button's own text, so a Tooltip is the right shape here
+    // (see Tooltip vs InfoPopover).
+    <Tooltip label={`Switch to ${isLight ? "dark" : "light"} theme`}>
+      <Button
+        variant="secondary"
+        // Header furniture, not a form control — the compact tier keeps it from setting the
+        // header's height. It matches the Select trigger, the app's other non-form control.
+        size="sm"
+        onClick={() => setTheme(isLight ? "dark" : "light")}
+        aria-label={`Switch to ${isLight ? "dark" : "light"} theme`}
+      >
+        {isLight ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+        {isLight ? "Light" : "Dark"}
+      </Button>
+    </Tooltip>
   );
 }

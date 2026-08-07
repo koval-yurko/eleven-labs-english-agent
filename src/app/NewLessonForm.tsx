@@ -2,6 +2,9 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Field } from "@base-ui/react/field";
+import { Form } from "@base-ui/react/form";
+import { Button } from "./Button";
 import {
   createLessonLocal,
   defaultLessonTitle,
@@ -62,24 +65,39 @@ export function NewLessonForm() {
   }
 
   return (
-    <form ref={formRef} onSubmit={onSubmit}>
-      <input
-        name="title"
-        placeholder="Title (optional — defaults to today's date)"
-        maxLength={120}
-        style={{ marginBottom: "0.5rem" }}
-      />
-      <textarea
-        name="items"
-        required
-        rows={5}
-        placeholder={
-          "One word, phrase, or sentence per line, e.g.\nephemeral\nbreak the ice\nI couldn't agree more"
-        }
-      />
-      <button type="submit" disabled={busy}>
+    // Base UI's Form sets `noValidate` and focuses the first invalid control itself. That's the
+    // point of using it here: the `required` textarea below used to fail into the browser's own
+    // validation bubble, which Chrome, Safari and Firefox each draw differently and which vanishes
+    // on its own — the same OS-widget problem as the old <select>. The message is now ours, in the
+    // page, styled like everything else.
+    <Form ref={formRef} onSubmit={onSubmit}>
+      <Field.Root name="title">
+        <Field.Control
+          // Placeholder-only was the whole accessible name, and it disappears once you type.
+          aria-label="Lesson title (optional)"
+          placeholder="Title (optional — defaults to today's date)"
+          maxLength={120}
+          style={{ marginBottom: "0.5rem" }}
+        />
+      </Field.Root>
+
+      <Field.Root name="items">
+        <Field.Control
+          render={<textarea rows={5} />}
+          required
+          aria-label="Words, phrases, or sentences — one per line"
+          placeholder={
+            "One word, phrase, or sentence per line, e.g.\nephemeral\nbreak the ice\nI couldn't agree more"
+          }
+        />
+        <Field.Error className="field-error" match="valueMissing">
+          Add at least one word, phrase, or sentence.
+        </Field.Error>
+      </Field.Root>
+
+      <Button type="submit" disabled={busy}>
         {busy ? "Creating…" : "Create lesson"}
-      </button>
-    </form>
+      </Button>
+    </Form>
   );
 }

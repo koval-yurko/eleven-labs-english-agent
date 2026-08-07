@@ -5,6 +5,7 @@ import { checkSupabase, checkElevenLabs, checkAnthropic, type Check } from "../.
 import { NavLink } from "../NavLink";
 import { addPing } from "./actions";
 import { AskClaude } from "./AskClaude";
+import { Button } from "../Button";
 
 export const metadata: Metadata = {
   title: "Demo — integration smoke test",
@@ -66,10 +67,12 @@ export default async function DemoPage() {
           Inserts an owner-scoped row into <code>health_pings</code>, then reads it back.
         </p>
         <form action={addPing}>
-          <input name="note" placeholder="a short note" maxLength={200} />
-          <button type="submit" disabled={!ownerId}>
+          {/* Just the missing accessible name — this is a server component driving a server
+              action, and wrapping it in Field would force a client boundary onto a smoke test. */}
+          <input name="note" aria-label="Ping note" placeholder="a short note" maxLength={200} />
+          <Button type="submit" disabled={!ownerId}>
             Insert ping row
-          </button>
+          </Button>
         </form>
         {pings.length > 0 ? (
           <ul>

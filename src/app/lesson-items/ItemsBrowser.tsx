@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Toggle } from "@base-ui/react/toggle";
+import { ToggleGroup } from "@base-ui/react/toggle-group";
 import {
   CEFR_LEVELS,
   ITEM_KINDS,
   UNLEVELED,
   type ItemFacet,
+  type ItemKind,
   type ItemRow,
   type ItemsQuery,
   type SortKey,
@@ -24,6 +27,8 @@ import { useNavigationTransition } from "../nav-progress";
 import { NavLink } from "../NavLink";
 import { SortArrowIcon, StarIcon } from "../icons";
 import { Select, type SelectOption } from "../Select";
+import { Checkbox } from "../Checkbox";
+import { Button } from "../Button";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -136,7 +141,10 @@ export function ItemsBrowser({
     if (next.kind) params.set("kind", next.kind);
     if (next.unassignedOnly) params.set("unassigned", "1");
     for (const [name, value] of Object.entries(next.categories)) params.set(`cat.${name}`, value);
-    if (next.sort !== "practice") params.set("sort", next.sort);
+    // Must match the fallback in page.tsx (`"created"`), or the omitted value round-trips as a
+    // different sort: this said "practice" while the page defaulted to "created", which made
+    // "Times practiced" silently unselectable.
+    if (next.sort !== "created") params.set("sort", next.sort);
     if (next.dir !== "desc") params.set("dir", next.dir);
     if (search) params.set("q", search);
     const qs = params.toString();
@@ -158,16 +166,10 @@ export function ItemsBrowser({
     window.history.replaceState(null, "", url);
   }
 
-  function toggleLevel(level: string) {
-    const levels = query.levels.includes(level)
-      ? query.levels.filter((l) => l !== level)
-      : [...query.levels, level];
-    apply({ levels });
-  }
-
-  function toggleCategory(name: string, value: string) {
+  /** `null` clears the filter — the ToggleGroup reports an empty selection when its chip is unpressed. */
+  function setCategory(name: string, value: string | null) {
     const categories = { ...query.categories };
-    if (categories[name] === value) delete categories[name];
+    if (value === null) delete categories[name];
     else categories[name] = value;
     apply({ categories });
   }
@@ -192,62 +194,72 @@ export function ItemsBrowser({
         />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: "1.25rem", marginTop: "0.9rem" }}>
-          <FilterGroup label="Level">
+          <ToggleFilters
+            label="Level"
+            multiple
+            value={query.levels}
+            onValueChange={(levels) => apply({ levels })}
+          >
             {[...CEFR_LEVELS, UNLEVELED].map((level) => (
-              <Chip
-                key={level}
-                active={query.levels.includes(level)}
-                onClick={() => toggleLevel(level)}
-              >
+              <Chip key={level} value={level}>
                 {level === UNLEVELED ? "not levelled" : level}
               </Chip>
             ))}
-          </FilterGroup>
+          </ToggleFilters>
 
-          <FilterGroup label="Kind">
+          {/* Single-select: the group unpresses the previous chip, and clicking the pressed one
+              clears the filter — the same behaviour the old onClick spelled out by hand. */}
+          <ToggleFilters
+            label="Kind"
+            value={query.kind ? [query.kind] : []}
+            onValueChange={([kind]) => apply({ kind: (kind as ItemKind) ?? null })}
+          >
             {ITEM_KINDS.map((kind) => (
-              <Chip
-                key={kind}
-                active={query.kind === kind}
-                onClick={() => apply({ kind: query.kind === kind ? null : kind })}
-              >
+              <Chip key={kind} value={kind}>
                 {kind}
               </Chip>
             ))}
-          </FilterGroup>
+          </ToggleFilters>
 
-          <FilterGroup label="Show">
-            <Chip
-              active={query.favoritesOnly}
-              onClick={() => apply({ favoritesOnly: !query.favoritesOnly })}
-            >
+          {/* Two independent booleans, so `multiple` — they're a labelled set, not alternatives. */}
+          <ToggleFilters
+            label="Show"
+            multiple
+            value={[
+              ...(query.favoritesOnly ? ["favorites"] : []),
+              ...(query.unassignedOnly ? ["unassigned"] : []),
+            ]}
+            onValueChange={(shown) =>
+              apply({
+                favoritesOnly: shown.includes("favorites"),
+                unassignedOnly: shown.includes("unassigned"),
+              })
+            }
+          >
+            <Chip value="favorites">
               <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                 <StarIcon state={query.favoritesOnly ? "filled" : "empty"} size={14} />
                 favorites
               </span>
             </Chip>
-            <Chip
-              active={query.unassignedOnly}
-              onClick={() => apply({ unassignedOnly: !query.unassignedOnly })}
-            >
-              in no lesson
-            </Chip>
-          </FilterGroup>
+            <Chip value="unassigned">in no lesson</Chip>
+          </ToggleFilters>
 
           {/* Rendered from the data itself (the owner_item_facets view), so a category name added
               later needs no code change here. */}
           {groupFacets(facets).map(([name, values]) => (
-            <FilterGroup key={name} label={name}>
+            <ToggleFilters
+              key={name}
+              label={name}
+              value={query.categories[name] ? [query.categories[name]] : []}
+              onValueChange={([value]) => setCategory(name, value ?? null)}
+            >
               {values.map((f) => (
-                <Chip
-                  key={f.value}
-                  active={query.categories[name] === f.value}
-                  onClick={() => toggleCategory(name, f.value)}
-                >
+                <Chip key={f.value} value={f.value}>
                   {f.value} <span className="muted">{f.item_count}</span>
                 </Chip>
               ))}
-            </FilterGroup>
+            </ToggleFilters>
           ))}
 
           <FilterGroup label="Sort by">
@@ -257,12 +269,18 @@ export function ItemsBrowser({
               onValueChange={(sort) => apply({ sort })}
               options={SORT_OPTIONS}
             />
-            <Chip active={false} onClick={() => apply({ dir: query.dir === "asc" ? "desc" : "asc" })}>
+            {/* Not a toggle: it flips between two named directions rather than being on or off, so
+                it stays a plain button and only borrows the chip's look. */}
+            <button
+              type="button"
+              className="chip"
+              onClick={() => apply({ dir: query.dir === "asc" ? "desc" : "asc" })}
+            >
               <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                 <SortArrowIcon dir={query.dir} size={14} />
                 {query.dir === "asc" ? "ascending" : "descending"}
               </span>
-            </Chip>
+            </button>
           </FilterGroup>
         </div>
       </section>
@@ -328,12 +346,12 @@ export function ItemsBrowser({
               padding: "0.35rem 0.5rem",
             }}
           />
-          <button type="button" onClick={createFromSelection} disabled={creating}>
+          <Button onClick={createFromSelection} disabled={creating}>
             {creating ? "Creating…" : "Create lesson"}
-          </button>
-          <Chip active={false} onClick={clearSelection}>
+          </Button>
+          <button type="button" className="chip" onClick={clearSelection}>
             Clear
-          </Chip>
+          </button>
         </div>
       ) : null}
     </>
@@ -366,13 +384,7 @@ function ItemLine({
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={onToggle}
-        aria-label={`Select ${item.text}`}
-        style={{ width: "1.25rem", height: "1.25rem", flexShrink: 0, cursor: "pointer" }}
-      />
+      <Checkbox checked={selected} onCheckedChange={onToggle} label={`Select ${item.text}`} />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <strong>
@@ -394,46 +406,68 @@ function ItemLine({
   );
 }
 
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * A labelled row of filter chips, backed by a `ToggleGroup`.
+ *
+ * The chips always exposed `aria-pressed` — what they never exposed was that they belong together.
+ * The "LEVEL" caption was a loose `<div>`, so a screen reader announced "A2, pressed" with no hint
+ * of what it filters. `aria-labelledby` on the group is what ties the caption to its chips.
+ *
+ * The other half is focus: twelve chips were twelve consecutive tab stops. A ToggleGroup is one
+ * tab stop with arrow keys inside it, which is the standard behaviour for a set of related toggles.
+ *
+ * Values are plain strings so one component serves every filter row — CEFR levels, kinds, and the
+ * category facets that are generated from the data.
+ */
+function ToggleFilters({
+  label,
+  value,
+  onValueChange,
+  multiple,
+  children,
+}: {
+  label: string;
+  value: string[];
+  onValueChange: (value: string[]) => void;
+  /** `false` (the default) makes the chips mutually exclusive, and clicking the pressed one clears it. */
+  multiple?: boolean;
+  children: React.ReactNode;
+}) {
+  const labelId = useId();
   return (
     <div>
-      <div className="muted" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+      <div className="muted filter-label" id={labelId}>
         {label}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center", marginTop: "0.25rem" }}>
+      <ToggleGroup
+        aria-labelledby={labelId}
+        value={value}
+        onValueChange={onValueChange}
+        multiple={multiple}
+        className="filter-row"
+      >
         {children}
-      </div>
+      </ToggleGroup>
     </div>
   );
 }
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+/** The same caption + row, for the one group whose contents aren't toggles (a Select and a button). */
+function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        background: active ? "var(--accent)" : "transparent",
-        color: active ? "var(--on-accent)" : "var(--text)",
-        border: "1px solid var(--border)",
-        borderRadius: 999,
-        padding: "0.2rem 0.7rem",
-        margin: 0,
-        fontWeight: 500,
-        fontSize: "0.9rem",
-      }}
-    >
+    <div>
+      <div className="muted filter-label">{label}</div>
+      <div className="filter-row">{children}</div>
+    </div>
+  );
+}
+
+/** A chip inside a ToggleFilters row. Pressed state comes from the group, not a prop. */
+function Chip({ value, children }: { value: string; children: React.ReactNode }) {
+  return (
+    <Toggle value={value} className="chip">
       {children}
-    </button>
+    </Toggle>
   );
 }
 

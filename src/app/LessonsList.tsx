@@ -9,6 +9,8 @@ import { formatDate } from "../lib/format-date";
 import { NavLink } from "./NavLink";
 import { TrashIcon } from "./icons";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Tooltip } from "./Tooltip";
+import { Button } from "./Button";
 
 /**
  * The "Your lessons" list, rendered from the IndexedDB mirror. On the online home page the server
@@ -65,27 +67,19 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
               <NavLink href={`/lessons/${l.id}`} style={{ fontWeight: 600 }}>
                 {l.title}
               </NavLink>
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmTarget({ id: l.id, title: l.title });
-                  setConfirmOpen(true);
-                }}
-                aria-label={`Delete ${l.title}`}
-                title="Delete lesson"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  flexShrink: 0,
-                  color: "var(--error)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
-              >
-                <TrashIcon size={18} />
-              </button>
+              <Tooltip label="Delete lesson">
+                <Button
+                  variant="icon"
+                  tone="danger"
+                  onClick={() => {
+                    setConfirmTarget({ id: l.id, title: l.title });
+                    setConfirmOpen(true);
+                  }}
+                  aria-label={`Delete ${l.title}`}
+                >
+                  <TrashIcon size={18} />
+                </Button>
+              </Tooltip>
             </div>
             <div className="muted" style={{ fontSize: "0.9rem" }}>
               {l.items.length} {l.items.length === 1 ? "item" : "items"} · {l.sessionCount}{" "}

@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { setItemFavoriteAction } from "./actions";
 import { StarIcon } from "../icons";
+import { Button } from "../Button";
+import { Tooltip } from "../Tooltip";
 
 /**
  * Mark/unmark one item as a favorite — the only mutation on this page.
@@ -36,24 +38,17 @@ export function FavoriteButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-pressed={isFavorite}
-      aria-label={isFavorite ? `Unfavorite ${text}` : `Favorite ${text}`}
-      title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-      style={{
-        background: "none",
-        border: "none",
-        padding: 0,
-        margin: 0,
-        cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        color: isFavorite ? "var(--warn)" : "var(--muted)",
-      }}
-    >
-      <StarIcon state={isFavorite ? "filled" : "empty"} size={18} />
-    </button>
+    <Tooltip label={isFavorite ? "Remove from favorites" : "Add to favorites"}>
+      <Button
+        variant="icon"
+        onClick={toggle}
+        aria-pressed={isFavorite}
+        aria-label={isFavorite ? `Unfavorite ${text}` : `Favorite ${text}`}
+        // State colour, so it stays inline rather than becoming a variant of its own.
+        style={{ color: isFavorite ? "var(--warn)" : "var(--muted)" }}
+      >
+        <StarIcon state={isFavorite ? "filled" : "empty"} size={18} />
+      </Button>
+    </Tooltip>
   );
 }

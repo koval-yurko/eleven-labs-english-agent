@@ -9,6 +9,7 @@ import {
 } from "../../../lib/lessons";
 import { activeVersions } from "../../../lib/agent-registry";
 import { NavLink } from "../../NavLink";
+import { Disclosure } from "../../Disclosure";
 import { LessonTutor } from "./LessonTutor";
 import { LessonItemsView } from "./LessonItemsView";
 
@@ -40,13 +41,17 @@ function ItemChanges({ history }: { history: LessonItem[] }) {
   if (events.length === 0) return null;
 
   return (
-    <details className="panel">
-      <summary style={{ cursor: "pointer" }}>
-        <strong>Word changes</strong>{" "}
-        <span className="muted">
-          — {events.length} {events.length === 1 ? "event" : "events"}
-        </span>
-      </summary>
+    <Disclosure
+      className="panel"
+      summary={
+        <>
+          <strong>Word changes</strong>{" "}
+          <span className="muted">
+            — {events.length} {events.length === 1 ? "event" : "events"}
+          </span>
+        </>
+      }
+    >
       <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
         {events.map((e, i) => (
           <li key={i} style={{ marginBottom: "0.35rem" }}>
@@ -58,7 +63,7 @@ function ItemChanges({ history }: { history: LessonItem[] }) {
           </li>
         ))}
       </ul>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -80,10 +85,15 @@ function SessionHistory({ sessions }: { sessions: LessonSession[] }) {
             .filter(Boolean)
             .join(" · ");
           return (
-            <details key={s.id} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
-              <summary style={{ cursor: "pointer" }}>
-                <strong>Conversation</strong> <span className="muted">— {meta}</span>
-              </summary>
+            <Disclosure
+              key={s.id}
+              style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}
+              summary={
+                <>
+                  <strong>Conversation</strong> <span className="muted">— {meta}</span>
+                </>
+              }
+            >
               {s.summary ? (
                 <p className="muted" style={{ fontStyle: "italic" }}>
                   {s.summary}
@@ -97,7 +107,7 @@ function SessionHistory({ sessions }: { sessions: LessonSession[] }) {
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           );
         })
       )}

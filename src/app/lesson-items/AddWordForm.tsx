@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Field } from "@base-ui/react/field";
+import { Button } from "../Button";
 import { addWordAction } from "./actions";
 
 type Feedback = { tone: "ok" | "warn"; message: string } | null;
@@ -63,33 +65,46 @@ export function AddWordForm() {
     <section className="panel">
       <h2>Add a word</h2>
       <form ref={formRef} onSubmit={onSubmit}>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <input
-            type="text"
-            name="text"
-            placeholder="ubiquitous"
-            aria-label="Word, phrase, or sentence to add"
-            autoComplete="off"
-            disabled={offline}
-            style={{ flex: 1 }}
-          />
-          <button type="submit" disabled={busy || offline}>
-            {busy ? "Adding…" : "Add"}
-          </button>
-        </div>
-      </form>
+        <Field.Root>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <Field.Control
+              type="text"
+              name="text"
+              placeholder="ubiquitous"
+              aria-label="Word, phrase, or sentence to add"
+              autoComplete="off"
+              disabled={offline}
+              style={{ flex: 1 }}
+            />
+            <Button type="submit" disabled={busy || offline}>
+              {busy ? "Adding…" : "Add"}
+            </Button>
+          </div>
 
-      <p className="muted" style={{ marginBottom: 0 }}>
-        {offline ? (
-          "Offline — adding a word needs a connection."
-        ) : feedback ? (
-          <span style={{ color: feedback.tone === "ok" ? "var(--ok)" : "var(--warn)" }}>
-            {feedback.message}
-          </span>
-        ) : (
-          "Goes straight to your collection — you can put it in a lesson any time."
-        )}
-      </p>
+          {/* This line was a loose <p> next to the form: nothing connected it to the input, so a
+              screen reader never read it as the field's description, and the result of a submit
+              ("Added “x”.") changed silently. As Field.Description it's wired via aria-describedby;
+              role="status" is what makes the swap to feedback announced rather than merely visible. */}
+          <Field.Description
+            // Field.Description renders a <div>; `render` keeps the original <p>, whose default
+            // top margin is the spacing this block has always had.
+            render={<p />}
+            className="muted"
+            role="status"
+            style={{ marginBottom: 0 }}
+          >
+            {offline ? (
+              "Offline — adding a word needs a connection."
+            ) : feedback ? (
+              <span style={{ color: feedback.tone === "ok" ? "var(--ok)" : "var(--warn)" }}>
+                {feedback.message}
+              </span>
+            ) : (
+              "Goes straight to your collection — you can put it in a lesson any time."
+            )}
+          </Field.Description>
+        </Field.Root>
+      </form>
     </section>
   );
 }

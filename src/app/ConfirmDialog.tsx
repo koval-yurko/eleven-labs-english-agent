@@ -58,8 +58,10 @@ export function ConfirmDialog({
               {/* Cancel first in the DOM so it takes initial focus — the safe default for a
                   destructive prompt, and it puts the recovery action one Tab from the dangerous
                   one rather than the other way round. */}
-              <AlertDialog.Close className="dialog-cancel">{cancelLabel}</AlertDialog.Close>
-              <AlertDialog.Close className="dialog-confirm" onClick={onConfirm}>
+              {/* The dialog's buttons are the app's buttons — Cancel reads as the quiet option so
+                  the destructive one isn't the only thing the eye lands on. */}
+              <AlertDialog.Close className="btn btn--secondary">{cancelLabel}</AlertDialog.Close>
+              <AlertDialog.Close className="btn btn--primary btn--danger" onClick={onConfirm}>
                 {confirmLabel}
               </AlertDialog.Close>
             </div>

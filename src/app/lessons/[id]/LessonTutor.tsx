@@ -14,6 +14,8 @@ import {
 } from "../../../lib/tutor";
 import { saveLessonSessionAction } from "../actions";
 import { Select } from "../../Select";
+import { InfoPopover } from "../../InfoPopover";
+import { Button } from "../../Button";
 import { useKeepAwake } from "./useKeepAwake";
 import { useAudioHealth } from "./useAudioHealth";
 import { beaconJournal, clearJournal, readJournal, writeJournal } from "./session-journal";
@@ -408,13 +410,11 @@ function Tutor({
         ) : null}
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.5rem" }}>
           {connected ? (
-            <button type="button" onClick={() => endSession()}>
-              End session
-            </button>
+            <Button onClick={() => endSession()}>End session</Button>
           ) : (
-            <button type="button" onClick={start} disabled={busy}>
+            <Button onClick={start} disabled={busy}>
               {busy ? "Connecting…" : "Start conversation"}
-            </button>
+            </Button>
           )}
           <span className="muted">
             {connected
@@ -424,9 +424,12 @@ function Tutor({
               : `status: ${status}`}
           </span>
           {connected && keepAwake.method !== "none" ? (
-            <span className="muted" title="The screen is held awake for this session">
-              ☀ screen stays on
-            </span>
+            // A Popover, not a Tooltip: this explains something the learner can't infer, and
+            // tooltips (native `title` included) never open on touch — which is most of this app's
+            // use. Tapping the hint is what makes it reachable on a phone.
+            <InfoPopover label="The screen is held awake for this session.">
+              <span className="muted">☀ screen stays on</span>
+            </InfoPopover>
           ) : null}
         </div>
 
@@ -441,9 +444,9 @@ function Tutor({
         {connected && health === "stalled" ? (
           <p className="warn" style={{ marginBottom: 0 }}>
             No audio has moved in either direction for a while. If the tutor has gone quiet,{" "}
-            <button type="button" onClick={() => pauseRef.current("audio")}>
+            <Button variant="inline" onClick={() => pauseRef.current("audio")}>
               restart the session
-            </button>
+            </Button>
           </p>
         ) : null}
 
@@ -459,17 +462,12 @@ function Tutor({
           <h2 style={{ marginTop: 0 }}>{pauseCopy[pause].title}</h2>
           <p className="muted">{pauseCopy[pause].body}</p>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <button type="button" onClick={resumeSession} disabled={busy}>
+            <Button onClick={resumeSession} disabled={busy}>
               {busy ? "Connecting…" : pauseCopy[pause].cta}
-            </button>
-            <button
-              type="button"
-              onClick={dismissPause}
-              disabled={busy}
-              style={{ background: "transparent", color: "var(--muted)" }}
-            >
+            </Button>
+            <Button variant="quiet" onClick={dismissPause} disabled={busy}>
               Start fresh instead
-            </button>
+            </Button>
           </div>
         </section>
       ) : null}
