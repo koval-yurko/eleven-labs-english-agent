@@ -50,7 +50,7 @@ function parseQuery(params: SearchParams): ItemsQuery {
     kind: (ITEM_KINDS as readonly string[]).includes(kind ?? "") ? (kind as ItemKind) : null,
     unassignedOnly: one(params, "unassigned") === "1",
     categories,
-    sort: (SORT_KEYS as string[]).includes(sort ?? "") ? (sort as SortKey) : "practice",
+    sort: (SORT_KEYS as string[]).includes(sort ?? "") ? (sort as SortKey) : "created",
     dir: one(params, "dir") === "asc" ? "asc" : "desc",
   };
 }
