@@ -26,6 +26,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.107.0
         version: 2.108.2
+      '@zakj/no-sleep':
+        specifier: ^0.13.6
+        version: 0.13.6
       dexie:
         specifier: ^4.4.4
         version: 4.4.4
@@ -667,6 +670,9 @@ packages:
   '@typescript-eslint/visitor-keys@8.62.0':
     resolution: {integrity: sha512-CY3uyFSRbcQv3nnSv8S0+lDftMVz6P963PoRlxrV7ew/Md564g9ut60PYzdLM5qW4jFn93GBF+Soi90ISAN+GQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@zakj/no-sleep@0.13.6':
+    resolution: {integrity: sha512-w+qFH0bXuIWRggT9WqZW+dYrv2TXICA9m0a+tUZ1g8z4yuLxxaya3NCj8u9fHggm3R9AQIgt17R0FJwzhiCp3w==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -1896,6 +1902,8 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 8.62.0
       eslint-visitor-keys: 5.0.1
+
+  '@zakj/no-sleep@0.13.6': {}
 
   acorn-jsx@5.3.2(acorn@8.17.0):
     dependencies:

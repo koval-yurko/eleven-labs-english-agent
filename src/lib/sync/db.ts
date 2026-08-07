@@ -13,6 +13,7 @@
  */
 import Dexie, { type Table } from "dexie";
 import type { OutboxRecord } from "./types";
+import type { TranscriptLine } from "../tutor";
 
 /** A lesson as the list/home surface needs it (mirrors `LessonListItem`). */
 export interface MirrorLesson {
@@ -37,11 +38,26 @@ interface MetaRow {
   value: string;
 }
 
+/**
+ * The transcript of a tutor session as it is being spoken, one row per lesson. iOS can discard the
+ * tab (or suspend it hard enough that `onDisconnect` never runs), and in-memory lines would go with
+ * it — so every line is journalled here as it arrives and cleared once the server has the session.
+ * See docs/2026-08-07-ios-keep-session-alive-foreground.md.
+ */
+export interface SessionJournalEntry {
+  lessonId: string;
+  conversationId: string | null;
+  agentVersion: string;
+  lines: TranscriptLine[];
+  updatedAt: string;
+}
+
 class MirrorDB extends Dexie {
   lessons!: Table<MirrorLesson, string>;
   items!: Table<MirrorItem, string>;
   outbox!: Table<OutboxRecord, string>;
   meta!: Table<MetaRow, string>;
+  sessionJournal!: Table<SessionJournalEntry, string>;
 
   constructor() {
     super("idiomatic-mirror");
@@ -50,6 +66,15 @@ class MirrorDB extends Dexie {
       items: "id, lesson_id, position",
       outbox: "id, seq",
       meta: "key",
+    });
+    // v2 adds the live-transcript journal. Dexie carries unchanged stores forward; they are
+    // repeated here so the current schema reads in one place.
+    this.version(2).stores({
+      lessons: "id, created_at, updated_at",
+      items: "id, lesson_id, position",
+      outbox: "id, seq",
+      meta: "key",
+      sessionJournal: "lessonId",
     });
   }
 }

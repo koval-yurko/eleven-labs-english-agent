@@ -88,6 +88,17 @@ pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM ca
   because each answer is a large object — a big batch truncates and loses data. The word detail page
   (`/lesson-items/[id]`) renders it; `getItem` reads `details` with its own narrow query so the list
   view stays lean. See `docs/2026-07-18-word-details-enrichment-job.md`.
+- **A voice session is foreground-only, and the UI must say so.** iOS revokes the microphone,
+  interrupts Web Audio and drops the socket the moment Safari leaves the foreground, so a browser
+  session cannot run in the background at all (`docs/2026-08-07-ios-locked-screen-background-voice.md`;
+  `docs/2026-08-07-Expo-migration.md` is the native way out). What the app owes the learner instead
+  is that the session never dies quietly while the tab is open: `useKeepAwake` holds the screen
+  (we pass `useWakeLock: false` — the SDK swallows its own wake-lock failures), `useAudioHealth`
+  catches an interrupted audio graph that would otherwise look connected, hiding the page for more
+  than 2s ends the session on purpose, and every transcript line is journalled to the mirror DB and
+  beaconed to `/api/lessons/session` before iOS can discard the tab. Transcript writes go through
+  `src/lib/tutor-session.ts` — the action, the beacon route and the post-call webhook all upsert the
+  same conversation_id row. See `docs/2026-08-07-ios-keep-session-alive-foreground.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.

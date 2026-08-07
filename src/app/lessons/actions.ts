@@ -5,19 +5,11 @@ import { after } from "next/server";
 import { getOwnerId } from "../../lib/auth/session";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
-import {
-  createLesson,
-  deleteLesson,
-  getLesson,
-  removeLessonItem,
-  upsertLessonItems,
-  upsertLessonSession,
-} from "../../lib/lessons";
-import type { TranscriptLine } from "../../lib/tutor";
+import { createLesson, deleteLesson, removeLessonItem, upsertLessonItems } from "../../lib/lessons";
+import { persistTutorSession, type TutorSessionInput } from "../../lib/tutor-session";
 import type { FlushResult, OutboxOp, OutboxRecord } from "../../lib/sync/types";
 
 const MAX_ITEMS = 50;
-const MAX_LINES = 500;
 
 // Lesson create/add/remove now flow through the offline outbox → `flushOutbox` below (the UI
 // writes to the IndexedDB mirror optimistically). The former FormData actions
@@ -28,33 +20,13 @@ const MAX_LINES = 500;
  * Save the transcript of a just-finished tutor conversation, from the browser. The post-call
  * webhook later upserts the richer copy (summary, duration) onto the same conversation_id row,
  * so history shows up immediately even if the webhook is delayed or lost.
+ *
+ * The validation + write live in `persistTutorSession` because the beacon route
+ * (`/api/lessons/session`) has to do exactly the same thing from `pagehide`, where a server action
+ * cannot run.
  */
-export async function saveLessonSessionAction(input: {
-  lessonId: string;
-  conversationId: string;
-  agentVersion: string;
-  lines: TranscriptLine[];
-}): Promise<void> {
-  const ownerId = await getOwnerId();
-  if (!ownerId) return;
-
-  // The lesson must exist AND belong to the caller — never trust ids from the browser.
-  const lesson = await getLesson(ownerId, input.lessonId);
-  if (!lesson || !input.conversationId) return;
-
-  const transcript = input.lines
-    .slice(0, MAX_LINES)
-    .filter((l) => (l.role === "user" || l.role === "agent") && typeof l.text === "string")
-    .map((l) => ({ role: l.role, text: l.text.slice(0, 4000) }));
-
-  await upsertLessonSession({
-    lessonId: lesson.id,
-    ownerId,
-    conversationId: String(input.conversationId).slice(0, 200),
-    agentVersion: String(input.agentVersion ?? "").slice(0, 100) || null,
-    transcript,
-  });
-  revalidatePath(`/lessons/${lesson.id}`);
+export async function saveLessonSessionAction(input: TutorSessionInput): Promise<void> {
+  await persistTutorSession(input);
 }
 
 const MAX_FLUSH_RECORDS = 500;

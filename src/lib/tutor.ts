@@ -65,3 +65,36 @@ export function formatItemsList(items: TutorItem[]): string {
  */
 export const KICKOFF_MESSAGE =
   "Let's begin. Greet me in one sentence and start teaching the first item now.";
+
+/**
+ * Kickoff message for a session that is picking up an interrupted one (the phone locked, the app
+ * was backgrounded, iOS interrupted the audio). Sent right after a `sendContextualUpdate` carrying
+ * `formatResumeContext`, so the tutor continues instead of starting the lesson over. Filtered out
+ * of the visible transcript and the stored history exactly like KICKOFF_MESSAGE.
+ */
+export const RESUME_MESSAGE =
+  "We got cut off. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
+
+/** Hidden kickoff messages, filtered out of the transcript UI and the saved history. */
+export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [KICKOFF_MESSAGE, RESUME_MESSAGE];
+
+/** How many trailing turns of the interrupted conversation we replay as context. */
+const RESUME_CONTEXT_TURNS = 20;
+const RESUME_CONTEXT_LINE_CHARS = 400;
+
+/**
+ * Compact recap of an interrupted conversation, sent to the resumed session as a contextual update
+ * (non-interrupting, goes to the agent's context — not spoken). Only the tail matters: enough for
+ * the tutor to know which items were covered and where the learner struggled, not the whole call.
+ */
+export function formatResumeContext(lines: TranscriptLine[]): string {
+  const tail = lines.slice(-RESUME_CONTEXT_TURNS);
+  if (tail.length === 0) return "";
+  const body = tail
+    .map(
+      (l) =>
+        `${l.role === "agent" ? "Teacher" : "Learner"}: ${l.text.slice(0, RESUME_CONTEXT_LINE_CHARS)}`,
+    )
+    .join("\n");
+  return `This session was interrupted (the learner's phone locked or the app went to the background) and has just been reconnected. Here is how it ended:\n${body}`;
+}

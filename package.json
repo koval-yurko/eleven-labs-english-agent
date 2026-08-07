@@ -30,6 +30,7 @@
     "@langchain/anthropic": "^0.3.0",
     "@langchain/core": "^0.3.0",
     "@supabase/supabase-js": "^2.107.0",
+    "@zakj/no-sleep": "^0.13.6",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "langsmith": "^0.7.12",
