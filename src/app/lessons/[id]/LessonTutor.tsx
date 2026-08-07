@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import {
@@ -13,6 +13,7 @@ import {
   type TutorItem,
 } from "../../../lib/tutor";
 import { saveLessonSessionAction } from "../actions";
+import { Select } from "../../Select";
 import { useKeepAwake } from "./useKeepAwake";
 import { useAudioHealth } from "./useAudioHealth";
 import { beaconJournal, clearJournal, readJournal, writeJournal } from "./session-journal";
@@ -68,6 +69,11 @@ function Tutor({
 }) {
   const router = useRouter();
   const [version, setVersion] = useState(defaultVersion);
+  // VersionOption is already {value-ish, label}; map it once to the Select's shape.
+  const versionOptions = useMemo(
+    () => versions.map((v) => ({ value: v.version, label: v.label })),
+    [versions],
+  );
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   // Turns from earlier, interrupted conversations of the same sitting. Kept out of `lines` so each
   // conversation is saved under its own id and nothing is stored twice; shown together below.
@@ -379,22 +385,26 @@ function Tutor({
           Press start and discuss the words out loud with the tutor. Interrupt any time.
         </p>
         {versions.length > 1 ? (
-          <label
-            style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}
+          <div
+            style={{
+              display: "flex",
+              gap: "0.5rem",
+              alignItems: "center",
+              marginBottom: "0.5rem",
+              // Version labels are long; let the row wrap on a phone rather than squeeze the picker.
+              flexWrap: "wrap",
+            }}
           >
             <span className="muted">Tutor version</span>
-            <select
+            <Select
+              id="tutor-version"
+              label="Tutor version"
               value={version}
-              onChange={(e) => setVersion(e.target.value)}
+              onValueChange={setVersion}
+              options={versionOptions}
               disabled={connected || busy}
-            >
-              {versions.map((v) => (
-                <option key={v.version} value={v.version}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
         ) : null}
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.5rem" }}>
           {connected ? (

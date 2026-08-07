@@ -96,6 +96,24 @@ export function MoonIcon(props: IconProps) {
   );
 }
 
+/** Chevron pointing down — the "this opens a popup" affordance on a Select trigger. */
+export function ChevronDownIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  );
+}
+
+/** Check mark — the selected item in a Select popup. */
+export function CheckIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 6L9 17l-5-5" />
+    </Icon>
+  );
+}
+
 /** Trash can — destructive delete. */
 export function TrashIcon(props: IconProps) {
   return (

@@ -39,11 +39,17 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
+  /* iOS 26+ Safari positions popup backdrops against the nearest positioned ancestor. */
+  position: relative;
 }
 
 main {
   max-width: 760px;
   margin: 0 auto;
+  /* Base UI portals its popups to <body>, i.e. as siblings of <main>. Giving <main> its own
+     stacking context means a popup always paints above page content without anyone bidding up
+     z-index. (Recommended by Base UI's setup guide.) */
+  isolation: isolate;
   /* Safe-area insets keep content clear of the iOS status bar / notch and home
      indicator in standalone (Add to Home Screen) mode, where viewport-fit=cover
      lets the page extend edge-to-edge. */
@@ -89,8 +95,215 @@ textarea {
   resize: vertical;
 }
 
-select {
-  min-height: 30px;
+/* Select (src/app/Select.tsx) — Base UI parts, styled to match the text fields above.
+   There is no native <select> in the app any more; if one ever comes back it inherits nothing
+   from here on purpose. */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  /* Overrides the accent-filled `button` rule below — this is a field, not an action. */
+  background: var(--field-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  /* The whole point of the exercise: a control that is the same size and typeface as everything
+     else, which the OS-rendered <select> never was. */
+  font: inherit;
+  font-weight: 400;
+  margin-top: 0;
+  /* Comfortable on a touch screen without towering over the chips beside it. */
+  min-height: 2.25rem;
+  max-width: 100%;
+  /* Both call sites put the trigger in a flex row, where the default `min-width: auto` would let a
+     long label push the control past the panel instead of letting it shrink. Zeroing it is what
+     lets the ellipsis on .select-value ever engage — this is the narrow-screen fix. */
+  min-width: 0;
+  cursor: pointer;
+}
+
+.select-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.select-trigger[data-popup-open] {
+  border-color: var(--accent);
+}
+
+.select-trigger[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* A long label shortens the trigger, never widens it past its container — the full text is still
+   readable in the popup, where there is room for it. */
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0; /* flex item of .select-trigger — same reason as above */
+}
+
+.select-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.select-positioner {
+  z-index: 200; /* above .nav-progress (100) */
+}
+
+.select-popup {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.25rem;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  /* At least trigger-wide (--anchor-width); wider if an option needs it, but never wider than the
+     room the positioner has. --available-height caps the list so it scrolls instead of running off
+     the bottom of the screen. */
+  min-width: var(--anchor-width);
+  max-width: min(var(--available-width), 92vw);
+  max-height: var(--available-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.select-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Left padding reserves the tick's gutter on every row, selected or not, so the labels share one
+     left edge. The gutter can't come from the indicator itself: Base UI unmounts ItemIndicator when
+     the item isn't selected. */
+  padding: 0.45rem 0.6rem 0.45rem 1.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* One highlight rule for both pointer hover and keyboard navigation — Base UI sets
+   data-highlighted for whichever input is driving. */
+.select-item[data-highlighted] {
+  background: var(--field-bg);
+}
+
+.select-item[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.select-item-indicator {
+  position: absolute;
+  left: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  color: var(--accent);
+}
+
+/* Wraps rather than truncates: the popup is where the full label has to be readable. */
+.select-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Confirmation dialog (src/app/ConfirmDialog.tsx) — Base UI AlertDialog parts. */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.5);
+  /* Fades with the popup below; both use the same duration so they land together. */
+  transition: opacity 180ms ease;
+}
+
+.dialog-backdrop[data-starting-style],
+.dialog-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+/* Centres the popup and, on a short screen, is the thing that scrolls — so a long prompt can never
+   push the buttons off the bottom where they can't be reached. */
+.dialog-viewport {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.dialog-popup {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: min(26rem, 100%);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.45);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.dialog-popup[data-starting-style],
+.dialog-popup[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-backdrop,
+  .dialog-popup {
+    transition-duration: 1ms;
+  }
+  .dialog-popup[data-starting-style],
+  .dialog-popup[data-ending-style] {
+    transform: none;
+  }
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.dialog-description {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+/* The global `button` rule adds a top margin meant for stacked forms; here the flex gap does the
+   spacing and that margin would knock the two buttons out of line. */
+.dialog-actions button {
+  margin-top: 0;
+}
+
+/* Cancel reads as the quiet option so the destructive one isn't the only thing the eye lands on. */
+.dialog-cancel {
+  background: var(--field-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.dialog-confirm {
+  background: var(--error);
+  color: #fff;
 }
 
 button {

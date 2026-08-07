@@ -23,6 +23,7 @@ import { formatDate } from "../../lib/format-date";
 import { useNavigationTransition } from "../nav-progress";
 import { NavLink } from "../NavLink";
 import { SortArrowIcon, StarIcon } from "../icons";
+import { Select, type SelectOption } from "../Select";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -35,6 +36,12 @@ const SORT_LABELS: Record<SortKey, string> = {
   level: "Level",
   text: "Alphabetical",
 };
+
+/** Hoisted out of the render so <Select> gets a stable `options` identity. */
+const SORT_OPTIONS: SelectOption<SortKey>[] = (Object.keys(SORT_LABELS) as SortKey[]).map((key) => ({
+  value: key,
+  label: SORT_LABELS[key],
+}));
 
 /**
  * The whole `/lesson-items` surface: search box, filters, and the list.
@@ -244,17 +251,12 @@ export function ItemsBrowser({
           ))}
 
           <FilterGroup label="Sort by">
-            <select
+            <Select
+              label="Sort by"
               value={query.sort}
-              onChange={(e) => apply({ sort: e.target.value as SortKey })}
-              style={{ background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "0.3rem 0.4rem" }}
-            >
-              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
-                <option key={key} value={key}>
-                  {SORT_LABELS[key]}
-                </option>
-              ))}
-            </select>
+              onValueChange={(sort) => apply({ sort })}
+              options={SORT_OPTIONS}
+            />
             <Chip active={false} onClick={() => apply({ dir: query.dir === "asc" ? "desc" : "asc" })}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                 <SortArrowIcon dir={query.dir} size={14} />
