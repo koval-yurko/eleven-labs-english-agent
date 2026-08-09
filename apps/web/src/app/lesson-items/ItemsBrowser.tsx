@@ -29,6 +29,7 @@ import { SortArrowIcon, StarIcon } from "../icons";
 import { Select, type SelectOption } from "../Select";
 import { Checkbox } from "../Checkbox";
 import { Button } from "../Button";
+import { RefreshButton } from "../RefreshButton";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -258,9 +259,16 @@ export function ItemsBrowser({
       </section>
 
       <section className="panel">
-        <h2>
-          {visible.length} {visible.length === 1 ? "item" : "items"}
-        </h2>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {/* The heading keeps its default margins — flex items never collapse them, so the panel's
+              spacing is exactly what it was before the row existed. */}
+          <h2 style={{ flex: 1 }}>
+            {visible.length} {visible.length === 1 ? "item" : "items"}
+          </h2>
+          {/* Levels arrive from a background job, so the count and the badges beside it can be
+              stale the moment a word is added. Refreshing keeps the search box and the selection. */}
+          <RefreshButton label="Refresh list" />
+        </div>
         {visible.length === 0 ? (
           <p className="muted">
             {items.length === 0

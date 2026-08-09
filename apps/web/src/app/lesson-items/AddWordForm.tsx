@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Field } from "@base-ui/react/field";
 import { Button } from "../Button";
+import { useOnline } from "../useOnline";
 import { addWordAction } from "./actions";
 
 type Feedback = { tone: "ok" | "warn"; message: string } | null;
@@ -19,21 +20,9 @@ type Feedback = { tone: "ok" | "warn"; message: string } | null;
 export function AddWordForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
-  const [offline, setOffline] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
-
-  // navigator.onLine is only read in the browser: rendered offline state would be a hydration
-  // mismatch, and the server has no opinion about the client's connection.
-  useEffect(() => {
-    const sync = () => setOffline(!navigator.onLine);
-    sync();
-    window.addEventListener("online", sync);
-    window.addEventListener("offline", sync);
-    return () => {
-      window.removeEventListener("online", sync);
-      window.removeEventListener("offline", sync);
-    };
-  }, []);
+  // Hydration-safe by construction — see `useOnline`, which this effect used to be a copy of.
+  const offline = !useOnline();
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

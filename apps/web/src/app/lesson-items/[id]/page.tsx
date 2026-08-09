@@ -3,6 +3,7 @@ import { getOwnerId } from "../../../lib/auth/session";
 import { getItem } from "../../../lib/lesson-items";
 import type { ItemDetail } from "@tutor/shared/word-types";
 import { NavLink } from "../../NavLink";
+import { RefreshButton } from "../../RefreshButton";
 import { FavoriteButton } from "../FavoriteButton";
 
 // Per-request rendering: owner-scoped data that changes as the word is practiced / re-levelled.
@@ -34,9 +35,15 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <>
-      <p className="muted">
-        <NavLink href="/lesson-items">← words &amp; sentences</NavLink>
-      </p>
+      {/* The page stays a server component: only the button is a client island, exactly as the
+          favorite star below already is. Enrichment lands after the write, so this row is where the
+          learner asks again for the details section further down. */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <p className="muted" style={{ flex: 1 }}>
+          <NavLink href="/lesson-items">← words &amp; sentences</NavLink>
+        </p>
+        <RefreshButton label="Refresh word" />
+      </div>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem" }}>
         <FavoriteButton normKey={item.norm_key} text={item.text} initial={item.is_favorite} />

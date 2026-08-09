@@ -643,6 +643,25 @@ pre {
   }
 }
 
+/* A rotating glyph, for a control that is working on something it can't measure (RefreshButton).
+   Like the bar above it claims no percentage — and with motion reduced it stops entirely, because
+   the button is `disabled` and `aria-busy` while it spins, which says the same thing without moving. */
+.spin {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
 .muted {
   color: var(--muted);
 }

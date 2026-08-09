@@ -114,6 +114,18 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+/** Two arrows chasing each other — re-read what's on screen. */
+export function RefreshIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.95-4.8" />
+      <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.95 4.8" />
+      <path d="M21 3v4.8h-4.8" />
+      <path d="M3 21v-4.8h4.8" />
+    </Icon>
+  );
+}
+
 /** Trash can — destructive delete. */
 export function TrashIcon(props: IconProps) {
   return (
