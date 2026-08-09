@@ -1,0 +1,28 @@
+# pnpm workspace (pnpm 11+ — these settings are read from this file, not .npmrc).
+# See docs/2026-08-09-expo-repo-structure-migration.md §6.1.
+
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# React Native tooling (autolinking, CocoaPods, Gradle codegen) assumes a flat node_modules.
+# pnpm's default `isolated` linker is a symlink farm and breaks it with opaque codegen errors.
+# `hoistingLimits: workspaces` hoists only as far as each workspace package, so apps/mobile gets
+# the flat tree RN needs without one giant shared pile at the root.
+nodeLinker: hoisted
+hoistingLimits: workspaces
+
+# Duplicate React in a single app is a runtime error, and the `^` ranges in apps/* would let a
+# future `pnpm update` split web and mobile apart. Pin both across the workspace.
+overrides:
+  react: 19.2.7
+  react-dom: 19.2.7
+
+# pnpm 10+ blocks dependency postinstall scripts until they are named here. Both of these ran
+# unblocked under pnpm 9, so approving them restores the previous behaviour rather than granting
+# anything new — and both are load-bearing:
+#   esbuild — the engine behind `tsx`, i.e. sync:agents, level:items, enrich:words, check:shared
+#   sharp   — Next's image optimizer at build time
+allowBuilds:
+  esbuild: true
+  sharp: true

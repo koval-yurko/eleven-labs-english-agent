@@ -1,0 +1,56 @@
+{
+  "name": "web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:migrate:status": "node scripts/migrate.mjs --status",
+    "sync:agents": "tsx src/agent/sync-agents.ts",
+    "sync:agents:plan": "tsx src/agent/sync-agents.ts --dry-run",
+    "level:items": "tsx scripts/level-items.ts",
+    "level:items:plan": "tsx scripts/level-items.ts --dry-run",
+    "enrich:words": "tsx scripts/enrich-words.ts",
+    "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run"
+  },
+  "dependencies": {
+    "@tutor/shared": "workspace:*",
+    "@auth0/nextjs-auth0": "^4.22.0",
+    "@base-ui/react": "^1.7.0",
+    "@elevenlabs/elevenlabs-js": "^2.54.0",
+    "@elevenlabs/react": "^1.9.0",
+    "@langchain/anthropic": "^0.3.0",
+    "@langchain/core": "^0.3.0",
+    "@supabase/supabase-js": "^2.107.0",
+    "@zakj/no-sleep": "^0.13.6",
+    "dexie": "^4.4.4",
+    "dexie-react-hooks": "^4.4.0",
+    "langsmith": "^0.7.12",
+    "next": "^16.2.7",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "dotenv": "^16.4.7",
+    "eslint": "^9.17.0",
+    "pg": "^8.13.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
+  }
+}

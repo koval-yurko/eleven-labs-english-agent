@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // The property-check harness (check.ts). It is a Node CLI script, not part of the shipped core,
+  // so it gets the two things the core is deliberately denied: node types and DOM.Iterable.
+  // Keeping this in a separate config is what stops those leaking back into src/**.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["check.ts", "src/**/*.ts"]
+}
