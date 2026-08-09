@@ -11,7 +11,8 @@ import {
   formatResumeContext,
   type TranscriptLine,
   type TutorItem,
-} from "../../../lib/tutor";
+} from "../../../shared/tutor";
+import { isApiError, isSignedUrlResponse, signedUrlPath } from "../../../shared/api";
 import { saveLessonSessionAction } from "../actions";
 import { Select } from "../../Select";
 import { InfoPopover } from "../../InfoPopover";
@@ -308,14 +309,12 @@ function Tutor({
       // Prompt for the mic up front so a denial surfaces here, not mid-connect.
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const res = await fetch(`/api/words-agent/signed-url?version=${encodeURIComponent(version)}`);
-      const body = (await res.json()) as {
-        signedUrl?: string;
-        appEnv?: string;
-        error?: { message: string };
-      };
-      if (!res.ok || !body.signedUrl) {
-        throw new Error(body.error?.message ?? "Could not get a signed URL.");
+      const res = await fetch(signedUrlPath(version));
+      const body: unknown = await res.json();
+      if (!res.ok || !isSignedUrlResponse(body)) {
+        throw new Error(
+          isApiError(body) ? body.error.message : "Could not get a signed URL.",
+        );
       }
 
       const resuming = (resumeContextRef.current?.length ?? 0) > 0;
@@ -339,7 +338,9 @@ function Tutor({
           // Ties the post-call webhook payload back to this lesson's history.
           lesson_id: lessonId,
           // Marks which deployment started this call; the post-call webhook routes on it.
-          app_env: body.appEnv ?? "prod",
+          // No fallback: `isSignedUrlResponse` already rejected a response without one, because
+          // defaulting it would file this session under the wrong environment.
+          app_env: body.appEnv,
         },
       });
     } catch (e) {

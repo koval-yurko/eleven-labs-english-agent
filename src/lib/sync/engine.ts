@@ -1,142 +1,129 @@
 /**
- * The offline write path + sync engine. BROWSER-ONLY (uses `getDb()` and the browser crypto /
- * Date). See docs/2026-07-04-offline-support-and-sync.md.
+ * The offline write path + sync engine. See docs/2026-07-04-offline-support-and-sync.md.
  *
- * Each mutation (create lesson, add items, remove item) updates the IndexedDB mirror AND appends
- * an outbox record in a single Dexie transaction, so the UI reflects it instantly (via the live
- * queries in the read islands) and the intent is durably queued. `flushOutboxNow` drains the
- * outbox through the owner-scoped `flushOutbox` Server Action — chosen over a REST `/api/sync`
- * route — applying each op idempotently and dropping the records the server confirms.
+ * Each mutation (create lesson, add items, remove item) updates the mirror AND appends an outbox
+ * record in a single `store.transact`, so the UI reflects it instantly (via the live queries in the
+ * read islands) and the intent is durably queued — one cannot happen without the other.
+ * `flushOutboxNow` drains the outbox through the owner-scoped `flushOutbox` Server Action — chosen
+ * over a REST `/api/sync` route — applying each op idempotently and dropping the records the server
+ * confirms.
+ *
+ * Storage-agnostic: everything here goes through the `MirrorStore` contract
+ * (`src/shared/mirror-store.ts`), so the only browser-specific things left are `crypto.randomUUID`,
+ * `new Date()`, `navigator.onLine`, and the `getStore()` binding at the bottom of this file.
  */
-import { getDb, type MirrorItem, type MirrorLesson } from "./db";
-import type { OutboxOp, OutboxRecord } from "./types";
+import { getStore } from "./dexie-store";
+import type { MirrorItem, MirrorOps, MirrorStore } from "../../shared/mirror-store";
+import {
+  buildAddItemsOp,
+  buildCreateLessonOp,
+  nextLessonTitle,
+  type OutboxOp,
+  type OutboxRecord,
+} from "../../shared/sync-ops";
 import { flushOutbox } from "../../app/lessons/actions";
 
-const MAX_ITEMS = 50;
-
-type MirrorDb = ReturnType<typeof getDb>;
+/** The mirror this engine writes to. One line to change for a different device database. */
+function store(): MirrorStore {
+  return getStore();
+}
 
 function now(): string {
   return new Date().toISOString();
 }
 
-/** Today as `dd-mm-yyyy` — the stem of the default lesson title. */
-function todayStamp(): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${dd}-${mm}-${d.getFullYear()}`;
-}
-
 /**
- * The title a new lesson gets when the learner doesn't type one: today's date (`dd-mm-yyyy`),
- * then `dd-mm-yyyy 1`, `dd-mm-yyyy 2`, … if a lesson with that title already exists, so several
- * lessons created the same day stay distinct. Deduped against the mirror (the client's full view
- * of the owner's lessons), which is authoritative for the list.
+ * The title a new lesson gets when the learner doesn't type one — `nextLessonTitle`'s rule, deduped
+ * against the mirror (the client's full view of the owner's lessons), which is authoritative for
+ * the list. This wrapper is the storage half; the naming half is pure and lives in `shared`.
  */
 export async function defaultLessonTitle(): Promise<string> {
-  const base = todayStamp();
-  const taken = new Set((await getDb().lessons.toArray()).map((l) => l.title));
-  if (!taken.has(base)) return base;
-  let n = 1;
-  while (taken.has(`${base} ${n}`)) n += 1;
-  return `${base} ${n}`;
+  const taken = new Set((await store().listLessons()).map((l) => l.title));
+  return nextLessonTitle(taken, new Date());
 }
 
-/** Next monotonic outbox sequence number (call inside the same transaction as the write). */
-async function nextSeq(db: MirrorDb): Promise<number> {
-  const last = await db.outbox.orderBy("seq").last();
-  return (last?.seq ?? 0) + 1;
-}
-
-async function appendOutbox(db: MirrorDb, op: OutboxOp): Promise<void> {
+/** Queue an op with the next monotonic `seq`. Call inside the same transaction as the write. */
+async function appendOutbox(tx: MirrorOps, op: OutboxOp): Promise<void> {
   const record: OutboxRecord = {
     id: crypto.randomUUID(),
-    seq: await nextSeq(db),
+    seq: (await tx.maxOutboxSeq()) + 1,
     createdAt: now(),
     op,
   };
-  await db.outbox.add(record);
+  await tx.appendOutbox(record);
 }
 
 /** Rebuild a lesson's `items` preview (active texts in position order) after an item change. */
-async function refreshLessonPreview(db: MirrorDb, lessonId: string, at: string): Promise<void> {
-  const lesson = await db.lessons.get(lessonId);
+async function refreshLessonPreview(tx: MirrorOps, lessonId: string, at: string): Promise<void> {
+  const lesson = await tx.getLesson(lessonId);
   if (!lesson) return;
-  const rows = await db.items.where("lesson_id").equals(lessonId).sortBy("position");
-  await db.lessons.put({ ...lesson, items: rows.map((r) => r.text), updated_at: at });
+  const rows = await tx.listItems(lessonId);
+  await tx.putLesson({ ...lesson, items: rows.map((r) => r.text), updated_at: at });
 }
 
-/** Optimistically create a lesson (all ids client-minted) + queue the create op. */
+/**
+ * Optimistically create a lesson + queue the create op. Ids are still all client-minted (the
+ * lesson's by the caller, each item's here) so the lesson is fully-formed before it ever reaches
+ * the server — the enabler for offline create + idempotent sync.
+ *
+ * Texts go through `planNewItems` (inside `buildCreateLessonOp`), the same rule `addItemsLocal`
+ * uses: normalized, blanks dropped, deduped. The mirror is built FROM the op, so the two cannot
+ * disagree about what was created.
+ */
 export async function createLessonLocal(input: {
   id: string;
   title: string;
-  items: { id: string; text: string }[];
+  texts: string[];
 }): Promise<void> {
-  const db = getDb();
   const at = now();
-  const lesson: MirrorLesson = {
-    id: input.id,
-    title: input.title,
-    items: input.items.map((i) => i.text),
-    created_at: at,
-    updated_at: at,
-    sessionCount: 0,
-  };
-  const items: MirrorItem[] = input.items.map((it, i) => ({
+  const op = buildCreateLessonOp(input.id, input.title, input.texts, () => crypto.randomUUID());
+  const items: MirrorItem[] = op.lesson.items.map((it, i) => ({
     id: it.id,
-    lesson_id: input.id,
+    lesson_id: op.lesson.id,
     text: it.text,
     position: i,
   }));
-  await db.transaction("rw", db.lessons, db.items, db.outbox, async () => {
-    await db.lessons.put(lesson);
-    if (items.length > 0) await db.items.bulkPut(items);
-    await appendOutbox(db, { kind: "createLesson", lesson: input });
+  await store().transact(async (tx) => {
+    await tx.putLesson({
+      id: op.lesson.id,
+      title: op.lesson.title,
+      items: op.lesson.items.map((i) => i.text),
+      created_at: at,
+      updated_at: at,
+      sessionCount: 0,
+    });
+    await tx.putItems(items);
+    await appendOutbox(tx, op);
   });
 }
 
-/** Optimistically append items to a lesson (skipping active dup texts) + queue the add op. */
+/**
+ * Optimistically append items to a lesson (skipping blanks and active dup texts) + queue the add
+ * op. The dedupe/normalize/position rule is `planNewItems` in `shared/sync-ops.ts`; the mirror
+ * rows are built from the op, so the optimistic view and the queued intent are the same list.
+ */
 export async function addItemsLocal(lessonId: string, texts: string[]): Promise<void> {
-  const db = getDb();
   const at = now();
-  await db.transaction("rw", db.lessons, db.items, db.outbox, async () => {
-    const existing = await db.items.where("lesson_id").equals(lessonId).toArray();
-    const activeNorm = new Set(existing.map((r) => r.text.trim().toLowerCase()));
-    let pos = existing.reduce((max, r) => Math.max(max, r.position), -1);
+  await store().transact(async (tx) => {
+    const existing = await tx.listItems(lessonId);
+    const op = buildAddItemsOp(lessonId, texts, existing, () => crypto.randomUUID());
+    if (!op) return;
 
-    const rows: MirrorItem[] = [];
-    for (const raw of texts) {
-      const text = raw.trim();
-      if (!text) continue;
-      const norm = text.toLowerCase();
-      if (activeNorm.has(norm)) continue;
-      activeNorm.add(norm);
-      pos += 1;
-      rows.push({ id: crypto.randomUUID(), lesson_id: lessonId, text, position: pos });
-    }
-    if (rows.length === 0) return;
-
-    await db.items.bulkPut(rows);
-    await refreshLessonPreview(db, lessonId, at);
-    await appendOutbox(db, {
-      kind: "addItems",
-      lessonId,
-      items: rows.map((r) => ({ id: r.id, text: r.text, position: r.position })),
-    });
+    await tx.putItems(op.items.map((it) => ({ ...it, lesson_id: lessonId })));
+    await refreshLessonPreview(tx, lessonId, at);
+    await appendOutbox(tx, op);
   });
 }
 
 /** Optimistically remove one item + queue the (idempotent) remove op. */
 export async function removeItemLocal(lessonId: string, itemId: string): Promise<void> {
-  const db = getDb();
   const at = now();
-  await db.transaction("rw", db.lessons, db.items, db.outbox, async () => {
-    const item = await db.items.get(itemId);
-    if (!item) return;
-    await db.items.delete(itemId);
-    await refreshLessonPreview(db, lessonId, at);
-    await appendOutbox(db, { kind: "removeItem", lessonId, itemId });
+  await store().transact(async (tx) => {
+    const existing = await tx.listItems(lessonId);
+    if (!existing.some((i) => i.id === itemId)) return;
+    await tx.deleteItems([itemId]);
+    await refreshLessonPreview(tx, lessonId, at);
+    await appendOutbox(tx, { kind: "removeItem", lessonId, itemId });
   });
 }
 
@@ -149,12 +136,10 @@ export async function removeItemLocal(lessonId: string, itemId: string): Promise
  * disappears. See docs/2026-07-17-delete-lesson-keep-words.md.
  */
 export async function deleteLessonLocal(lessonId: string): Promise<void> {
-  const db = getDb();
-  await db.transaction("rw", db.lessons, db.items, db.outbox, async () => {
-    await db.lessons.delete(lessonId);
-    const itemIds = await db.items.where("lesson_id").equals(lessonId).primaryKeys();
-    if (itemIds.length > 0) await db.items.bulkDelete(itemIds);
-    await appendOutbox(db, { kind: "deleteLesson", lessonId });
+  await store().transact(async (tx) => {
+    await tx.deleteLesson(lessonId);
+    await tx.deleteItems(await tx.listItemIds(lessonId));
+    await appendOutbox(tx, { kind: "deleteLesson", lessonId });
   });
 }
 
@@ -180,8 +165,8 @@ export function flushOutboxNow(): Promise<number> {
 
 async function doFlush(): Promise<number> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return 0;
-  const db = getDb();
-  const records = await db.outbox.orderBy("seq").toArray();
+  const mirror = store();
+  const records = await mirror.listOutbox();
   if (records.length === 0) return 0;
 
   let applied: string[] = [];
@@ -191,8 +176,7 @@ async function doFlush(): Promise<number> {
   } catch {
     return 0; // network/server error — keep the records and retry on the next trigger
   }
-  if (applied.length > 0) await db.outbox.bulkDelete(applied);
+  await mirror.deleteOutbox(applied);
   return applied.length;
 }
 
-export { MAX_ITEMS };

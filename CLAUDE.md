@@ -22,6 +22,7 @@ TypeScript (strict), Node 22 LTS, single pnpm package (no workspace).
 ```text
 src/
   app/          # Next.js App Router: layout, smoke-test dashboard, server actions, /api/health
+  shared/       # the pure core: shapes + rules, no imports outside the folder (see Conventions)
   lib/          # auth0 + session, supabase (service & user clients), config, health, llm
   agent/        # ElevenLabs tutor agents: prompts/ version registry, sync-agents.ts, agents.lock.json
 supabase/
@@ -45,6 +46,7 @@ pnpm level:items       # assign CEFR levels (A2–C2) to vocabulary items that h
 pnpm level:items:plan  # dry-run: print what would be levelled, make zero LLM calls
 pnpm enrich:words      # fill words.details (RU translations, forms, examples) for un-enriched words
 pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM calls
+pnpm check:shared      # property checks for src/shared (URL round-trip, list helpers)
 ```
 
 ## Conventions
@@ -53,6 +55,50 @@ pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM ca
   service-role key never reach the browser. Only `NEXT_PUBLIC_*` values are client-visible.
 - **Ownership is enforced in code.** Every Supabase query filters/stamps `owner_id` (the
   Auth0 `sub`); RLS is defense-in-depth (see `supabase/README.md`).
+- **`src/shared/` is the pure core; dependencies point inward only.** It holds the shapes and rules
+  that any client must agree on — DTOs (`word-types.ts`, `lesson-types.ts`), the items-page query
+  grammar (`items-query.ts`), and the tutor wire contract (`tutor.ts`: `formatItemsList`,
+  `KICKOFF_MESSAGE`, `TranscriptLine`, …). **Nothing in `src/shared/` may import from `src/lib/`,
+  `src/app/`, or an npm package** — the lib→shared direction only, enforced by a
+  `no-restricted-imports` rule in `eslint.config.js`. `lib/` keeps the I/O (Supabase queries, LLM
+  calls, Next plumbing) and imports the shapes from `shared/`; a server-only detail such as the
+  `SortKey → column` map stays in `lib/`. This is what keeps the folder liftable to
+  `packages/shared` if the repo ever becomes a workspace. See
+  `docs/2026-08-09-shareable-core-refactor.md` (R1–R7 all complete) and
+  `docs/2026-08-09-expo-repo-structure-migration.md`.
+- **The `/lesson-items` URL is the filter state, and its grammar has exactly one implementation.**
+  `shared/items-query.ts` owns both directions (`parseItemsQuery` / `serializeItemsQuery`) and the
+  whitelists that keep arbitrary strings out of PostgREST. Encoder and decoder read the same
+  `DEFAULT_SORT` / `DEFAULT_DIR` constants — they previously lived in two files with two different
+  defaults, which made the "Times practiced" sort silently unselectable. `pnpm check:shared`
+  exhaustively verifies `parse ∘ serialize == identity` (10,752 cases); run it after touching that
+  module. Free-text search (`?q=`) is deliberately *not* in `ItemsQuery`: filters and sort go to
+  Postgres, and `searchItems` (`shared/item-list.ts`) filters the loaded list in memory — it
+  returns the input array *identity* for an empty term, which the list's `useMemo` depends on.
+- **The HTTP contract is declared in `src/shared/api.ts`** — route paths (`API_ROUTES`,
+  `signedUrlPath`), response bodies, the `ApiErrorBody` envelope, and the `isApiError` /
+  `isSignedUrlResponse` guards. Routes assign their body to the declared type before returning, and
+  `lib/http.ts` builds the envelope through it, so a drifted field fails typecheck. Clients narrow
+  with the guards rather than re-declaring shapes inline. **`appEnv` is required, never defaulted**:
+  it becomes the `app_env` dynamic variable the post-call webhook routes on, so a missing one must
+  error rather than silently file a dev session under prod.
+- **The offline outbox's op algebra and write rules live in `src/shared/sync-ops.ts`**, not in the
+  engine. `lib/sync/engine.ts` is browser-only (`getDb()`), so a Server Action cannot import from
+  it — which is why `MAX_ITEMS` used to be declared on both sides and the title cap in three files.
+  Both write paths (`createLessonLocal`, `addItemsLocal`) build their mirror rows **from the op**
+  they queue, via `planNewItems`, so the optimistic view and the queued intent can't disagree.
+  Positions continue from `max(existing.position) + 1` — a removed item leaves a gap and reusing a
+  position would collide. Id minting and the clock are parameters (`newId`, `date`), never ambient
+  globals, so the rules stay portable and deterministically testable.
+- **The mirror is behind a storage contract; Dexie lives in three files.** `src/shared/mirror-store.ts`
+  declares `MirrorStore` (reads, writes, `transact`, `journal`); `lib/sync/dexie-store.ts` implements
+  it over the schema in `lib/sync/db.ts`; `lib/sync/live.ts` holds the three reactive hooks
+  (`useMirrorLessons`, `useMirrorLesson`, `useMirrorItems`). Nothing else imports Dexie — `engine.ts`,
+  `mirror.ts`, `session-journal.ts` and every component talk to the contract. **Reactivity is
+  deliberately not abstracted**: Dexie's `liveQuery` rides IndexedDB's own mutation events and has no
+  honest generic equivalent, so it stays per-platform in `live.ts`. Port surface = one `MirrorStore`
+  + three hooks. Any mirror write and its outbox record must go in the same `transact` — that
+  invariant is why the UI can never show a change whose intent was not queued.
 - **LLM access goes through LangChain.** `src/lib/llm.ts` builds a `ChatAnthropic`
   (`@langchain/anthropic`) defaulting to `claude-opus-4-8` (override with `ANTHROPIC_MODEL`).
   With `LANGSMITH_API_KEY` set, calls auto-trace to LangSmith.
@@ -71,6 +117,12 @@ pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM ca
   `norm_key` needs Postgres (unaccent + NFKC), so text → word id always goes through the
   `resolve_words` RPC in `src/lib/words.ts`, never a client-side guess. See
   `docs/2026-07-16-add-word-on-lesson-items-page.md`.
+  Every client-side normalization lives in `src/shared/word-key.ts` — `wordInputKey` (what gets
+  sent) and `clientDedupeKey` (optimistic UI only). `clientDedupeKey` is **deliberately weaker**
+  than the Postgres identity: it may merge less than `norm_key`, never more, because merging less
+  only leaves a duplicate for the server to skip while merging more would silently drop a word the
+  learner typed. That is why the `linked` set in `linkWords` is load-bearing — do not remove it on
+  the grounds that "the client already deduped".
 - **CEFR levels are written only by the level job**, never by the UI. `words.level`
   is filled in by `src/lib/levels.ts`, triggered two ways: `after()` on the word-write paths (fast)
   and `pnpm level:items` (the sweep that backfills and catches what the fast path dropped).
@@ -98,7 +150,11 @@ pnpm enrich:words:plan # dry-run: print what would be enriched, make zero LLM ca
   than 2s ends the session on purpose, and every transcript line is journalled to the mirror DB and
   beaconed to `/api/lessons/session` before iOS can discard the tab. Transcript writes go through
   `src/lib/tutor-session.ts` — the action, the beacon route and the post-call webhook all upsert the
-  same conversation_id row. See `docs/2026-08-07-ios-keep-session-alive-foreground.md`.
+  same conversation_id row. **All of them sanitize through `sanitizeTranscript`** (`src/shared/tutor.ts`,
+  500 lines / 4000 chars) so the row's content doesn't depend on which writer landed last — the
+  webhook used to skip the caps entirely. The beacon trims client-side before sending, because
+  `sendBeacon` has a payload ceiling and an over-large body loses the whole transcript.
+  See `docs/2026-08-07-ios-keep-session-alive-foreground.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.

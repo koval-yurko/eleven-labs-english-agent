@@ -11,7 +11,7 @@
  * Editing this only affects words enriched from now on — the job skips anything with a `details_at`.
  * Run `pnpm enrich:words --force` (or `--force --stale`) to re-enrich what's already there.
  */
-import type { ItemKind } from "./lesson-items";
+import type { ItemKind } from "../shared/word-types";
 
 const KIND_GUIDANCE: Record<ItemKind, string> = {
   word: 'a single word — give its word family (noun, verb, adjective, adverb, common prefixed/negated relatives)',

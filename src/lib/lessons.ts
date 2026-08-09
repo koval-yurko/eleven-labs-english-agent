@@ -4,36 +4,18 @@
  * `owner_id` (the Auth0 sub); RLS is defense-in-depth, same as the rest of the app.
  */
 import { getServiceSupabase } from "./supabase/server";
-import { resolveWords, wordInputKey } from "./words";
-import type { TranscriptLine, TutorItem } from "./tutor";
-import type { WordDetails } from "./word-details";
-
-export interface Lesson {
-  id: string;
-  title: string;
-  items: string[]; // derived convenience: active item texts in position order
-  created_at: string;
-  updated_at: string;
-}
-
-/** A lesson plus its active items' curated enrichment payloads — the fat shape the tutor needs.
- *  Only `getLesson` builds this; the list view stays on the lean text-only `Lesson`. */
-export interface LessonDetail extends Lesson {
-  itemsDetailed: TutorItem[];
-}
-
-export interface LessonListItem extends Lesson {
-  sessionCount: number;
-}
-
-/** One word/phrase/sentence row. A removed item keeps its row (removed_at set) for history. */
-export interface LessonItem {
-  id: string;
-  text: string;
-  position: number;
-  created_at: string;
-  removed_at: string | null;
-}
+import { resolveWords } from "./words";
+import { wordInputKey } from "../shared/word-key";
+import type { TranscriptLine, TutorItem } from "../shared/tutor";
+import type { WordDetails } from "../shared/word-types";
+import type {
+  Lesson,
+  LessonDetail,
+  LessonItem,
+  LessonListItem,
+  LessonSession,
+  NewLesson,
+} from "../shared/lesson-types";
 
 // Shape of the embedded lesson_items rows in a lesson select. Since 0007 the text lives on `words`
 // and lesson_items is a join table, so the spelling comes one level deeper.
@@ -46,16 +28,6 @@ type EmbeddedItem = { position: number; words: { text: string } | null };
 /** Active item texts in position order, out of a lesson select's embedded rows. */
 function embeddedTexts(items: EmbeddedItem[] | null | undefined): string[] {
   return (items ?? []).map((i) => i.words?.text).filter((t): t is string => Boolean(t));
-}
-
-export interface LessonSession {
-  id: string;
-  conversation_id: string;
-  agent_version: string | null;
-  transcript: TranscriptLine[];
-  summary: string | null;
-  duration_secs: number | null;
-  created_at: string;
 }
 
 /** All of the owner's lessons, newest first, each with its active items + session count. */
@@ -139,14 +111,6 @@ export async function getLessonById(
   return (data as { id: string; owner_id: string } | null) ?? null;
 }
 
-/** A brand-new lesson, with all ids minted by the caller (client) so it is fully-formed
- *  before it ever reaches the server — the enabler for offline create + idempotent sync. */
-export interface NewLesson {
-  id: string;
-  title: string;
-  items: { id: string; text: string }[];
-}
-
 /**
  * Create a lesson with its initial items (one row each) and return its id. Ids are
  * client-supplied and the write is an **idempotent upsert-by-id** (INSERT … ON CONFLICT (id)
@@ -178,8 +142,13 @@ export async function createLesson(ownerId: string, lesson: NewLesson): Promise<
  * Two words are skipped rather than inserted: one already active in this lesson, and a second
  * mention within the same batch. Both would be a second live link for one (lesson_id, word_id),
  * which `lesson_items_lesson_word_active_idx` rejects — and the rejection would take the whole
- * batch with it. The client can't prevent this for us: `addItemsLocal` dedupes with
- * `text.trim().toLowerCase()`, so "Don't" and "dont" reach here as two texts and one word.
+ * batch with it.
+ *
+ * The `linked` set below is therefore LOAD-BEARING, not belt-and-braces. The client can't prevent
+ * this for us and is not allowed to try: `addItemsLocal` dedupes with `clientDedupeKey`, which is
+ * deliberately weaker than the Postgres `norm_key` identity (it may only ever merge less, never
+ * more — see the invariant in `src/shared/word-key.ts`), so "Don't" and "dont" reach here as two
+ * texts and one word by design.
  *
  * Positions are the caller's and are left alone; a skip leaves a gap, which only orders rows.
  */

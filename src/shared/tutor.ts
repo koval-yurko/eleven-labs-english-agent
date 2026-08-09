@@ -2,13 +2,50 @@
  * Client-safe tutor session constants and types, shared by the browser tutor component,
  * the lesson data layer, and the post-call webhook. No server imports here.
  */
-import type { WordDetails } from "./word-details";
+import type { WordDetails } from "./word-types";
 
 /** One turn of a tutor conversation as stored in lesson_sessions.transcript. */
 export interface TranscriptLine {
   role: "user" | "agent";
   text: string;
   timeInCallSecs?: number;
+}
+
+/** Bounds on a stored transcript. A conversation is a jsonb column, not a log. */
+export const MAX_TRANSCRIPT_LINES = 500;
+export const MAX_TRANSCRIPT_LINE_CHARS = 4000;
+
+/**
+ * Coerce whatever a caller hands us into a storable transcript: keep only well-formed
+ * user/agent turns, cap the line count and each line's length.
+ *
+ * Shared because FOUR paths converge on one `lesson_sessions` row keyed by conversation_id — the
+ * server action, the `/api/lessons/session` beacon, the post-call webhook, and (later) a native
+ * client. They must agree on what a stored transcript looks like, or the row's content depends on
+ * which writer happened to land last. Sharing this does NOT move the trust boundary: the server
+ * still sanitizes everything it receives, and still re-derives the owner from the session.
+ *
+ * Takes `unknown` on purpose — two of its callers are handling a parsed request body.
+ *
+ * `timeInCallSecs` is preserved when present (only the webhook has it, and only for some turns).
+ * The line cap is applied BEFORE the validity filter, matching the original behaviour: a payload
+ * whose first 500 entries include malformed ones yields fewer than 500 stored lines.
+ */
+export function sanitizeTranscript(lines: unknown): TranscriptLine[] {
+  const raw: unknown[] = Array.isArray(lines) ? lines : [];
+  const out: TranscriptLine[] = [];
+  for (const entry of raw.slice(0, MAX_TRANSCRIPT_LINES)) {
+    const line = entry as Partial<TranscriptLine> | null | undefined;
+    if (!line || (line.role !== "user" && line.role !== "agent")) continue;
+    if (typeof line.text !== "string") continue;
+    const clean: TranscriptLine = {
+      role: line.role,
+      text: line.text.slice(0, MAX_TRANSCRIPT_LINE_CHARS),
+    };
+    if (typeof line.timeInCallSecs === "number") clean.timeInCallSecs = line.timeInCallSecs;
+    out.push(clean);
+  }
+  return out;
 }
 
 /** One active lesson item handed to the tutor: its text plus the curated enrichment payload

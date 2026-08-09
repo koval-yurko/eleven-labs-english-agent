@@ -1,6 +1,7 @@
 import { json, apiError, unauthorized } from "../../../../lib/http";
+import type { LessonSessionResponse } from "../../../../shared/api";
 import { persistTutorSession } from "../../../../lib/tutor-session";
-import type { TranscriptLine } from "../../../../lib/tutor";
+import type { TranscriptLine } from "../../../../shared/tutor";
 
 // Owner-scoped write; never cached.
 export const dynamic = "force-dynamic";
@@ -37,5 +38,6 @@ export async function POST(req: Request) {
   // `persistTutorSession` returns false for both "not signed in" and "not your lesson"; the gate in
   // src/proxy.ts already let the request through unauthenticated so this handler could say so.
   if (!stored) return unauthorized();
-  return json({ ok: true });
+  const response: LessonSessionResponse = { ok: true };
+  return json(response);
 }

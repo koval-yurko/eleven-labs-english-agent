@@ -1,7 +1,8 @@
 import { revalidatePath } from "next/cache";
 import { getOwnerId } from "./auth/session";
 import { getLesson, upsertLessonSession } from "./lessons";
-import type { TranscriptLine } from "./tutor";
+import { sanitizeTranscript } from "../shared/tutor";
+import type { TutorSessionInput } from "../shared/api";
 
 /**
  * Persist the transcript of a tutor conversation — the one code path behind both ways the browser
@@ -11,17 +12,11 @@ import type { TranscriptLine } from "./tutor";
  * (summary, duration) onto the same conversation_id row, so all three converge on one row.
  *
  * Server-only. Owner is re-derived from the session; ids from the browser are never trusted.
+ * The payload shape itself lives in `src/shared/api.ts` — a client has to construct it, and this
+ * module imports `next/cache`, so it could never be the declaration site.
  */
 
-const MAX_LINES = 500;
-const MAX_LINE_CHARS = 4000;
-
-export interface TutorSessionInput {
-  lessonId: string;
-  conversationId: string;
-  agentVersion: string;
-  lines: TranscriptLine[];
-}
+export type { TutorSessionInput };
 
 /** True when the session was stored; false when unauthenticated, unknown lesson, or not the owner's. */
 export async function persistTutorSession(input: TutorSessionInput): Promise<boolean> {
@@ -32,10 +27,7 @@ export async function persistTutorSession(input: TutorSessionInput): Promise<boo
   const lesson = await getLesson(ownerId, input.lessonId);
   if (!lesson || !input.conversationId) return false;
 
-  const transcript = (Array.isArray(input.lines) ? input.lines : [])
-    .slice(0, MAX_LINES)
-    .filter((l) => (l.role === "user" || l.role === "agent") && typeof l.text === "string")
-    .map((l) => ({ role: l.role, text: l.text.slice(0, MAX_LINE_CHARS) }));
+  const transcript = sanitizeTranscript(input.lines);
 
   await upsertLessonSession({
     lessonId: lesson.id,

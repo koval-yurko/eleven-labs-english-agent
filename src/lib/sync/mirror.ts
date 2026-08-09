@@ -1,11 +1,18 @@
 /**
- * Seeding the IndexedDB mirror from server-rendered payloads, plus the owner guard.
- * BROWSER-ONLY (uses `getDb()`); call from client-island effects. See
- * docs/2026-07-04-offline-support-and-sync.md.
+ * Seeding the mirror from server-rendered payloads, plus the owner guard.
+ * See docs/2026-07-04-offline-support-and-sync.md.
+ *
+ * Storage-agnostic: everything goes through the `MirrorStore` contract
+ * (`src/shared/mirror-store.ts`). Call from client-island effects.
  */
-import { getDb, type MirrorItem, type MirrorLesson } from "./db";
+import { getStore } from "./dexie-store";
+import type { MirrorItem, MirrorLesson, MirrorStore } from "../../shared/mirror-store";
 
 const OWNER_KEY = "owner";
+
+function store(): MirrorStore {
+  return getStore();
+}
 
 /**
  * Ensure the mirror belongs to the current learner. On a shared device, logging in as a
@@ -13,15 +20,13 @@ const OWNER_KEY = "owner";
  * offline data can never surface to the next.
  */
 export async function ensureOwner(sub: string): Promise<void> {
-  const db = getDb();
-  const current = await db.meta.get(OWNER_KEY);
-  if (current?.value === sub) return;
-
-  await db.transaction("rw", db.lessons, db.items, db.outbox, db.meta, async () => {
-    if (current && current.value !== sub) {
-      await Promise.all([db.lessons.clear(), db.items.clear(), db.outbox.clear()]);
-    }
-    await db.meta.put({ key: OWNER_KEY, value: sub });
+  // Wipe and re-stamp in one transaction: a failure between them would leave an emptied mirror
+  // still labelled with the previous learner, so the next sign-in would skip the guard.
+  await store().transact(async (tx) => {
+    const current = await tx.getMeta(OWNER_KEY);
+    if (current === sub) return;
+    if (current !== null) await tx.clearAll();
+    await tx.setMeta(OWNER_KEY, sub);
   });
 }
 
@@ -33,7 +38,7 @@ export async function ensureOwner(sub: string): Promise<void> {
  */
 async function pendingDeletedLessonIds(): Promise<Set<string>> {
   const ids = new Set<string>();
-  for (const record of await getDb().outbox.toArray()) {
+  for (const record of await store().listOutbox()) {
     if (record.op.kind === "deleteLesson") ids.add(record.op.lessonId);
   }
   return ids;
@@ -50,7 +55,7 @@ export async function seedLessons(lessons: MirrorLesson[]): Promise<void> {
   const deleted = await pendingDeletedLessonIds();
   const effective = deleted.size === 0 ? lessons : lessons.filter((l) => !deleted.has(l.id));
   if (effective.length === 0) return;
-  await getDb().lessons.bulkPut(effective);
+  await store().putLessons(effective);
 }
 
 /**
@@ -62,7 +67,7 @@ export async function seedLessons(lessons: MirrorLesson[]): Promise<void> {
 async function pendingItemState(): Promise<{ add: Set<string>; remove: Set<string> }> {
   const add = new Set<string>();
   const remove = new Set<string>();
-  for (const record of await getDb().outbox.toArray()) {
+  for (const record of await store().listOutbox()) {
     const op = record.op;
     if (op.kind === "addItems") op.items.forEach((i) => add.add(i.id));
     else if (op.kind === "createLesson") op.lesson.items.forEach((i) => add.add(i.id));
@@ -78,17 +83,15 @@ async function pendingItemState(): Promise<{ add: Set<string>; remove: Set<strin
  * still-pending optimistic writes (keeps local-only adds, doesn't resurrect local-only removes).
  */
 export async function seedLessonItems(lessonId: string, items: MirrorItem[]): Promise<void> {
-  const db = getDb();
   // A lesson with a pending local delete is gone from the mirror; don't reseed its items.
   if ((await pendingDeletedLessonIds()).has(lessonId)) return;
   const { add, remove } = await pendingItemState();
   const effective = items.filter((i) => !remove.has(i.id));
-  await db.transaction("rw", db.items, async () => {
-    const existing = await db.items.where("lesson_id").equals(lessonId).primaryKeys();
+  await store().transact(async (tx) => {
+    const existing = await tx.listItemIds(lessonId);
     const keep = new Set(effective.map((i) => i.id));
     for (const id of add) keep.add(id); // don't delete a not-yet-synced local add
-    const stale = existing.filter((id) => !keep.has(id));
-    if (stale.length > 0) await db.items.bulkDelete(stale);
-    if (effective.length > 0) await db.items.bulkPut(effective);
+    await tx.deleteItems(existing.filter((id) => !keep.has(id)));
+    await tx.putItems(effective);
   });
 }

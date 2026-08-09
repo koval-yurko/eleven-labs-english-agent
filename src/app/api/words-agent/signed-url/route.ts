@@ -1,6 +1,7 @@
 import { elevenLabsConfig } from "../../../../lib/config";
 import { resolveAgent } from "../../../../lib/agent-registry";
 import { json, apiError } from "../../../../lib/http";
+import type { SignedUrlResponse } from "../../../../shared/api";
 
 // Read the registry at request time, not build time (the lockfile may change between deploys).
 export const dynamic = "force-dynamic";
@@ -45,7 +46,12 @@ export async function GET(req: Request) {
     }
     // appEnv is echoed back so the client stamps it onto the conversation (app_env dynamic
     // variable) — the post-call webhook reads it to route the event to the right env.
-    return json({ signedUrl: data.signed_url, version: agent.version, appEnv });
+    const body: SignedUrlResponse = {
+      signedUrl: data.signed_url,
+      version: agent.version,
+      appEnv,
+    };
+    return json(body);
   } catch (e) {
     return apiError(502, "elevenlabs", e instanceof Error ? e.message : String(e));
   }

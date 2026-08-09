@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { getDb } from "../lib/sync/db";
+import { useMirrorLesson } from "../lib/sync/live";
 import { LessonsList } from "./LessonsList";
 import { LessonItemsView } from "./lessons/[id]/LessonItemsView";
 
@@ -75,7 +74,7 @@ function OfflineHome() {
 
 function OfflineLesson({ id }: { id: string }) {
   // Wrap the result so "still loading" (undefined) is distinct from "not in the mirror" ({lesson: undefined}).
-  const result = useLiveQuery(async () => ({ lesson: await getDb().lessons.get(id) }), [id]);
+  const result = useMirrorLesson(id);
 
   if (result === undefined) {
     return (

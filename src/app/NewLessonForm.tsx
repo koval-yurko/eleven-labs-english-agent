@@ -10,8 +10,8 @@ import {
   defaultLessonTitle,
   flushOutboxNow,
   requestFlush,
-  MAX_ITEMS,
 } from "../lib/sync/engine";
+import { MAX_ITEMS } from "../shared/sync-ops";
 import { useNavigationTransition } from "./nav-progress";
 
 /**
@@ -32,26 +32,21 @@ export function NewLessonForm() {
     e.preventDefault();
     if (busy) return;
     const fd = new FormData(e.currentTarget);
-    const items = String(fd.get("items") ?? "")
+    const texts = String(fd.get("items") ?? "")
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, MAX_ITEMS);
-    if (!items[0]) return;
+    if (!texts[0]) return;
 
-    const title = (String(fd.get("title") ?? "").trim() || (await defaultLessonTitle())).slice(
-      0,
-      120,
-    );
+    // `createLessonLocal` normalizes and caps the title itself; an empty box falls back to today's
+    // date. Item ids are minted inside the engine, from the same rule the add path uses.
+    const title = String(fd.get("title") ?? "").trim() || (await defaultLessonTitle());
     const id = crypto.randomUUID();
 
     setBusy(true);
     try {
-      await createLessonLocal({
-        id,
-        title,
-        items: items.map((text) => ({ id: crypto.randomUUID(), text })),
-      });
+      await createLessonLocal({ id, title, texts });
       formRef.current?.reset();
       if (typeof navigator !== "undefined" && navigator.onLine) {
         await flushOutboxNow(); // apply the create so the RSC lesson page can load it

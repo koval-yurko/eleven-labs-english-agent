@@ -1,7 +1,9 @@
 "use client";
 
-import { getDb, type SessionJournalEntry } from "../../../lib/sync/db";
-import type { TranscriptLine } from "../../../lib/tutor";
+import { getStore } from "../../../lib/sync/dexie-store";
+import type { SessionJournalEntry } from "../../../shared/mirror-store";
+import { sanitizeTranscript, type TranscriptLine } from "../../../shared/tutor";
+import { API_ROUTES } from "../../../shared/api";
 
 /**
  * Crash-safety for a live tutor session: every transcript line is written to the IndexedDB mirror
@@ -10,18 +12,19 @@ import type { TranscriptLine } from "../../../lib/tutor";
  * `onDisconnect` never gets to run — loses everything said so far, and the lesson only reappears if
  * the post-call webhook lands.
  *
- * Browser-only (Dexie + `navigator.sendBeacon`); call from effects and event handlers.
+ * Storage goes through the mirror store's `journal` (`src/shared/mirror-store.ts`); the beacon is
+ * browser-only (`navigator.sendBeacon`). Call from effects and event handlers.
  * See docs/2026-08-07-ios-keep-session-alive-foreground.md.
  */
 
 export type { SessionJournalEntry };
 
 /** The beacon endpoint — a plain POST twin of `saveLessonSessionAction`, callable from `pagehide`. */
-const BEACON_URL = "/api/lessons/session";
+const BEACON_URL = API_ROUTES.lessonSession;
 
 export async function writeJournal(entry: Omit<SessionJournalEntry, "updatedAt">): Promise<void> {
   try {
-    await getDb().sessionJournal.put({ ...entry, updatedAt: new Date().toISOString() });
+    await getStore().journal.put({ ...entry, updatedAt: new Date().toISOString() });
   } catch {
     // Best effort — a journal write must never break a running conversation.
   }
@@ -29,7 +32,7 @@ export async function writeJournal(entry: Omit<SessionJournalEntry, "updatedAt">
 
 export async function readJournal(lessonId: string): Promise<SessionJournalEntry | null> {
   try {
-    return (await getDb().sessionJournal.get(lessonId)) ?? null;
+    return await getStore().journal.get(lessonId);
   } catch {
     return null;
   }
@@ -37,7 +40,7 @@ export async function readJournal(lessonId: string): Promise<SessionJournalEntry
 
 export async function clearJournal(lessonId: string): Promise<void> {
   try {
-    await getDb().sessionJournal.delete(lessonId);
+    await getStore().journal.delete(lessonId);
   } catch {
     // Ignored: a stale journal is offered as "continue where you left off", never replayed blindly.
   }
@@ -57,7 +60,12 @@ export function beaconJournal(entry: {
   if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") return false;
   if (!entry.conversationId || entry.lines.length === 0) return false;
   try {
-    const body = new Blob([JSON.stringify(entry)], { type: "application/json" });
+    // Trim to exactly what the server will store before sending: `sendBeacon` has a payload
+    // ceiling (and this fires on a possibly-cellular link during page teardown), so shipping
+    // lines the server would only discard risks losing the whole beacon.
+    const lines = sanitizeTranscript(entry.lines);
+    if (lines.length === 0) return false;
+    const body = new Blob([JSON.stringify({ ...entry, lines })], { type: "application/json" });
     return navigator.sendBeacon(BEACON_URL, body);
   } catch {
     return false;

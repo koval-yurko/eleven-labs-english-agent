@@ -10,21 +10,22 @@
  * statistics derived from lesson_items + lesson_sessions. A word in no lesson is a normal row here
  * — either it was added directly (see `src/lib/words.ts`) or removed from every lesson it was in.
  * The only column this page writes is `is_favorite`; `level` belongs to the job in `./levels.ts`.
+ *
+ * The shapes and vocabularies these queries return live in `src/shared/` (pure, client-safe); this
+ * module is the shell that fetches them. See docs/2026-08-09-shareable-core-refactor.md.
  */
 import { getServiceSupabase } from "./supabase/server";
-import type { WordDetails } from "./word-details";
+import { CEFR_LEVELS, UNLEVELED } from "../shared/word-types";
+import type { ItemDetail, ItemFacet, ItemRow, WordDetails } from "../shared/word-types";
+import type { ItemsQuery, SortKey } from "../shared/items-query";
 
-export const CEFR_LEVELS = ["A2", "B1", "B2", "C1", "C2"] as const;
-export type CefrLevel = (typeof CEFR_LEVELS)[number];
-
-/** Levels the *filter* accepts: the CEFR values plus the permanent "not classified yet" state. */
-export const UNLEVELED = "unleveled";
-
-export const ITEM_KINDS = ["word", "phrase", "sentence"] as const;
-export type ItemKind = (typeof ITEM_KINDS)[number];
-
-/** Sort keys the page offers → the column each maps to. Whitelisted: these reach PostgREST. */
-const SORT_COLUMNS = {
+/**
+ * Sort key → the column it orders by. SERVER-ONLY: the keys are the page's public grammar (and live
+ * in `shared/items-query.ts`), the columns are this table's business. Typed as a total map over
+ * `SortKey`, so adding a key to the shared whitelist without mapping it here is a type error rather
+ * than a runtime `undefined` reaching PostgREST.
+ */
+const SORT_COLUMNS: Record<SortKey, string> = {
   practice: "practice_count", // conversations held while the item was in a lesson
   lessons: "lesson_count",
   created: "first_added_at",
@@ -32,60 +33,7 @@ const SORT_COLUMNS = {
   favorite: "is_favorite",
   level: "level", // free ordering — cefr_level is an enum
   text: "norm_key",
-} as const;
-export type SortKey = keyof typeof SORT_COLUMNS;
-export const SORT_KEYS = Object.keys(SORT_COLUMNS) as SortKey[];
-
-/** One row of `owner_items` — a word plus its cross-lesson statistics. */
-export interface ItemRow {
-  /** The `words` row id. `norm_key` remains the display key the page renders by. */
-  id: string;
-  norm_key: string;
-  text: string; // the most recently typed spelling
-  kind: ItemKind;
-  lesson_count: number;
-  active_lesson_count: number;
-  first_added_at: string;
-  /** Lessons the item is CURRENTLY in. Empty = removed from every lesson (still listed). */
-  lessons: { id: string; title: string }[];
-  practice_count: number;
-  last_practiced_at: string | null;
-  level: CefrLevel | null;
-  level_source: "job" | "user" | null;
-  is_favorite: boolean;
-  categories: Record<string, string>;
-}
-
-/**
- * One `owner_items` row plus the enrichment payload for the word detail page. `details` lives on
- * `words` (not `owner_items`), so it's read separately — see `getItem`. The three-way state the page
- * renders: `details` set = show it; both null = queued / in flight; `details` null but `details_at`
- * set = attempted, nothing came back.
- */
-export interface ItemDetail extends ItemRow {
-  details: WordDetails | null;
-  details_at: string | null;
-}
-
-/** One (name, value) pair in use, for rendering the category filter from the data itself. */
-export interface ItemFacet {
-  name: string;
-  value: string;
-  item_count: number;
-}
-
-export interface ItemsQuery {
-  /** CEFR levels and/or `UNLEVELED`. Empty = no level filter. */
-  levels: string[];
-  favoritesOnly: boolean;
-  kind: ItemKind | null;
-  /** Only items no longer in any lesson — "words I've dropped". */
-  unassignedOnly: boolean;
-  /** Category filters, ANDed: `{ topic: "business" }` → categories @> {"topic":"business"}. */
-  categories: Record<string, string>;
-  sort: SortKey;
-  dir: "asc" | "desc";
-}
+};
 
 /**
  * The owner's items, filtered + sorted in Postgres. Search is NOT applied here: the whole

@@ -1,7 +1,7 @@
 /**
- * The client-side IndexedDB mirror (Dexie) — the owner's lessons + items kept locally so the
- * UI can read them instantly and (with the sync engine) offline. See
- * docs/2026-07-04-offline-support-and-sync.md.
+ * The Dexie/IndexedDB schema behind the browser's mirror. Schema only — the operations the sync
+ * layer calls live in `./dexie-store.ts`, behind the `MirrorStore` contract in
+ * `src/shared/mirror-store.ts`. See docs/2026-07-04-offline-support-and-sync.md.
  *
  * BROWSER-ONLY. The Dexie instance is created lazily via `getDb()` so it is never constructed
  * during server-side rendering of the client islands (Node has no IndexedDB). Call `getDb()`
@@ -12,47 +12,15 @@
  * robust across browsers (notably iOS Safari) than enumerating `indexedDB.databases()`.
  */
 import Dexie, { type Table } from "dexie";
-import type { OutboxRecord } from "./types";
-import type { TranscriptLine } from "../tutor";
-
-/** A lesson as the list/home surface needs it (mirrors `LessonListItem`). */
-export interface MirrorLesson {
-  id: string;
-  title: string;
-  items: string[]; // active item texts, position order — derived convenience for previews
-  created_at: string;
-  updated_at: string;
-  sessionCount: number;
-}
-
-/** One active item row (removed items are not mirrored). */
-export interface MirrorItem {
-  id: string;
-  lesson_id: string;
-  text: string;
-  position: number;
-}
+import type { OutboxRecord } from "../../shared/sync-ops";
+import type { MirrorItem, MirrorLesson, SessionJournalEntry } from "../../shared/mirror-store";
 
 interface MetaRow {
   key: string;
   value: string;
 }
 
-/**
- * The transcript of a tutor session as it is being spoken, one row per lesson. iOS can discard the
- * tab (or suspend it hard enough that `onDisconnect` never runs), and in-memory lines would go with
- * it — so every line is journalled here as it arrives and cleared once the server has the session.
- * See docs/2026-08-07-ios-keep-session-alive-foreground.md.
- */
-export interface SessionJournalEntry {
-  lessonId: string;
-  conversationId: string | null;
-  agentVersion: string;
-  lines: TranscriptLine[];
-  updatedAt: string;
-}
-
-class MirrorDB extends Dexie {
+export class MirrorDB extends Dexie {
   lessons!: Table<MirrorLesson, string>;
   items!: Table<MirrorItem, string>;
   outbox!: Table<OutboxRecord, string>;

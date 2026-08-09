@@ -11,16 +11,16 @@ import {
   type ItemFacet,
   type ItemKind,
   type ItemRow,
-  type ItemsQuery,
-  type SortKey,
-} from "../../lib/lesson-items";
+} from "../../shared/word-types";
+import { serializeItemsQuery, type ItemsQuery, type SortKey } from "../../shared/items-query";
+import { groupFacets, searchItems, sortChoices } from "../../shared/item-list";
 import {
   createLessonLocal,
   defaultLessonTitle,
   flushOutboxNow,
   requestFlush,
-  MAX_ITEMS,
 } from "../../lib/sync/engine";
+import { MAX_ITEMS } from "../../shared/sync-ops";
 import { ensureOwner } from "../../lib/sync/mirror";
 import { formatDate } from "../../lib/format-date";
 import { useNavigationTransition } from "../nav-progress";
@@ -32,20 +32,10 @@ import { Button } from "../Button";
 import { AddWordForm } from "./AddWordForm";
 import { FavoriteButton } from "./FavoriteButton";
 
-const SORT_LABELS: Record<SortKey, string> = {
-  practice: "Times practiced",
-  lessons: "Lessons",
-  created: "Date added",
-  practiced: "Last practiced",
-  favorite: "Favorites",
-  level: "Level",
-  text: "Alphabetical",
-};
-
 /** Hoisted out of the render so <Select> gets a stable `options` identity. */
-const SORT_OPTIONS: SelectOption<SortKey>[] = (Object.keys(SORT_LABELS) as SortKey[]).map((key) => ({
+const SORT_OPTIONS: SelectOption<SortKey>[] = sortChoices().map(({ key, label }) => ({
   value: key,
-  label: SORT_LABELS[key],
+  label,
 }));
 
 /**
@@ -109,17 +99,14 @@ export function ItemsBrowser({
     const texts = [...selected.values()].slice(0, MAX_ITEMS);
     if (texts.length === 0) return;
 
-    const title = (lessonTitle.trim() || (await defaultLessonTitle())).slice(0, 120);
+    // Title normalization/cap and item id minting both live in `createLessonLocal`.
+    const title = lessonTitle.trim() || (await defaultLessonTitle());
     const id = crypto.randomUUID();
 
     setCreating(true);
     try {
       await ensureOwner(ownerSub); // guard the shared-device mirror before the first write
-      await createLessonLocal({
-        id,
-        title,
-        items: texts.map((text) => ({ id: crypto.randomUUID(), text })),
-      });
+      await createLessonLocal({ id, title, texts });
       clearSelection();
       if (typeof navigator !== "undefined" && navigator.onLine) {
         await flushOutboxNow(); // apply the create so the RSC lesson page can load it
@@ -132,22 +119,11 @@ export function ItemsBrowser({
     }
   }
 
-  /** Rebuild the URL from the current query + one change. Absent/false values drop out. */
+  /** Rebuild the URL from the current query + one change. Absent/default values drop out.
+   *  The grammar itself (which params, which defaults) lives in `shared/items-query.ts`, so this
+   *  cannot drift from the parser on the page — which is exactly what it used to do. */
   function hrefWith(change: Partial<ItemsQuery>): string {
-    const next = { ...query, ...change };
-    const params = new URLSearchParams();
-    for (const level of next.levels) params.append("level", level);
-    if (next.favoritesOnly) params.set("fav", "1");
-    if (next.kind) params.set("kind", next.kind);
-    if (next.unassignedOnly) params.set("unassigned", "1");
-    for (const [name, value] of Object.entries(next.categories)) params.set(`cat.${name}`, value);
-    // Must match the fallback in page.tsx (`"created"`), or the omitted value round-trips as a
-    // different sort: this said "practice" while the page defaulted to "created", which made
-    // "Times practiced" silently unselectable.
-    if (next.sort !== "created") params.set("sort", next.sort);
-    if (next.dir !== "desc") params.set("dir", next.dir);
-    if (search) params.set("q", search);
-    const qs = params.toString();
+    const qs = serializeItemsQuery({ ...query, ...change }, search);
     return qs ? `/lesson-items?${qs}` : "/lesson-items";
   }
 
@@ -174,11 +150,7 @@ export function ItemsBrowser({
     apply({ categories });
   }
 
-  const needle = search.trim().toLowerCase();
-  const visible = useMemo(
-    () => (needle ? items.filter((i) => i.text.toLowerCase().includes(needle)) : items),
-    [items, needle],
-  );
+  const visible = useMemo(() => searchItems(items, search), [items, search]);
 
   return (
     <>
@@ -471,13 +443,3 @@ function Chip({ value, children }: { value: string; children: React.ReactNode })
   );
 }
 
-/** `[{name: "topic", value: "business"}, …]` → `[["topic", [{…}]], …]`, one filter row per name. */
-function groupFacets(facets: ItemFacet[]): [string, ItemFacet[]][] {
-  const byName = new Map<string, ItemFacet[]>();
-  for (const facet of facets) {
-    const list = byName.get(facet.name) ?? [];
-    list.push(facet);
-    byName.set(facet.name, list);
-  }
-  return [...byName.entries()];
-}

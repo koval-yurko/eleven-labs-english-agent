@@ -2,12 +2,10 @@ import { getServiceSupabase, hasSupabaseEnv } from "./supabase/server";
 import { elevenLabsConfig } from "./config";
 import { activeVersions } from "./agent-registry";
 import { hasAnthropicEnv } from "./llm";
+import type { HealthCheck } from "../shared/api";
 
-/** Result of a single integration health probe. */
-export interface Check {
-  ok: boolean;
-  detail: string;
-}
+/** Result of a single integration health probe — the shape `/api/health` serves. */
+export type Check = HealthCheck;
 
 /** Supabase connectivity: read the example owner-scoped table (proves DB + schema). */
 export async function checkSupabase(): Promise<Check> {

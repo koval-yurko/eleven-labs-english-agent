@@ -11,19 +11,12 @@
  * client-minted uuid is stable only within one.
  */
 import { getServiceSupabase } from "./supabase/server";
-
-/** Long enough for any sentence a learner would practice; a bound, not a feature. */
-export const MAX_WORD_LENGTH = 500;
+import { wordInputKey } from "../shared/word-key";
 
 export interface ResolvedWord {
   id: string;
   /** False when the word was already in the collection — the row was updated, not inserted. */
   created: boolean;
-}
-
-/** The exact string `resolveWords` keys its result by: trim + cap, matching what the RPC echoes. */
-export function wordInputKey(raw: string): string {
-  return raw.trim().slice(0, MAX_WORD_LENGTH);
 }
 
 type ResolveRow = { input_text: string; word_id: string; was_created: boolean };

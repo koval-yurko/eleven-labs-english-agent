@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
-import { getItem, type ItemDetail } from "../../../lib/lesson-items";
+import { getItem } from "../../../lib/lesson-items";
+import type { ItemDetail } from "../../../shared/word-types";
 import { NavLink } from "../../NavLink";
 import { FavoriteButton } from "../FavoriteButton";
 

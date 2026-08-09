@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { getDb, type MirrorLesson } from "../lib/sync/db";
+import { useMirrorLessons } from "../lib/sync/live";
+import type { MirrorLesson } from "../shared/mirror-store";
 import { ensureOwner, seedLessons } from "../lib/sync/mirror";
 import { deleteLessonLocal, requestFlush } from "../lib/sync/engine";
 import { formatDate } from "../lib/format-date";
@@ -39,14 +39,7 @@ export function LessonsList({ ownerSub, initial }: { ownerSub?: string; initial?
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; title: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const lessons =
-    useLiveQuery(
-      () => getDb().lessons.orderBy("created_at").reverse().toArray(),
-      [],
-      initial,
-    ) ??
-    initial ??
-    [];
+  const lessons = useMirrorLessons(initial);
 
   if (lessons.length === 0) {
     return <p className="muted">No lessons yet — create your first one above.</p>;

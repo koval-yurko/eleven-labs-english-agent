@@ -24,6 +24,29 @@ export default tseslint.config(
     },
   },
   {
+    // `src/shared` is the pure core: shapes and rules that both the web client and a future native
+    // client must agree on. It has to stay liftable (it becomes `packages/shared` if the repo goes
+    // to a workspace — docs/2026-08-09-expo-repo-structure-migration.md), which means dependencies
+    // point INWARD ONLY: nothing here may reach into `src/lib` (Supabase/LangChain/Next),
+    // `src/app`, or any npm package. Enforced rather than remembered.
+    // See docs/2026-08-09-shareable-core-refactor.md.
+    files: ["src/shared/**/*.ts", "src/shared/**/*.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/lib/*", "**/lib", "**/app/*", "**/app", "@/lib/*", "@/app/*"],
+              message:
+                "src/shared must not import from src/lib or src/app — it is the pure core and has to stay liftable. Extract the pure part into src/shared instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The hand-rolled service worker runs in a ServiceWorkerGlobalScope (not Node/DOM), so its
     // globals aren't otherwise known to ESLint.
     files: ["public/sw.js"],

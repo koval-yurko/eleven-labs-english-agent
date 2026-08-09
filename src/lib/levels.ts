@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { getChatModel } from "./llm";
 import { getServiceSupabase } from "./supabase/server";
-import { CEFR_LEVELS, type CefrLevel, type ItemKind } from "./lesson-items";
+import { CEFR_LEVELS, type CefrLevel, type ItemKind } from "../shared/word-types";
 import { LEVEL_SYSTEM_PROMPT, buildLevelPrompt } from "./levels-prompt";
 
 /** Items per LLM call — a blast radius, not a token limit: one failed call costs this many items. */

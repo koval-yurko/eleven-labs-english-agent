@@ -1,6 +1,7 @@
 import { getOwnerId } from "../../../lib/auth/session";
 import { checkSupabase, checkElevenLabs, checkAnthropic } from "../../../lib/health";
 import { json } from "../../../lib/http";
+import type { HealthResponse } from "../../../shared/api";
 
 /** Machine-readable health of the kept integrations. 200 when all green, else 503. */
 export async function GET() {
@@ -12,5 +13,6 @@ export async function GET() {
     detail: ownerId ? `signed in as ${ownerId}` : "not signed in",
   };
   const allOk = auth.ok && supabase.ok && elevenlabs.ok && anthropic.ok;
-  return json({ auth, supabase, elevenlabs, anthropic }, allOk ? 200 : 503);
+  const body: HealthResponse = { auth, supabase, elevenlabs, anthropic };
+  return json(body, allOk ? 200 : 503);
 }

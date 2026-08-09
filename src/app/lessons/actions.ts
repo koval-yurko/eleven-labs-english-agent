@@ -7,9 +7,15 @@ import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
 import { createLesson, deleteLesson, removeLessonItem, upsertLessonItems } from "../../lib/lessons";
 import { persistTutorSession, type TutorSessionInput } from "../../lib/tutor-session";
-import type { FlushResult, OutboxOp, OutboxRecord } from "../../lib/sync/types";
-
-const MAX_ITEMS = 50;
+import {
+  MAX_FLUSH_RECORDS,
+  MAX_ITEMS,
+  normalizeLessonTitle,
+  opLessonId,
+  type FlushResult,
+  type OutboxOp,
+  type OutboxRecord,
+} from "../../shared/sync-ops";
 
 // Lesson create/add/remove now flow through the offline outbox → `flushOutbox` below (the UI
 // writes to the IndexedDB mirror optimistically). The former FormData actions
@@ -29,20 +35,13 @@ export async function saveLessonSessionAction(input: TutorSessionInput): Promise
   await persistTutorSession(input);
 }
 
-const MAX_FLUSH_RECORDS = 500;
-
-/** The lesson id an op mutates — used to know which pages to revalidate after a flush. */
-function opLessonId(op: OutboxOp): string {
-  return op.kind === "createLesson" ? op.lesson.id : op.lessonId;
-}
-
 /** Apply one queued op idempotently. Returns false only if the owner gate rejected it. */
 async function applyOp(ownerId: string, op: OutboxOp): Promise<void> {
   switch (op.kind) {
     case "createLesson":
       await createLesson(ownerId, {
         id: op.lesson.id,
-        title: op.lesson.title.slice(0, 120),
+        title: normalizeLessonTitle(op.lesson.title),
         items: op.lesson.items.slice(0, MAX_ITEMS),
       });
       return;

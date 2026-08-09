@@ -11,7 +11,7 @@ import {
 import { hasSupabaseEnv } from "../../../../lib/supabase/server";
 import { getLessonById, upsertLessonSession } from "../../../../lib/lessons";
 import { versionForAgentId } from "../../../../lib/agent-registry";
-import { KICKOFF_MESSAGE, type TranscriptLine } from "../../../../lib/tutor";
+import { KICKOFF_MESSAGE, sanitizeTranscript, type TranscriptLine } from "../../../../shared/tutor";
 
 // Must run per-request (reads secrets, verifies a signature, calls out to LangSmith).
 export const dynamic = "force-dynamic";
@@ -120,13 +120,19 @@ async function persistLessonSession(data: PostCallData): Promise<void> {
   const lesson = await getLessonById(lessonId);
   if (!lesson) return;
 
-  const transcript: TranscriptLine[] = (data.transcript ?? [])
-    .filter((t) => t.message && !(t.role === "user" && t.message === KICKOFF_MESSAGE))
-    .map((t) => ({
-      role: t.role,
-      text: t.message as string,
-      ...(t.time_in_call_secs != null ? { timeInCallSecs: t.time_in_call_secs } : {}),
-    }));
+  // Two steps: the domain filter (drop empty turns and the hidden kickoff), then the SAME
+  // `sanitizeTranscript` the browser paths use. This writer previously applied no bounds at all,
+  // so a long conversation landed unbounded in the very row the other two writers cap — three
+  // writers, one conversation_id row, and the content depended on which one wrote last.
+  const transcript: TranscriptLine[] = sanitizeTranscript(
+    (data.transcript ?? [])
+      .filter((t) => t.message && !(t.role === "user" && t.message === KICKOFF_MESSAGE))
+      .map((t) => ({
+        role: t.role,
+        text: t.message as string,
+        ...(t.time_in_call_secs != null ? { timeInCallSecs: t.time_in_call_secs } : {}),
+      })),
+  );
 
   await upsertLessonSession({
     lessonId: lesson.id,

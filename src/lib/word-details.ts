@@ -20,7 +20,7 @@
 import { z } from "zod";
 import { getChatModel } from "./llm";
 import { getServiceSupabase } from "./supabase/server";
-import type { ItemKind } from "./lesson-items";
+import type { ItemKind, WordDetails } from "../shared/word-types";
 import { DETAILS_SYSTEM_PROMPT, buildDetailsPrompt } from "./word-details-prompt";
 
 /** The schema/prompt version stamped onto every enriched row, so `--force --stale` can re-run only
@@ -55,26 +55,6 @@ const PAGE_SIZE = 1000;
 const MAX_TRANSLATIONS = 6;
 const MAX_FORMS = 8;
 const MAX_EXAMPLES = 6;
-
-/** The enrichment payload stored in `words.details` (jsonb). Read by the word detail page. */
-export interface WordDetails {
-  /** Part of speech of the item exactly as listed ("verb", "noun", "phrase"). */
-  pos: string;
-  /** Several Russian options for the item as given, best/most-common first. */
-  translations_ru: string[];
-  /** The rest of the word family. Empty for many phrases/sentences — a normal state, not a gap. */
-  forms: Array<{
-    text: string;
-    pos: string;
-    translations_ru: string[];
-  }>;
-  /** A few sentences spread across the forms; `form` labels which one each demonstrates. */
-  examples: Array<{
-    text: string;
-    form?: string;
-    translation_ru?: string;
-  }>;
-}
 
 export interface PendingWord {
   owner_id: string;
