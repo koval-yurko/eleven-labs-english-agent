@@ -4,9 +4,9 @@
 working copy on 2026-08-09.
 
 This note decides **where the code lives and how it gets there**. Its companion,
-`docs/2026-08-07-Expo-migration.md`, decides **what the native app does** — read that for the app
-itself, and treat its §3.2 as superseded (it predates `src/shared/` and tells you to copy the tutor
-contract into the app; don't).
+`docs/2026-08-12-expo-app-creation.md`, decides **what the native app does** — read that for the app
+itself, with `docs/2026-08-12-expo-build-plan.md` as the stage-by-stage build order. (It replaces the
+earlier `docs/2026-08-07-Expo-migration.md`, which proposed a hybrid WebView shell and is superseded.)
 
 Prerequisite — the shared-core extraction (`docs/2026-08-09-shareable-core-refactor.md`) — **is done**.
 `src/shared/` exists today: 10 modules, 994 lines, zero imports outside the folder.
@@ -567,7 +567,8 @@ pnpm add @tutor/shared@workspace:*
 
 Use `npx expo install` rather than `pnpm add` for the native packages — it picks versions matching your
 SDK. Set `"name": "mobile"` in its `package.json` so the root `--filter mobile` script works. Then
-follow §3 of `docs/2026-08-07-Expo-migration.md`.
+follow `docs/2026-08-12-expo-build-plan.md` from stage S0. Note that the package list there differs
+from the one above — the native tutor is WebRTC-only, so the plan is the current source of truth.
 
 **What the app gets from `@tutor/shared` and must not reimplement:** the signed-URL path and response
 guard (`api.ts`), the kickoff/resume protocol and `formatItemsList` (`tutor.ts`), `sanitizeTranscript`
@@ -807,6 +808,8 @@ Step 2 is the one that has to be a clean standalone commit.
 - [rphlmr/expo-nextjs-monorepo](https://github.com/rphlmr/expo-nextjs-monorepo) ·
   [nandorojo/expo-next-monorepo-example](https://github.com/nandorojo/expo-next-monorepo-example) —
   reference layouts for this exact Next + Expo + shared-package shape.
-- `docs/2026-08-07-Expo-migration.md` — what the native app does. This note is where the code lives.
+- `docs/2026-08-12-expo-app-creation.md` — what the native app does (supersedes the 2026-08-07 note) ·
+  `docs/2026-08-12-expo-build-plan.md` — the build order. This note is where the code lives.
 - `docs/2026-08-09-shareable-core-refactor.md` — how `src/shared/` came to exist.
-- `docs/2026-08-07-ios-locked-screen-background-voice.md` — why native at all.
+- Why native at all — originally `docs/2026-08-07-ios-locked-screen-background-voice.md`, which no
+  longer exists; the conclusion is restated in `docs/2026-08-12-expo-app-creation.md`.

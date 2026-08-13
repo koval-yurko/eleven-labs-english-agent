@@ -9,7 +9,7 @@
  *
  * Why it is worth naming: the browser used to re-declare the signed-URL response inline at its call
  * site, which is survivable with one client. A second client (see
- * docs/2026-08-07-Expo-migration.md) would hand-copy both the paths and the shapes, and a renamed
+ * docs/2026-08-12-expo-app-creation.md) would hand-copy both the paths and the shapes, and a renamed
  * route or field would then fail at runtime on a device rather than at build time.
  * See docs/2026-08-09-shareable-core-refactor.md (R7).
  *

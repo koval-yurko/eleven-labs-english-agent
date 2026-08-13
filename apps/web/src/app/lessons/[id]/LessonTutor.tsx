@@ -30,7 +30,7 @@ import { beaconJournal, clearJournal, readJournal, writeJournal } from "./sessio
  *
  * Everything past the conversation itself is about surviving iOS. A web page cannot run a voice
  * session in the background — the mic is revoked, Web Audio is interrupted and the socket is
- * dropped the moment Safari leaves the foreground (docs/2026-08-07-ios-locked-screen-background-voice.md).
+ * dropped the moment Safari leaves the foreground (docs/2026-08-12-expo-app-creation.md).
  * So the contract here is "alive for as long as the tab is open, and honest the instant it isn't":
  *
  *   - the screen is held awake by `useKeepAwake` (we own the wake lock; the SDK's is disabled), and

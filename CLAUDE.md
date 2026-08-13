@@ -175,19 +175,20 @@ without warning, producing a symlinked layout that breaks React Native tooling l
   view stays lean. See `docs/2026-07-18-word-details-enrichment-job.md`.
 - **A voice session is foreground-only, and the UI must say so.** iOS revokes the microphone,
   interrupts Web Audio and drops the socket the moment Safari leaves the foreground, so a browser
-  session cannot run in the background at all (`docs/2026-08-07-ios-locked-screen-background-voice.md`;
-  `docs/2026-08-07-Expo-migration.md` is the native way out). What the app owes the learner instead
-  is that the session never dies quietly while the tab is open: `useKeepAwake` holds the screen
-  (we pass `useWakeLock: false` — the SDK swallows its own wake-lock failures), `useAudioHealth`
-  catches an interrupted audio graph that would otherwise look connected, hiding the page for more
-  than 2s ends the session on purpose, and every transcript line is journalled to the mirror DB and
-  beaconed to `/api/lessons/session` before iOS can discard the tab. Transcript writes go through
-  `apps/web/src/lib/tutor-session.ts` — the action, the beacon route and the post-call webhook all upsert the
-  same conversation_id row. **All of them sanitize through `sanitizeTranscript`** (`packages/shared/src/tutor.ts`,
-  500 lines / 4000 chars) so the row's content doesn't depend on which writer landed last — the
-  webhook used to skip the caps entirely. The beacon trims client-side before sending, because
-  `sendBeacon` has a payload ceiling and an over-large body loses the whole transcript.
-  See `docs/2026-08-07-ios-keep-session-alive-foreground.md`.
+  session cannot run in the background at all — `docs/2026-08-12-expo-app-creation.md` is the native
+  way out (it supersedes the hybrid-shell proposal in `docs/2026-08-07-Expo-migration.md`). What the
+  app owes the learner instead is that the session never dies quietly while the tab is open:
+  `useKeepAwake` holds the screen (we pass `useWakeLock: false` — the SDK swallows its own wake-lock
+  failures), `useAudioHealth` catches an interrupted audio graph that would otherwise look
+  connected, hiding the page for more than 2s ends the session on purpose, and every transcript line
+  is journalled to the mirror DB and beaconed to `/api/lessons/session` before iOS can discard the
+  tab. Transcript writes go through `apps/web/src/lib/tutor-session.ts` — the action, the beacon
+  route and the post-call webhook all upsert the same conversation_id row. **All of them sanitize
+  through `sanitizeTranscript`** (`packages/shared/src/tutor.ts`, 500 lines / 4000 chars) so the
+  row's content doesn't depend on which writer landed last — the webhook used to skip the caps
+  entirely. The beacon trims client-side before sending, because `sendBeacon` has a payload ceiling
+  and an over-large body loses the whole transcript. See
+  `docs/2026-08-07-ios-keep-session-alive-foreground.md`.
 - **Research documents live in `docs/` as Markdown.** Keep every research note in the `docs/`
   folder in Markdown format, and include the date in the file name (e.g.
   `docs/2026-06-26-topic.md`) so the research history stays traceable.

@@ -10,7 +10,7 @@ import NoSleep from "@zakj/no-sleep";
  * swallows a failed request AND only installs its re-acquire handler when the *first* request
  * succeeded. One early failure therefore means no wake lock for the rest of the session, with
  * nothing in the UI to say so — and on iOS a locked screen kills the session outright (see
- * docs/2026-08-07-ios-locked-screen-background-voice.md). So we pass `useWakeLock: false` to
+ * docs/2026-08-12-expo-app-creation.md). So we pass `useWakeLock: false` to
  * `startSession` and own it here instead, where we can retry unconditionally and report state.
  *
  * Two ladders down:

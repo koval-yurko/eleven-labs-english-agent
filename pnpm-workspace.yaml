@@ -12,11 +12,17 @@ packages:
 nodeLinker: hoisted
 hoistingLimits: workspaces
 
-# Duplicate React in a single app is a runtime error, and the `^` ranges in apps/* would let a
-# future `pnpm update` split web and mobile apart. Pin both across the workspace.
+# Duplicate React in a single app is a runtime error, and a `^` range in apps/* would let a future
+# `pnpm update` split web and mobile apart. Pin both across the workspace, exactly.
+#
+# The number is React Native's to choose: react-native@0.86 (Expo SDK 57) declares
+# `peerDependencies.react: "^19.2.3"` and the SDK pins 19.2.3, while Next only asks for ^19.0.0 —
+# so the tighter constraint wins and one version still serves both apps. apps/*/package.json
+# declare the same exact version, so the range never contradicts the override.
+# Bump here and in every app together when an SDK upgrade moves it.
 overrides:
-  react: 19.2.7
-  react-dom: 19.2.7
+  react: 19.2.3
+  react-dom: 19.2.3
 
 # pnpm 10+ blocks dependency postinstall scripts until they are named here. Both of these ran
 # unblocked under pnpm 9, so approving them restores the previous behaviour rather than granting

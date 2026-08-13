@@ -36,8 +36,8 @@
     "dexie-react-hooks": "^4.4.0",
     "langsmith": "^0.7.12",
     "next": "^16.2.7",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

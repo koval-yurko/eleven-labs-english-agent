@@ -2,8 +2,9 @@
 
 **Date:** 2026-08-07
 **Status:** implemented (2026-08-07) — see §5 for what shipped and the one item deferred.
-**Related:** `docs/2026-08-07-ios-locked-screen-background-voice.md` (why background is impossible),
-`docs/2026-08-07-Expo-migration.md` (the native escape hatch).
+**Related:** `docs/2026-08-12-expo-app-creation.md` — why background is impossible in a browser, and
+the native escape hatch. (It supersedes `docs/2026-08-07-Expo-migration.md`; the original
+`docs/2026-08-07-ios-locked-screen-background-voice.md` no longer exists.)
 
 Background operation is off the table in a browser. This note is about the achievable goal:
 **while the tab is open and in front of the user, the session must never die and must never lie.**
