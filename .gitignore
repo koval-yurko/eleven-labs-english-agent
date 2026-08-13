@@ -41,3 +41,10 @@ blob-report/
 # OS / editor
 .DS_Store
 .idea
+
+# Expo (apps/mobile) — generated native projects and caches
+credentials/
+credentials.json
+.expo/
+apps/mobile/ios/
+apps/mobile/android/

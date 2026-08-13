@@ -32,3 +32,11 @@ overrides:
 allowBuilds:
   esbuild: true
   sharp: true
+  # unrs-resolver — the native module resolver behind eslint-config-expo's import plugin. Blocking
+  # it does not warn, it FAILS: pnpm's deps-status check exits non-zero, so `pnpm typecheck` in
+  # apps/mobile dies before tsc ever runs. Added while scaffolding apps/mobile (S0).
+  unrs-resolver: true
+  # dtrace-provider — an OPTIONAL native DTrace probe for bunyan, which eas-cli logs through.
+  # Explicitly denied rather than left unanswered: an unanswered package makes `pnpm install` exit
+  # non-zero, and bunyan degrades to plain logging without it. Nothing here wants DTrace probes.
+  dtrace-provider: false

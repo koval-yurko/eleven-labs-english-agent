@@ -1,6 +1,8 @@
 # S0 — the empty app ships: scaffold, workspace resolution, TestFlight
 
-**Date:** 2026-08-13 · **Status:** researched, not started. **D6, D7, D3 and D8 all decided (§2).** This is the **only** stage research that is
+**Date:** 2026-08-13 · **Status:** **PASSED on 2026-08-13**, on the internal-distribution path. The
+Apple/TestFlight leg is deliberately deferred to S7 — see **D9** (§2) and the gate (§7). **D6, D7,
+D3, D8, D9 decided (§2).** This is the **only** stage research that is
 complete — S1–S7 are placeholders by design (see [How the stage docs work](#how-the-stage-docs-work)).
 
 **Parent documents.** The build order is [`2026-08-12-expo-build-plan.md`](./2026-08-12-expo-build-plan.md)
@@ -52,8 +54,8 @@ about is the one you will misdiagnose.
 
 ## 2. Decisions — settled 2026-08-13
 
-All four are **decided**. D8 was raised and closed on 2026-08-13 against the published peer ranges;
-nothing in this file is still open.
+All five are **decided**. D8 was raised and closed on 2026-08-13 against the published peer ranges;
+D9 was raised and closed the same day, after the first device install.
 
 ### D6 — the template: `default` ✅
 
@@ -189,7 +191,8 @@ unmet: pnpm warns rather than fails, and the plugin only patches iOS build setti
 probably work — but "probably" is a native prebuild, which is exactly what S1's gate exists to
 de-risk. If `npx expo prebuild` breaks on it, the fallback ladder is: wait for the 16.x release →
 override the peer → drop to SDK 56. Do not spend S1's gate discovering this; check for a 16.x
-release the day S1 starts.
+release the day S1 starts. **Re-checked 2026-08-13 (same day, after the scaffold): still 15.0.1,
+still `expo: ^56`. No 16.x yet** — S1 starts with this unresolved.
 
 **⚠️ ElevenLabs pins the LiveKit trio to the previous line, and the latest LiveKit contradicts it.**
 `@elevenlabs/react-native@1.2.18` peers `@livekit/react-native: ^2.9.2` **and**
@@ -204,6 +207,41 @@ ElevenLabs' own webrtc peer**. Today's only jointly-satisfying set:
 `npx expo install` picks SDK-matched versions, not peer-consistent ones, so it will not resolve this
 for you. S1 installs the pinned trio above and treats the mismatch as a known state — 137 and 144
 are different libwebrtc binaries, so this is a native-linkage question, not a semver quibble.
+
+### D9 — TestFlight deferred to S7; S0 ships on internal distribution ✅
+
+**Decided 2026-08-13, after a `preview` build ran on a real device.** The Apple Developer / App Store
+Connect side is not set up, and setting it up is not what this project needs next. Development and
+preview builds are enough to carry S1–S6.
+
+**What this costs, stated honestly.** §1's third question — "does the Apple pipeline work end to
+end?" — goes unanswered until S7. That is a real deferral, and this file previously said "resolve
+fully before S1 — do not carry it forward". The reason it is nevertheless the right call now is that
+the residual is **not code**:
+
+| Differs between preview and production                                        | Is it our code?              |
+| ----------------------------------------------------------------------------- | ---------------------------- |
+| Distribution certificate + provisioning profile (ad-hoc → App Store)          | no — Apple credentials       |
+| An App Store Connect app record for `work.kovalchuk.yurii.english-tutor`      | no — Apple account admin     |
+| Upload, processing, TestFlight groups                                         | no — Apple infrastructure    |
+| `appVersionSource: remote` + `autoIncrement`                                  | **eas.json, and untested**   |
+| Everything else — bundle, native modules, config plugins, signing _mechanics_ | **already proven on device** |
+
+A preview build is a Release configuration with the JS bundle embedded and Hermes-compiled, ad-hoc
+signed and installed on real hardware. The one thing it does not exercise is the store-distribution
+identity — so what remains is paperwork plus one untested `eas.json` field, not an unknown in the
+build.
+
+**What it means for the stages that follow:**
+
+- **S1–S6 run on `preview`**, which is the right instrument anyway: B2 (background audio) must be
+  measured on a Release build, never a dev client. The loop is **5 minutes** end to end.
+- **`development` needs `expo-dev-client`**, which is not installed yet — S1 adds it with the
+  ElevenLabs and LiveKit modules. Until then `pnpm build:dev` will not produce a usable dev client.
+- **Ad-hoc profiles embed device UDIDs.** A new or reset device means `eas device:create` **and a
+  rebuild** — an internal build cannot install on a device that was not registered when it was made.
+- **S7 inherits the whole Apple leg**, and it is now the stage with an unproven prerequisite rather
+  than a polish pass. Its first gate is no longer "shippable", it is "does an upload work at all".
 
 ## 3. Versions — one React, and what can silently fight it
 
@@ -254,11 +292,11 @@ after mobile code exists. When a future SDK 57 patch bumps its React, bump both 
       everywhere (`pnpm-workspace.yaml` + `apps/web/package.json`). Web was re-verified after the
       downgrade: `pnpm build` ✅, `pnpm typecheck` ✅, `pnpm lint` ✅, `pnpm check:shared` ✅. S0 does
       not repeat this; it only confirms mobile lands on the same number.
-- [ ] `pnpm why react` from each app directory → exactly one version, 19.2.3, in each.
-- [ ] `npx expo-doctor` from `apps/mobile` — this, not `pnpm why`, is what knows the SDK's
-      expectations. It should report no React version mismatch.
-- [ ] `pnpm dev` / `pnpm build` for web still pass after the downgrade.
-- [ ] `pnpm config get node-linker` → `hoisted` (the pnpm-9-fails-silently check from `CLAUDE.md`).
+- [x] `pnpm why react` → a single `react@19.2.3` across the whole workspace, web and mobile alike.
+- [x] `npx expo-doctor` from `apps/mobile` — 20/20, no React version mismatch. This, not `pnpm why`,
+      is what knows the SDK's expectations.
+- [x] `pnpm build` for web passes after the downgrade.
+- [x] `pnpm config get node-linker` → `hoisted` (the pnpm-9-fails-silently check from `CLAUDE.md`).
 - [ ] Local Node is 22.13.1 — **exactly** SDK 57's floor. `nvm`-style version drift downward now
       breaks the mobile toolchain, not just a warning.
 
@@ -334,28 +372,33 @@ to work — but confirm it, because a red editor for six weeks is its own tax.
 ```jsonc
 // apps/mobile/eas.json
 {
-  "cli": { "version": ">= 0.34.0", "appVersionSource": "remote" },
+  "cli": { "version": ">= 21.0.0", "appVersionSource": "remote" },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "node": "22.x",
+      "node": "22.13.1",
       "env": { "APP_VARIANT": "development" }, // → work.kovalchuk.yurii.english-tutor-dev
     },
     "preview": {
       "distribution": "internal",
-      "node": "22.x",
+      "node": "22.13.1",
       "env": { "APP_VARIANT": "preview" }, // → …english-tutor-preview
     },
     "production": {
       "distribution": "store",
-      "node": "22.x",
+      "node": "22.13.1",
       "autoIncrement": true,
       // no APP_VARIANT — unset means production (D7)
     },
   },
   "submit": {
-    "production": { "ios": { "appleId": "…", "ascAppId": "…", "appleTeamId": "…" } },
+    "production": {
+      "ios": {
+        "appleTeamId": "4FWU8YBV4X", // known now; not a secret
+        // "appleId" / "ascAppId" — added once the App Store Connect record exists (below)
+      },
+    },
   },
 }
 ```
@@ -363,15 +406,43 @@ to work — but confirm it, because a red editor for six weeks is its own tax.
 - **`env.APP_VARIANT`** is what makes D7's three identities real on EAS. `.env` is gitignored and
   never reaches a cloud build, so the profile is the only place the variant can come from — and the
   production profile asserts the default by saying nothing.
-- **`node`** pins the build image's Node to match the root `engines: >= 22` (SDK 57 needs ≥ 22.13;
-  `22.x` resolves above that). Leaving it to the image
-  default is how you get a build that works locally and fails in the cloud.
+- **`node` must be an EXACT version — a range is rejected.** `"22.x"` fails eas.json validation with
+  _"failed custom validation because 22.x is not a valid version"_, and the error arrives after the
+  login prompt, so it reads like an account problem. Use the version you actually run locally
+  (`22.13.1` here, above SDK 57's ≥ 22.13 floor); local/cloud parity is the entire point of the
+  field, and leaving it to the image default is how you get a build that works locally and fails in
+  the cloud. **Corrected 2026-08-13** — this file previously said `22.x`.
+- **`cli.version`** is a floor with a purpose: `eas-cli` versions independently of the SDK, `npx`
+  prefers whatever is on `PATH`, and this machine was carrying a **five-major-stale global 16.13.4**
+  while `npx eas-cli` would have fetched 21.8.0 — two different CLIs depending on how you typed the
+  command. `>= 21.0.0` turns that into an error rather than a divergence. (Fixed 2026-08-13 with
+  `npm install -g eas-cli@latest`.)
 - **`appVersionSource` + `autoIncrement`** — set one of them explicitly. Without it the _second_
   upload is rejected for a duplicate `ios.buildNumber`, which reads like a signing failure and is not.
 - **Package manager.** eas-cli infers pnpm from the root `pnpm-lock.yaml`. If it misdetects
   ([eas-cli#2978](https://github.com/expo/eas-cli/issues/2978)), pin it in the build profile —
   `"corepack": true` (root `packageManager` is already `pnpm@11.20.0`) or an explicit `"pnpm"`
   version field.
+
+### A dynamic config cannot be written to
+
+`eas init` writes `extra.eas.projectId` into a **static `app.json`**. D7 replaced that with
+`app.config.ts`, so the CLI cannot write it and the id must be added by hand:
+
+```ts
+extra: { eas: { projectId: "…" } },
+```
+
+One project id for all three variants — never one per variant. Confirm with
+`npx eas-cli config --platform ios --profile <name>`, which prints the fully resolved config and the
+build profile without building anything. It is the only way to see what a profile will actually
+produce before spending twenty minutes finding out.
+
+**It also confirmed the variant machinery end to end:** `--profile production` resolves to
+`English Tutor` / `work.kovalchuk.yurii.english-tutor` / `englishtutor` **even with
+`APP_VARIANT=development` sitting in `.env`** — eas-cli does not read `.env` at all, unlike
+`expo export` and `expo-doctor`, which announce `env: load .env`. A production build cannot pick up a
+local variant by accident.
 
 ### The fastest path for the first build
 
@@ -405,6 +476,12 @@ run after `eas init`.
   answer the questionnaire by hand. It is a legal declaration, so make it deliberately, not by copy-paste.
 - **App Store Connect API key** beats an Apple ID + app-specific password for `eas submit`;
   two-factor prompts do not belong in a build loop.
+- **The three `submit.production.ios` fields are not equivalent.** `appleTeamId` (`4FWU8YBV4X`) is
+  known before anything exists and is safe to commit — it appears on every provisioning profile and
+  is not a credential. `appleId` is the account email. **`ascAppId` is the one that matters for
+  automation**: it is the numeric App Store Connect app id, it only exists after the app record is
+  created, and supplying it is what lets `eas submit` skip the "does this app exist?" round trip and
+  run non-interactively. Fill it in after the first upload.
 - **Processing takes 5–30 minutes** after upload. Internal testing groups need no Beta App Review;
   external ones do. Stay internal for S0–S3.
 
@@ -412,29 +489,60 @@ run after `eas init`.
 
 ## 6. Steps
 
-- [ ] `cd apps && npx create-expo-app@latest mobile --template default` — SDK **57** (D8); `@latest`
-      is correct, no `@sdk-xx` pin
-- [ ] `"name": "mobile"` in `apps/mobile/package.json` — the root `pnpm mobile` script filters on it
-- [ ] **Add `"typecheck": "tsc --noEmit"` and `"lint": "eslint ."`** to `apps/mobile/package.json`.
-      The root scripts are `pnpm -r typecheck` / `pnpm -r lint`: a package without the script is
-      **skipped silently**, so without this the §7 gate line passes without ever entering mobile
-- [ ] Strip the template to a single screen (look for the `reset-project` script first)
-- [ ] `pnpm add @tutor/shared@workspace:*` in `apps/mobile`
-- [ ] `npx expo install @expo/ui` — check whether the default template already added it (D3)
-- [ ] Replace `app.json` with the `app.config.ts` from §2 (D7): three variants, `slug`
-      `english-tutor`, `ITSAppUsesNonExemptEncryption: false`
-- [ ] `APP_VARIANT=development` in `apps/mobile/.env` for local runs (gitignored, and that is fine —
-      §5)
-- [ ] Ship the generated `metro.config.js` **untouched**
-- [ ] Render `KICKOFF_MESSAGE` from `@tutor/shared/tutor` (§4) **inside an Expo UI `Host`** — one
-      `Text` or `Button` from `@expo/ui/swift-ui`, sized with `style={{ flex: 1 }}` (D3)
-- [ ] `pnpm install` at the repo root → `ls apps/mobile/node_modules` is a flat tree
-- [ ] `npx expo-doctor` from `apps/mobile`; `pnpm why react` per app → **19.2.3**, already pinned (§3)
-- [ ] `pnpm typecheck` and `pnpm lint` from the root — confirm the output **names `mobile`**
-- [ ] Commit `apps/mobile` (EAS uploads via git — §5)
-- [ ] `npx testflight` with no `APP_VARIANT` set, or `eas init` → `eas build --profile production` →
-      `eas submit`
-- [ ] Install from TestFlight on the target device
+Executed 2026-08-13. What the scaffold actually did, including four things the research did not
+predict — each marked **↯**.
+
+- [x] `cd apps && npx create-expo-app@latest mobile --template default --no-install` → **SDK 57.0.12,
+      RN 0.86.2, react 19.2.3**. `--no-install` deliberately: let the root `pnpm install` own the
+      tree rather than letting npm create a nested one.
+- [x] **↯ Three steps were already done by the template**: `"name": "mobile"`, `@expo/ui@~57.0.10` in
+      `dependencies` (D3 confirmed — it did ship in the default template), and `react: 19.2.3`
+      **exactly** — the number §3 derived from RN's peer range, written by the template itself.
+- [x] **↯ The app directory is `src/app/`, not `app/`** — SDK 57's default template nests the router
+      root under `src/`, with `@/*` → `./src/*` in `tsconfig.json`.
+- [x] Stripped to one screen by hand: deleted `src/components`, `src/constants`, `src/hooks`,
+      `src/global.css`, `explore.tsx`, `scripts/`, the template `README`/`LICENSE`, and every asset
+      except the icon and splash. `_layout.tsx` is now a bare `Stack`.
+- [x] `"@tutor/shared": "workspace:*"` added to `dependencies`
+- [x] Added `"typecheck": "tsc --noEmit"`; dropped `android` / `web` / `reset-project` scripts (D2).
+      The template already had a `lint` script (`expo lint`), replaced with `eslint .` plus an
+      `eslint.config.js` extending `eslint-config-expo/flat`, to match `apps/web`.
+- [x] **↯ `unrs-resolver` must be added to `allowBuilds` in `pnpm-workspace.yaml`.** It is the native
+      resolver behind `eslint-config-expo`'s import plugin, and pnpm 10+ blocks its postinstall.
+      This does not warn — pnpm's deps-status check **exits non-zero**, so `pnpm typecheck` in
+      `apps/mobile` dies before `tsc` ever runs, with an error naming neither TypeScript nor ESLint.
+- [x] `app.config.ts` written from §2 (three variants, slug `english-tutor`,
+      `ITSAppUsesNonExemptEncryption: false`); `app.json` deleted
+- [x] `eas.json` written from §5, with `env.APP_VARIANT` per profile
+- [x] `apps/mobile/.env` → `APP_VARIANT=development`; confirmed gitignored by the **root**
+      `.gitignore` (bare `.env` matches at any depth), and `expo-doctor` prints `env: load .env` →
+      `env: export APP_VARIANT`, so the local dev identity works as designed
+- [x] **↯ There is no `metro.config.js` to ship untouched** — SDK 57's template does not generate
+      one at all. The rule becomes stronger, not weaker: **do not create one.**
+- [x] `KICKOFF_MESSAGE` rendered from `@tutor/shared/tutor` inside an Expo UI `Host`, with the
+      resolved bundle identifier on screen so a TestFlight install can be checked against D7 by eye
+- [x] **↯ Expo UI text takes no style props.** `Text` has no `size` / `weight` / `color`; styling is
+      `modifiers={[font({size, weight, design}), foregroundStyle({type: "hierarchical", …})]}` from
+      `@expo/ui/swift-ui/modifiers`. Caught by `tsc`, not at runtime. **S6 inherits this.**
+- [x] `pnpm install` at the root → `apps/mobile/node_modules` is flat (544 entries), `@tutor/shared`
+      a symlink to `packages/shared`, `react` 19.2.3
+- [x] `npx expo-doctor` → **20/20 checks passed, no issues** — in particular no React version
+      complaint, which is what §3 predicted
+- [x] `pnpm typecheck` and `pnpm lint` from the root → `Scope: 3 of 4 workspace projects`, both
+      naming `mobile`. The `typecheck` script addition is what makes that true.
+- [x] **↯ `npx expo export --platform ios` proves §1's first question without Apple.** It runs the
+      real Metro pipeline: bundled 1230 modules, and the Hermes output contains the literal
+      `KICKOFF_MESSAGE` string — so the subpath export resolved, raw TypeScript from outside the app
+      directory transpiled, and the constant survived into the bundle. **No
+      `unstable_enablePackageExports` was needed.** Run this before every EAS build; it costs six
+      seconds and it is the same failure surface as the cloud build, minus the twenty-minute wait.
+- [x] Commit `apps/mobile` (EAS uploads via git — §5)
+- [x] **A `preview` build was made and installed on a real device** (2026-08-13): EAS build #1,
+      internal distribution, **5 minutes** wall clock, iOS **26.4** device. A second preview build was
+      cancelled, so `autoIncrement` is still unproven (production-only setting).
+- [→] `npx testflight` / `eas build --profile production` → `eas submit` — **deferred to S7 (D9)**:
+  needs an Apple Developer account and App Store Connect setup that does not exist yet
+- [→] Install from TestFlight on the target device — **deferred to S7 (D9)**
 
 **Do not add in this stage:** ElevenLabs, LiveKit, Auth0 (and its plugin/`customScheme` wiring),
 `UIBackgroundModes`, `NSMicrophoneUsageDescription`, any `/api/v2/*` route. Each belongs to the stage
@@ -445,40 +553,62 @@ exist in `eas.json`, but only production is exercised here.
 
 ## 7. Gate
 
-- [ ] Installs from TestFlight and launches
-- [ ] **Displays the string imported from `@tutor/shared/tutor`**
-- [ ] **An Expo UI component renders inside a `Host`** (D3 — proves the native module links in a
-      cloud build, five stages before S6 depends on it)
-- [ ] The installed app is `work.kovalchuk.yurii.english-tutor`, named **English Tutor** — the
-      production identity, not a variant (D7)
-- [ ] Root `pnpm typecheck` + `pnpm lint` pass **and the output shows `mobile`**, not just `web` and
-      `@tutor/shared`
-- [ ] A second build uploads without a version collision (proves `autoIncrement`)
+Status 2026-08-13. **A `preview` build on a real device closed four of the six lines** — worth more
+than it sounds, because a preview build is a Release configuration with the JS bundle embedded, so
+what ran on that phone is the production code path in everything but signing.
 
-The second and third lines are the load-bearing ones. Ten minutes to fix here; a bewildering
-afternoon at S4 or S6, where the same failures surface far from their cause.
+- [x] **Displays the string imported from `@tutor/shared/tutor`** — confirmed on device: "Let's
+      begin. Greet me in one sentence and start teaching the first item now."
+- [x] **An Expo UI component renders inside a `Host`** — confirmed on device. Every glyph on that
+      screen is SwiftUI behind `@expo/ui/swift-ui`, so seeing _any_ text proves the native module
+      compiled, linked and rendered in a cloud build. D3 is de-risked five stages before S6 needs it.
+- [x] Root `pnpm typecheck` + `pnpm lint` pass **and the output shows `mobile`** —
+      `Scope: 3 of 4 workspace projects`.
+- [x] Installs on the target device and launches (iOS 26.4, well above the 16.4 floor).
+- [ ] **Installs from TestFlight** — still open. What is installed is
+      `work.kovalchuk.yurii.english-tutor-preview`, ad-hoc signed via internal distribution. That
+      proves EAS builds this monorepo; it does **not** prove the Apple leg: App Store Connect record →
+      store-signed upload → processing → TestFlight. That leg is §1's third question and the whole
+      reason S0 exists as a stage.
+- [ ] The installed app is `work.kovalchuk.yurii.english-tutor`, named **English Tutor** — the
+      production identity (D7). The preview install did confirm the variant machinery works end to
+      end, since the screen printed the `-preview` identifier it was built with.
+- [ ] A second build uploads without a version collision (proves `autoIncrement`). Both preview
+      builds carried `build#1` — `autoIncrement` is set on the production profile only, so this is
+      genuinely untested.
+
+**The two open lines are deferred to S7 by D9, not failed.** Both depend on an Apple Developer / App
+Store Connect setup that does not exist yet, and neither is a property of our build: a preview build
+is the same Release binary with a different signing identity. What S1 must not do is quietly assume
+they passed — the ladder's rule was "resolve signing before S1", and this is an explicit, recorded
+exception rather than a forgotten one.
 
 ---
 
 ## 8. If it fails
 
-| Symptom                                                  | Cause / next move                                                                                                       |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Unable to resolve module @tutor/shared/tutor`           | Package exports. Set `config.resolver.unstable_enablePackageExports = true` — the one permitted `metro.config.js` edit. |
-| `SyntaxError: Unexpected token` inside `packages/shared` | Metro is not transpiling outside the app dir. Do **not** hand-write `watchFolders`; check the SDK version first.        |
-| Resolution works, editor is red                          | tsc, not Metro. Check `moduleResolution: "bundler"` in `apps/mobile/tsconfig.json` before adding `paths`.               |
-| Two Reacts at runtime (`Invalid hook call`)              | The override lost. `pnpm why react`; fix the override rather than the app.                                              |
-| EAS picks the wrong package manager                      | [eas-cli#2978](https://github.com/expo/eas-cli/issues/2978) — pin `corepack`/`pnpm` in the build profile.               |
-| Build fails only in the cloud                            | Node version drift. Pin `"node": "22.x"` per profile.                                                                   |
-| Second upload rejected, duplicate build number           | `appVersionSource` / `autoIncrement` not set.                                                                           |
-| Build stuck at "Missing Compliance"                      | `ITSAppUsesNonExemptEncryption` — see §5.                                                                               |
-| Signing / provisioning                                   | Not our code. **Resolve fully before S1** — do not carry it forward.                                                    |
-| `expo-doctor` flags the React version                    | The workspace override (19.2.7) vs the SDK's React. Unscope the override — §3, not the app.                             |
-| `pnpm -r typecheck` is green but never entered `mobile`  | No `typecheck` script in `apps/mobile/package.json`; `pnpm -r` skips silently. §6.                                      |
-| `npx testflight` built the wrong bundle identifier       | A stray `APP_VARIANT` in the shell or `apps/mobile/.env`. Unset means production by design — D7.                        |
-| Expo UI renders nothing, or a zero-height box            | `Host` needs explicit dimensions or `matchContents` — D3.                                                               |
-| A list stops scrolling (later, at S6)                    | `matchContents` on the same axis as a SwiftUI scroll container → `.fixedSize`. Silent by nature — D3.                   |
-| (S2) Auth0 returns and no app opens                      | Two variants sharing one URL scheme; iOS picks undefined. Per-variant schemes — D7.                                     |
+| Symptom                                                                                  | Cause / next move                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Unable to resolve module @tutor/shared/tutor`                                           | Package exports. Set `config.resolver.unstable_enablePackageExports = true` — the one permitted `metro.config.js` edit.                                                                                                                     |
+| `SyntaxError: Unexpected token` inside `packages/shared`                                 | Metro is not transpiling outside the app dir. Do **not** hand-write `watchFolders`; check the SDK version first.                                                                                                                            |
+| Resolution works, editor is red                                                          | tsc, not Metro. Check `moduleResolution: "bundler"` in `apps/mobile/tsconfig.json` before adding `paths`.                                                                                                                                   |
+| Two Reacts at runtime (`Invalid hook call`)                                              | The override lost. `pnpm why react`; fix the override rather than the app.                                                                                                                                                                  |
+| EAS picks the wrong package manager                                                      | [eas-cli#2978](https://github.com/expo/eas-cli/issues/2978) — pin `corepack`/`pnpm` in the build profile.                                                                                                                                   |
+| Build fails only in the cloud                                                            | Node version drift. Pin `"node": "22.13.1"` per profile.                                                                                                                                                                                    |
+| Second upload rejected, duplicate build number                                           | `appVersionSource` / `autoIncrement` not set.                                                                                                                                                                                               |
+| Build stuck at "Missing Compliance"                                                      | `ITSAppUsesNonExemptEncryption` — see §5.                                                                                                                                                                                                   |
+| Signing / provisioning                                                                   | Not our code. **Resolve fully before S1** — do not carry it forward.                                                                                                                                                                        |
+| `eas.json is not valid` — `"build.*.node" failed custom validation`                      | `node` takes an exact version, never a range. The message appears _after_ the login prompt, so it looks like an auth failure. §5.                                                                                                           |
+| `Missing submit profile in eas.json: preview`                                            | `--auto-submit` looks for a submit profile named after the build profile — but `preview` is `distribution: internal` (ad-hoc) and App Store Connect rejects those. Do not add the profile; use `production`. §5.                            |
+| An empty `app.json` (`{"expo": {}}`) appears at the **repo root**                        | An eas/expo command was run from the repo root instead of `apps/mobile`. Delete it — a root `app.json` makes Expo tooling treat the whole repo as an app. §5.                                                                               |
+| `eas init` cannot save the project id                                                    | `app.config.ts` is dynamic; add `extra.eas.projectId` by hand. §5.                                                                                                                                                                          |
+| `expo-doctor` flags the React version                                                    | The workspace override (19.2.7) vs the SDK's React. Unscope the override — §3, not the app.                                                                                                                                                 |
+| `pnpm -r typecheck` is green but never entered `mobile`                                  | No `typecheck` script in `apps/mobile/package.json`; `pnpm -r` skips silently. §6.                                                                                                                                                          |
+| `pnpm typecheck` in `apps/mobile` fails before `tsc` runs, naming neither tsc nor eslint | `ERR_PNPM_IGNORED_BUILDS` for `unrs-resolver`. Add it to `allowBuilds` — §6. Do **not** edit it into `allowBuilds` by hand while an install is mid-flight: pnpm appends its own placeholder line and the YAML ends up with a duplicate key. |
+| `npx testflight` built the wrong bundle identifier                                       | A stray `APP_VARIANT` in the shell or `apps/mobile/.env`. Unset means production by design — D7.                                                                                                                                            |
+| Expo UI renders nothing, or a zero-height box                                            | `Host` needs explicit dimensions or `matchContents` — D3.                                                                                                                                                                                   |
+| A list stops scrolling (later, at S6)                                                    | `matchContents` on the same axis as a SwiftUI scroll container → `.fixedSize`. Silent by nature — D3.                                                                                                                                       |
+| (S2) Auth0 returns and no app opens                                                      | Two variants sharing one URL scheme; iOS picks undefined. Per-variant schemes — D7.                                                                                                                                                         |
 
 ---
 
@@ -493,25 +623,48 @@ Record these here when the gate goes green; S1's research file starts by reading
       `@livekit/react-native ≥ 2.10` requires `^144`, so S1 installs
       `@livekit/react-native@2.9.x` + `@livekit/react-native-webrtc@137.x` + `livekit-client@^2.15.4`
       rather than whatever `npx expo install` offers.
-- [ ] Confirmation that mobile accepted 19.2.3 without an `expo-doctor` complaint (web was already
-      re-verified on the downgrade, 2026-08-13)
-- [ ] EAS project id for **English Tutor**, and confirmation that all three variants share it
+- [x] **Installed: Expo SDK 57.0.12, RN 0.86.2, React 19.2.3.** `expo-doctor` reports 20/20 with no
+      React complaint — the template writes 19.2.3 itself, so §3's pin and the SDK agree exactly.
+      TypeScript in `apps/mobile` is **~6.0.3**, a major ahead of the 5.7.2 used by `apps/web` and
+      `packages/shared`; independent trees, so it typechecks green, but a syntax feature that only
+      TS 6 accepts would compile in mobile and fail in shared. **Device iOS: 26.4** — far above the
+      16.4 deployment floor, so nothing in S1 will be gated by OS version on this handset. Keep in
+      mind it is also the _only_ device tested; iOS 16.4–18 behaviour is unobserved.
+- [x] **EAS project id `6a38b3eb-8751-43eb-bb09-860d58ec4a68`**, in `extra.eas.projectId` in
+      `app.config.ts` (by hand — a dynamic config cannot be written by `eas init`, §5). All three
+      variants read the same id; `eas config --profile <name>` confirms each one resolves its own
+      bundle identifier from it.
 - [ ] The three bundle identifiers and their schemes (D7 table) — **S2 needs all three callback URLs**,
       comma-separated in the one Auth0 Native application:
       `englishtutordev://{domain}/ios/work.kovalchuk.yurii.english-tutor-dev/callback`,
       `englishtutorpreview://…-preview/callback`, `englishtutor://…english-tutor/callback`
-- [ ] Whether `unstable_enablePackageExports` was needed (a yes changes the S4/S5/S6 baseline)
+- [x] **`unstable_enablePackageExports` was NOT needed, and there is no `metro.config.js` at all** —
+      SDK 57's template generates none. `npx expo export --platform ios` bundles 1230 modules and the
+      Hermes output contains the `KICKOFF_MESSAGE` literal, so subpath exports and raw-TS
+      transpilation from outside the app dir both work untouched. The S4/S5/S6 baseline is the clean
+      one.
 - [ ] The final `eas.json` — S1 needs `EXPO_PUBLIC_AGENT_ID` delivered as an **EAS environment
       variable**, since `.env` is gitignored and never reaches a cloud build. It also needs the
       **development** profile to actually build for the first time, which S0 never exercised.
-- [ ] Measured turnaround: build → processing → installable. This is the tick rate of every stage
-      after it, and S1b's five tests each need a device install.
+- [x] Measured turnaround: **an internal (preview) build is 5 minutes** queue-to-artifact, then
+      direct install — no Apple processing in that path. The TestFlight path adds a store-signed
+      upload plus 5–30 minutes of App Store Connect processing and is **not measured — deferred to S7
+      by D9**. S1b's five tests each need an install, so the 5-minute internal loop is the number that
+      matters, and under D9 it is the _only_ loop S1–S6 use.
 - [ ] The confirmed local release-build command
-      (`npx expo prebuild --clean && npx expo run:ios --device --configuration Release`) — S1 uses it
-      for fast iteration, and TestFlight for the gate itself. Both, not either. Note that it obeys
-      `APP_VARIANT`, so S1 iterates on `…-dev` while the gate runs on production.
-- [ ] **D3 is decided (Expo UI)** — hand S6 whether the `Host` smoke test needed any sizing
-      workaround, and whether `@expo/ui` came from the template or had to be installed
+      (`npx expo prebuild --clean && npx expo run:ios --device --configuration Release`, i.e.
+      `pnpm native` + `pnpm device:release`) — untested so far, since the device install came from a
+      cloud preview build. Note that it obeys `APP_VARIANT`, so it produces the `-dev` identity
+      unless told otherwise. Under D9 the S1 gate runs on `preview` rather than TestFlight.
+- [x] **D3 (Expo UI): `@expo/ui@~57.0.10` came from the template**, no install needed. The `Host`
+      renders with `style={{ flex: 1 }}` — no `matchContents` and no sizing workaround. **S6 must
+      know:** SwiftUI components take no style props; `Text` has no `size`/`weight`/`color`, and
+      everything goes through `modifiers={[font({…}), foregroundStyle({…})]}` imported from
+      `@expo/ui/swift-ui/modifiers`. `tsc` catches misuse, so this is a compile-time cost, not a
+      runtime surprise.
+- [x] **The `Host` renders correctly on a real device** (preview build, iOS 26.4) with
+      `style={{ flex: 1 }}` and no sizing workaround. SwiftUI text, layout and the shared string all
+      appear as written, so S6 starts from a working baseline rather than an assumption.
 
 ---
 

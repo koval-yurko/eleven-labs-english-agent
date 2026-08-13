@@ -29,7 +29,13 @@ Expected answer: it holds. S1 exists because a mechanism being right does not pr
 - [ ] Bundle id (the **`-dev` variant** — S1 iterates on `APP_VARIANT=development`), EAS project id,
       working `eas.json`
 - [ ] How to deliver `EXPO_PUBLIC_AGENT_ID` to a cloud build (EAS environment variables — `.env` is gitignored)
-- [ ] Measured build → processing → install turnaround
+- [x] Measured turnaround: **5 minutes** for an internal build, install straight to the device — no
+      Apple processing in that path. **S1 runs entirely on `preview` builds** (D9): TestFlight is
+      deferred to S7, and a Release build is the correct instrument for B2 anyway.
+- [ ] `expo-dev-client` is **not installed yet** — the `development` profile exists but cannot
+      produce a usable dev client until S1 adds it alongside the ElevenLabs and LiveKit modules
+- [ ] Ad-hoc profiles embed device UDIDs: a new or reset handset needs `eas device:create` **and a
+      rebuild**, not just a reinstall
 - [ ] The confirmed local release-build command, for iteration between TestFlight uploads
 - [ ] Whether `unstable_enablePackageExports` was needed
 - [ ] Installed SDK / RN / React versions and the device's iOS version. **Expected: SDK 57 /

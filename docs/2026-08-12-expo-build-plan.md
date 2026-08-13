@@ -128,10 +128,14 @@ import { KICKOFF_MESSAGE } from "@tutor/shared/tutor";
 <Text>{KICKOFF_MESSAGE}</Text>;
 ```
 
-### Gate
+### Gate — **passed 2026-08-13**, on internal distribution
 
-- [ ] Installs from TestFlight and launches
-- [ ] **Displays the string imported from `@tutor/shared`**
+- [x] Installs on a real device (iOS 26.4) and launches — via an EAS **`preview`** build,
+      internal distribution. **TestFlight itself is deferred to S7** by D9
+      ([S0 §2](./2026-08-13-expo-s0-scaffold-testflight.md#d9--testflight-deferred-to-s7-s0-ships-on-internal-distribution-)): the Apple Developer / App Store Connect side is not set up, and everything that
+      differs between preview and production is Apple-side rather than ours.
+- [x] **Displays the string imported from `@tutor/shared`** — confirmed on device, alongside an
+      Expo UI `Host` rendering SwiftUI, which retires D3's native-linkage risk five stages early.
 
 That second line is load-bearing, not decoration. Every screen in this plan depends on Metro resolving
 a workspace package that ships **raw TypeScript through subpath exports** (`"./*": "./src/*.ts"`)

@@ -1,0 +1,28 @@
+{
+  "cli": { "version": ">= 21.0.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "node": "22.13.1",
+      "env": { "APP_VARIANT": "development" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "node": "22.13.1",
+      "env": { "APP_VARIANT": "preview" }
+    },
+    "production": {
+      "distribution": "store",
+      "node": "22.13.1",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "4FWU8YBV4X"
+      }
+    }
+  }
+}
