@@ -3,7 +3,9 @@
 **Date:** 2026-08-13 · **Status:** **PASSED on 2026-08-13**, on the internal-distribution path. The
 Apple/TestFlight leg is deliberately deferred to S7 — see **D9** (§2) and the gate (§7). **D6, D7,
 D3, D8, D9 decided (§2).** This is the **only** stage research that is
-complete — S1–S7 are placeholders by design (see [How the stage docs work](#how-the-stage-docs-work)).
+complete — S2–S7 are placeholders by design (see [How the stage docs work](#how-the-stage-docs-work)).
+**S1 was researched on 2026-08-13** and closes both peer questions this file left open — see the
+callout in §2 D8.
 
 **Parent documents.** The build order is [`2026-08-12-expo-build-plan.md`](./2026-08-12-expo-build-plan.md)
 (S0 section); the reasoning is [`2026-08-12-expo-app-creation.md`](./2026-08-12-expo-app-creation.md)
@@ -19,7 +21,7 @@ One research file per stage, numbered:
 | Stage | File                                                                            | State          |
 | ----- | ------------------------------------------------------------------------------- | -------------- |
 | S0    | this file                                                                       | **researched** |
-| S1    | [`…-expo-s1-background-audio.md`](./2026-08-13-expo-s1-background-audio.md)     | placeholder    |
+| S1    | [`…-expo-s1-background-audio.md`](./2026-08-13-expo-s1-background-audio.md)     | **researched** |
 | S2    | [`…-expo-s2-auth0-bearer.md`](./2026-08-13-expo-s2-auth0-bearer.md)             | placeholder    |
 | S3    | [`…-expo-s3-conversation-token.md`](./2026-08-13-expo-s3-conversation-token.md) | placeholder    |
 | S4    | [`…-expo-s4-tutor-screen.md`](./2026-08-13-expo-s4-tutor-screen.md)             | placeholder    |
@@ -207,6 +209,16 @@ ElevenLabs' own webrtc peer**. Today's only jointly-satisfying set:
 `npx expo install` picks SDK-matched versions, not peer-consistent ones, so it will not resolve this
 for you. S1 installs the pinned trio above and treats the mismatch as a known state — 137 and 144
 are different libwebrtc binaries, so this is a native-linkage question, not a semver quibble.
+
+> **⚠️ Superseded 2026-08-13 by [S1 §2 D10](./2026-08-13-expo-s1-background-audio.md#d10--the-dependency-set-and-the-real-reason-for-it-)** —
+> the conflict is real, the cause is not. Reading the sources shows the private APIs ElevenLabs
+> depends on (`createVolumeProcessor`, `_peerConnectionId`) are **identical** across 137 and 144;
+> what actually binds is that `@elevenlabs/client@1.17.0` depends on **`livekit-client` at exactly
+> `2.16.1`**, which `@livekit/react-native@2.9.8` (`^2.15.8`) satisfies and `2.12.0` (`^2.19.0`) does
+> not — two copies of `livekit-client`, two `Room` classes, in one process. **`^2.15.4` above is
+> wrong**: a caret resolves to 2.21.0 and produces exactly that duplicate. Pin `2.16.1`, exact. The
+> `@config-plugins/react-native-webrtc` warning also resolved to a non-issue — its whole source is
+> two Info.plist strings, a bitcode no-op and Android permissions.
 
 ### D9 — TestFlight deferred to S7; S0 ships on internal distribution ✅
 
@@ -623,6 +635,9 @@ Record these here when the gate goes green; S1's research file starts by reading
       `@livekit/react-native ≥ 2.10` requires `^144`, so S1 installs
       `@livekit/react-native@2.9.x` + `@livekit/react-native-webrtc@137.x` + `livekit-client@^2.15.4`
       rather than whatever `npx expo install` offers.
+      **Both closed 2026-08-13 in [S1 §2 D10](./2026-08-13-expo-s1-background-audio.md#d10--the-dependency-set-and-the-real-reason-for-it-):**
+      (a) is a non-issue; (b) is real but for a different reason, and the correct pin is
+      `livekit-client@2.16.1` **exactly** — see the callout in §2 D8.
 - [x] **Installed: Expo SDK 57.0.12, RN 0.86.2, React 19.2.3.** `expo-doctor` reports 20/20 with no
       React complaint — the template writes 19.2.3 itself, so §3's pin and the SDK agree exactly.
       TypeScript in `apps/mobile` is **~6.0.3**, a major ahead of the 5.7.2 used by `apps/web` and

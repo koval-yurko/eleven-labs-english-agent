@@ -84,6 +84,9 @@ function hashConfig(c: EffectiveAgentConfig): string {
     voiceId: c.voiceId ?? null,
     ttsModelId: c.ttsModelId,
     additionalLanguages: c.additionalLanguages,
+    // Anything added to agentBody() MUST be added here too, or sync reports "unchanged" while the
+    // live agent keeps the old value — the exact silent drift the lockfile exists to prevent.
+    maxDurationSeconds: c.maxDurationSeconds,
   });
   return "sha256:" + createHash("sha256").update(canonical).digest("hex");
 }
@@ -105,6 +108,9 @@ function agentBody(c: EffectiveAgentConfig) {
         },
       },
       tts: { model_id: c.ttsModelId, voice_id: c.voiceId },
+      // ElevenLabs' default is 600s, which ends a lesson at ten minutes. Accepted range is
+      // 60–7200 (undocumented; the API states it on rejection). See prompts/index.ts.
+      conversation: { max_duration_seconds: c.maxDurationSeconds },
       ...(c.additionalLanguages.length > 0 ? { language_presets } : {}),
     },
   };

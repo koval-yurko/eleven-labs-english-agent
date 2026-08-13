@@ -23,6 +23,14 @@ hoistingLimits: workspaces
 overrides:
   react: 19.2.3
   react-dom: 19.2.3
+  # The fourth member of the LiveKit/ElevenLabs coherent set (S1/D10). `@livekit/react-native@2.9.8`
+  # depends on `@livekit/components-react: ^2.9.17`, which today resolves to 2.9.24 — and that peers
+  # `livekit-client: ^2.20.1`, while `@elevenlabs/client` pins livekit-client to exactly 2.16.1.
+  # 2.9.19 is the newest release whose peer (`^2.16.0`) still accepts it. This is not cosmetic:
+  # `@livekit/react-native`'s hooks.ts imports components-react at module scope, so it is loaded
+  # the moment the ElevenLabs SDK imports the package.
+  # Scoped to the one parent that pulls it in. See docs/2026-08-13-expo-s1-background-audio.md §2 D10.
+  "@livekit/react-native>@livekit/components-react": 2.9.19
 
 # pnpm 10+ blocks dependency postinstall scripts until they are named here. Both of these ran
 # unblocked under pnpm 9, so approving them restores the previous behaviour rather than granting

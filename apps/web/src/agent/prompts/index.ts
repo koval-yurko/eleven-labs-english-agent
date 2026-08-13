@@ -15,6 +15,13 @@ export type { PromptVersion } from "./types";
 /** Defaults baked into the agent when a version doesn't override them. */
 export const DEFAULT_LLM = "claude-sonnet-4-6";
 export const DEFAULT_TTS_MODEL = "eleven_v3_conversational";
+/**
+ * 30 minutes. ElevenLabs defaults to 600s, which cuts a lesson off at ten minutes — found when an
+ * S1 probe session died at exactly 600s (docs/2026-08-13-expo-s1-background-audio.md §11).
+ * The API's accepted range is 60–7200; we deliberately do not take the maximum, because this value
+ * is also the cost backstop for a session nobody ended.
+ */
+export const DEFAULT_MAX_DURATION_SECONDS = 1800;
 
 /**
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
@@ -32,6 +39,7 @@ export interface EffectiveAgentConfig {
   voiceId: string | undefined;
   ttsModelId: string;
   additionalLanguages: string[];
+  maxDurationSeconds: number;
 }
 
 /** Resolve a version's full baked agent config, applying env/constant defaults (sync-time). */
@@ -47,6 +55,7 @@ export function effectiveConfig(
     voiceId: v.voiceId ?? env.ELEVENLABS_TEACHER_VOICE_ID?.trim() ?? undefined,
     ttsModelId: v.ttsModelId ?? env.LIVE_STORY_TTS_MODEL?.trim() ?? DEFAULT_TTS_MODEL,
     additionalLanguages: v.additionalLanguages ?? [],
+    maxDurationSeconds: v.maxDurationSeconds ?? DEFAULT_MAX_DURATION_SECONDS,
   };
 }
 

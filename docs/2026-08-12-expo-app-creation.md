@@ -497,6 +497,14 @@ LiveKit's `registerGlobals()` already configures and activates the iOS audio ses
 audio-engine lifecycle — the SDK's default is documented as sufficient for voice apps, which is why
 §7 adds no custom audio code.
 
+> **⚠️ Partly superseded 2026-08-13 by [S1 §3](./2026-08-13-expo-s1-background-audio.md#3-the-mechanism-corrected-for-the-version-we-install).**
+> The audio-engine-lifecycle description above is **`@livekit/react-native@2.12.0`'s** mechanism, and
+> D10 pins us to **2.9.8** (ElevenLabs' `livekit-client` pin forces it). At 2.9.8 `registerGlobals()`
+> instead monkey-patches `getUserMedia` and sets `playAndRecord` **once**, before mic acquisition,
+> with no `audioMode` and no re-application; the lifecycle-aware path is a React hook
+> (`useIOSAudioManagement`) that the ElevenLabs SDK never calls. The conclusion — the #1467 condition
+> is met, so B2 should hold — is unchanged. The exposure is **interruption recovery** (test E).
+
 **The condition that matters.** `react-native-webrtc#1467` documents the failure mode precisely: with
 **no** incoming voice track and the app **not** transmitting, iOS suspends the app after ~40 seconds.
 With at least one audio track present — even from a muted peer — it stays awake. Track _existence_ is

@@ -1,7 +1,9 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** not started. **Current stage: S0** — next action:
-[research S0](./2026-08-13-expo-s0-scaffold-testflight.md) is done, so **execute it**.
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S2** — **S1 passed on 2026-08-13,
+tests A–E all green**, so B2 is answered and CallKit is off the table
+([S1 §10](./2026-08-13-expo-s1-background-audio.md#10-result--b2-is-answered)).
+**Next action: write S2's research** from its placeholder, per the end-of-stage ritual.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -39,16 +41,16 @@ the thing that consumes it is proven.
 **This table is the tracker. Update it at the end of every stage — it is how the next session knows
 which stage to work on and which research to write.**
 
-| Stage  | Research note                                                            | Research       | Build | Gate result |
-| ------ | ------------------------------------------------------------------------ | -------------- | ----- | ----------- |
-| **S0** | [s0 — scaffold, TestFlight](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅ full        | ⬜    | —           |
-| **S1** | [s1 — background audio](./2026-08-13-expo-s1-background-audio.md)        | 🔲 placeholder | ⬜    | —           |
-| **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | 🔲 placeholder | ⬜    | —           |
-| **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | 🔲 placeholder | ⬜    | —           |
-| **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | 🔲 placeholder | ⬜    | —           |
-| **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —           |
-| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | 🔲 placeholder | ⬜    | —           |
-| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | 🔲 placeholder | ⬜    | —           |
+| Stage  | Research note                                                            | Research       | Build | Gate result                                                               |
+| ------ | ------------------------------------------------------------------------ | -------------- | ----- | ------------------------------------------------------------------------- |
+| **S0** | [s0 — scaffold, TestFlight](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅ full        | ✅    | passed 2026-08-13 — internal distribution; TestFlight deferred to S7 (D9) |
+| **S1** | [s1 — background audio](./2026-08-13-expo-s1-background-audio.md)        | ✅ full        | ✅    | **passed 2026-08-13 — A–E all green, both directions**                    |
+| **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | 🔲 placeholder | ⬜    | —                                                                         |
+| **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | 🔲 placeholder | ⬜    | —                                                                         |
+| **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | 🔲 placeholder | ⬜    | —                                                                         |
+| **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —                                                                         |
+| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | 🔲 placeholder | ⬜    | —                                                                         |
+| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | 🔲 placeholder | ⬜    | —                                                                         |
 
 **Research legend:** 🔲 placeholder (seeded, not researched) · 🟡 being written · ✅ full.
 
@@ -75,8 +77,8 @@ When a stage's gate is decided — green **or** red:
 
 | Stage  | What it adds                                                | Gate                                            | Est.  | Research                                          | Status |
 | ------ | ----------------------------------------------------------- | ----------------------------------------------- | ----- | ------------------------------------------------- | ------ |
-| **S0** | empty Expo app, EAS, TestFlight, one `@tutor/shared` import | installs, launches, renders the shared string   | 1–2 d | [✅](./2026-08-13-expo-s0-scaffold-testflight.md) | ⬜     |
-| **S1** | ElevenLabs + LiveKit, public agent, suspension probe        | **S1a** runs → **S1b** survives a locked screen | 1–2 d | [🔲](./2026-08-13-expo-s1-background-audio.md)    | ⬜     |
+| **S0** | empty Expo app, EAS, TestFlight, one `@tutor/shared` import | installs, launches, renders the shared string   | 1–2 d | [✅](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅     |
+| **S1** | ElevenLabs + LiveKit, public agent, suspension probe        | **S1a** runs → **S1b** survives a locked screen | 1–2 d | [✅](./2026-08-13-expo-s1-background-audio.md)    | ✅     |
 | **S2** | `react-native-auth0` login + Bearer on the server           | a Bearer call returns the right `sub`           | 2–3 d | [🔲](./2026-08-13-expo-s2-auth0-bearer.md)        | ⬜     |
 | **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [🔲](./2026-08-13-expo-s3-conversation-token.md)  | ⬜     |
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
@@ -156,7 +158,7 @@ failure surfaces far from its cause.
 
 ## S1 — B2: does a locked screen kill the session?
 
-**Research note:** [2026-08-13-expo-s1-background-audio.md](./2026-08-13-expo-s1-background-audio.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s1-background-audio.md](./2026-08-13-expo-s1-background-audio.md) — ✅ researched 2026-08-13. **It supersedes the steps and the fallback below where they differ** (pinned versions, the dev-client decision, and the New-Architecture ladder).
 
 **Goal:** the premise of the entire project.
 
@@ -167,20 +169,38 @@ auth, no token route, because this stage tests audio and nothing else.
 
 ### Steps
 
-- [ ] Install the native packages (below)
-- [ ] `app.json` plugins + `NSMicrophoneUsageDescription` + `UIBackgroundModes: ["audio"]`
-      (full block in the research doc §7)
-- [ ] `EXPO_PUBLIC_AGENT_ID=<a public agent>` in `apps/mobile/.env`
-- [ ] Dev screen: `ConversationProvider` + `useConversation`, start/end, live transcript
-- [ ] Add `useSuspensionProbe` (appendix A) and show `status`, `AppState`, `drift`, `max drift`
-- [ ] Log `conversationId` from `onConnect`; flag anything not matching `/^conv_/` (free early look
-      at the B3 hazard — research doc §9 B3)
-- [ ] `npx expo prebuild --clean && npx expo run:ios --device --configuration Release`
+- [x] Install the native packages (below — **pinned**, research doc §2 D10), plus the scoped
+      `@livekit/components-react` override that the install turned up
+- [x] `app.config.ts` plugins + `NSMicrophoneUsageDescription` + `UIBackgroundModes: ["audio"]`
+      (research doc §4.1) — verified in the generated `Info.plist` after a real `expo prebuild`
+- [x] The committed per-variant value map — it lives in `app.config.ts`'s `VARIANTS` (a relative TS
+      import from a dynamic config does not work), typed by `env.types.ts` and read through `extra` by
+      a throwing accessor in `src/env.ts` (research doc §4.2). **No `eas env:set`, no
+      `EXPO_PUBLIC_*`:** `eas.json` is unchanged, and which values each environment uses is
+      answerable from a checkout.
+- [x] Create the throwaway test agent in ElevenLabs and put its id in the `VARIANTS` map — it counts
+      out loud so audibility-while-locked is a number you hear, `enable_auth: false`, and
+      `silence_end_call_timeout: -1` or the server ends test B for you (research doc §5.3)
+- [x] Dev screen: `ConversationProvider` + `useConversation`, start/end, live transcript
+- [x] Add `useSuspensionProbe` (appendix A) and show `status`, `AppState`, `drift`, `max drift`
+- [x] Log `conversationId` from `onConnect`; flag anything not matching `/^conv_/` (free early look
+      at the B3 hazard — creation doc §9 B3)
+- [ ] Build and measure on **`preview` only** — no development build anywhere in this stage
+      (research doc §2 D12), and no debugger attached to anything you take a number from (§6.1)
 
 ```bash
-npx expo install @elevenlabs/react-native @livekit/react-native @livekit/react-native-webrtc \
-  livekit-client @config-plugins/react-native-webrtc @livekit/react-native-expo-plugin
+npx expo install expo-dev-client @config-plugins/react-native-webrtc @livekit/react-native-expo-plugin
+
+# The versions ARE the decision — pin them. `expo install` picks SDK-matched, not peer-consistent.
+pnpm --filter mobile add @elevenlabs/react-native@1.2.18 \
+  @livekit/react-native@2.9.8 @livekit/react-native-webrtc@137.0.3 livekit-client@2.16.1
+
+pnpm --filter mobile why livekit-client   # MUST show exactly one version: 2.16.1
 ```
+
+`livekit-client` is pinned **exactly**, not with a caret: `@elevenlabs/client` depends on `2.16.1`
+exactly, and any range that resolves elsewhere puts two copies of it — two `Room` classes — in one
+process. Research doc §2 D10.
 
 ### Gate S1a — the stack runs at all
 
@@ -195,8 +215,12 @@ the warning; what matters is whether it runs.
 - [ ] A **foreground** conversation completes — audio both directions, a transcript line rendered
 
 A crash or a session that never connects is a New Architecture or build problem, **not** a B2 result.
-Fallback: try `newArchEnabled: false` (SDK 56 does not document removing the opt-out, but that is
-itself unverified — check before relying on it), then pin to SDK 55.
+
+**The fallback written here is dead and must not be attempted.** `newArchEnabled: false` was removed
+in RN 0.82 / Expo SDK 55 — it is silently ignored, and SDK 54 was the last release that honoured it.
+Both LiveKit packages are now `newArchitecture: true` in the registry `expo-doctor` reads, so the
+warning above is expected to be **absent**. Research doc §2 D13, and §8 for the ladder that replaces
+this one (its rungs are LiveKit versions and audio configuration, not architecture flags).
 
 Only once S1a is green does the locked-screen test mean anything.
 
@@ -204,23 +228,32 @@ Only once S1a is green does the locked-screen test mean anything.
 
 Run test **A** first; if it fails the rest are academic.
 
-| #     | Test                               | Method                                                                                             | Isolates                                                                                                                  |
-| ----- | ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **A** | Locked screen, active conversation | Start, talk until the agent replies, lock the phone. Keep talking; listen. Unlock after **3 min**. | The headline question                                                                                                     |
-| **B** | Locked screen, long silence        | Start, lock immediately, say nothing for **3 min**.                                                | Whether an idle-but-open session survives                                                                                 |
-| **C** | Muted microphone                   | Start, mute, lock for **2 min**.                                                                   | Whether track _presence_ alone holds us ([#1467](https://github.com/react-native-webrtc/react-native-webrtc/issues/1467)) |
-| **D** | App-switch instead of lock         | Start, swipe away for **2 min**.                                                                   | Backgrounding vs locking — different suspension paths                                                                     |
-| **E** | Interruption recovery              | Take a call or trigger Siri, then return.                                                          | Whether the SDK recovers or wedges — informs the `"audio"` pause card                                                     |
+| #     | Test                           | Method                                                                                                                                                                                     | Isolates                                                                                                                  |
+| ----- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| **A** | Locked screen, both directions | Start, talk until the agent replies, lock the phone. Then say one distinct word every ~30s ("alpha", "bravo", "charlie", "delta", "echo") and listen for the echo. Unlock after **3 min**. | The headline question                                                                                                     |
+| **B** | Locked screen, long silence    | Start, lock immediately, say nothing for **3 min**.                                                                                                                                        | Whether an idle-but-open session survives                                                                                 |
+| **C** | Muted microphone               | Start, mute, lock for **2 min**.                                                                                                                                                           | Whether track _presence_ alone holds us ([#1467](https://github.com/react-native-webrtc/react-native-webrtc/issues/1467)) |
+| **D** | App-switch instead of lock     | Start, swipe away for **2 min**.                                                                                                                                                           | Backgrounding vs locking — different suspension paths                                                                     |
+| **E** | Interruption recovery          | Take a call or trigger Siri, then return.                                                                                                                                                  | Whether the SDK recovers or wedges — informs the `"audio"` pause card                                                     |
 
-**A passes when all four hold:**
+**A passes when all five hold:**
 
 - [ ] `status` stayed `connected` throughout
 - [ ] **`max drift` < 3s** ← the one that matters
-- [ ] Agent audio was **audible while the screen was locked**
+- [ ] **Downlink:** agent audio was **audible while the screen was locked**
+- [ ] **Uplink:** words spoken into the locked phone produced audible "heard …" replies **and**
+      `user:` transcript lines timestamped inside the locked window
 - [ ] Transcript lines timestamped _during_ the locked window are present
 
-B and D use the same criteria. C is informational: a failure there is expected, harmless (we never
-mute), and confirms the #1467 mechanism.
+**The uplink criterion was added 2026-08-13** (research doc §7). The method here always said "keep
+talking", but the original four criteria only checked what came _out_ of the phone — and all four are
+satisfied by a downlink-only session, i.e. iOS keeping playback alive while microphone capture is
+dead. That is a green gate on a tutor you cannot speak to.
+
+B and D use the same criteria, uplink included — say the five words during B's silent window, and
+speak to the app while it is backgrounded in D. C is informational and **suspends the uplink
+criterion**: we muted on purpose, so zero `user:` lines is the expected result there. A failure in C
+is expected, harmless (we never mute in the real product), and confirms the #1467 mechanism.
 
 **A session still reporting `connected` after a 40-second lock is not a pass if drift shows 40s.** It
 was suspended and has not noticed — precisely the failure the web app has today, and precisely what a
@@ -479,14 +512,31 @@ The screen shows `status`, `AppState`, `drift` / `max drift`, and a scrollback o
 
 > Fill in when run. Empty means not yet run — do not infer a result from its absence.
 
-| Test | Date | iOS | Device | Build   | max drift | Audible locked? | Verdict |
-| ---- | ---- | --- | ------ | ------- | --------- | --------------- | ------- |
-| A    |      |     |        | Release |           |                 |         |
-| B    |      |     |        | Release |           |                 |         |
-| C    |      |     |        | Release |           |                 |         |
-| D    |      |     |        | Release |           |                 |         |
-| E    |      |     |        | Release |           |                 |         |
+| Test | Date       | iOS  | Device | Build             | max drift    | Audible locked? | Uplink      | Verdict  |
+| ---- | ---------- | ---- | ------ | ----------------- | ------------ | --------------- | ----------- | -------- |
+| A    | 2026-08-13 | 26.4 | iPhone | Release (preview) | not recorded | yes             | yes         | **PASS** |
+| B    | 2026-08-13 | 26.4 | iPhone | Release (preview) | not recorded | yes             | yes         | **PASS** |
+| C    | 2026-08-13 | 26.4 | iPhone | Release (preview) | not recorded | yes             | n/a (muted) | **PASS** |
+| D    | 2026-08-13 | 26.4 | iPhone | Release (preview) | not recorded | yes             | yes         | **PASS** |
+| E    | 2026-08-13 | 26.4 | iPhone | Release (preview) | not recorded | yes             | yes         | **PASS** |
 
-**Conclusion:**
+⚠️ **`max drift` was not captured.** The gate asks for the number precisely because 0.4s and 2.9s
+both pass and say very different things about headroom, so this table records that B2 holds but not
+by how much. Capture it on the next probe run.
+
+**Conclusion:** **B2 is answered — a locked iPhone keeps a live conversation in both directions.**
+No rung of the escalation ladder was needed: no `useIOSAudioManagement` fallback, no move to LiveKit
+2.12.0, and **no CallKit**, so S4's estimate stands. Test E (interruption recovery) passed, which was
+the outcome S1 §3.2 flagged as least certain on the pinned 2.9.8 audio path. One device only
+(iOS 26.4); 16.4–18 remain unobserved.
 
 **Follow-ups:**
+
+- ✅ **`max_duration_seconds` — fixed 2026-08-13.** ElevenLabs' 600 s default was cutting lessons off
+  at ten minutes. It is now a registry field (`maxDurationSeconds`, default **1800**) written by
+  `agentBody()` **and** hashed by `hashConfig()`, applied to all four agents in place, and verified
+  idempotent. The API's real bounds are **60–7200 s** — undocumented, established by probing. See
+  [S1 §11](./2026-08-13-expo-s1-background-audio.md#11-found-while-testing--the-600-second-ceiling-is-ours-not-apples).
+- ✅ **`enable_auth: false` on the tutor agents — reviewed 2026-08-13 and kept deliberately.** Not an
+  open item; see S1 §11 for the reasoning.
+- ⬜ **Capture `max drift`** on the next probe run, and delete the throwaway S1 agent at S3.

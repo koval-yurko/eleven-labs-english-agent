@@ -22,4 +22,16 @@ export interface PromptVersion {
   ttsModelId?: string;
   /** Extra languages (ISO codes, e.g. "ru") baked as language_presets.  */
   additionalLanguages?: string[];
+  /**
+   * Hard cap on one conversation, in seconds. Defaults to DEFAULT_MAX_DURATION_SECONDS.
+   *
+   * ElevenLabs' own default is 600 — ten minutes — which silently cut sessions off mid-lesson
+   * until S1's testing hit it (docs/2026-08-13-expo-s1-background-audio.md §11). The API accepts
+   * **60–7200** and rejects anything outside that range; the bound is undocumented and was
+   * established by probing.
+   *
+   * It is also the cost backstop: ElevenLabs bills per minute of conversation, so this is what
+   * limits a session someone walks away from without ending.
+   */
+  maxDurationSeconds?: number;
 }
