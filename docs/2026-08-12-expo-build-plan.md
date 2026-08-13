@@ -1,9 +1,10 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S2** — **S1 passed on 2026-08-13,
-tests A–E all green**, so B2 is answered and CallKit is off the table
-([S1 §10](./2026-08-13-expo-s1-background-audio.md#10-result--b2-is-answered)).
-**Next action: write S2's research** from its placeholder, per the end-of-stage ritual.
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S3** — **S1 and S2 both passed on
+2026-08-13.** B2 is answered (locked-screen audio, both directions, no CallKit) and B1 is answered
+(Auth0 login on device). The `/api/v2/me` half of S2's gate is **deferred to S3** along with the
+deployment ([S2 §10](./2026-08-13-expo-s2-auth0-bearer.md#10-result--b1-is-answered-half-a)).
+**Next action: deploy the server** — S3 is the first stage that cannot move without a reachable API.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -45,7 +46,7 @@ which stage to work on and which research to write.**
 | ------ | ------------------------------------------------------------------------ | -------------- | ----- | ------------------------------------------------------------------------- |
 | **S0** | [s0 — scaffold, TestFlight](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅ full        | ✅    | passed 2026-08-13 — internal distribution; TestFlight deferred to S7 (D9) |
 | **S1** | [s1 — background audio](./2026-08-13-expo-s1-background-audio.md)        | ✅ full        | ✅    | **passed 2026-08-13 — A–E all green, both directions**                    |
-| **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | 🔲 placeholder | ⬜    | —                                                                         |
+| **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | ✅ full        | ✅    | **passed 2026-08-13 — login on device; `/api/v2/me` deferred to S3**      |
 | **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | 🔲 placeholder | ⬜    | —                                                                         |
 | **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | 🔲 placeholder | ⬜    | —                                                                         |
 | **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —                                                                         |
@@ -79,7 +80,7 @@ When a stage's gate is decided — green **or** red:
 | ------ | ----------------------------------------------------------- | ----------------------------------------------- | ----- | ------------------------------------------------- | ------ |
 | **S0** | empty Expo app, EAS, TestFlight, one `@tutor/shared` import | installs, launches, renders the shared string   | 1–2 d | [✅](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅     |
 | **S1** | ElevenLabs + LiveKit, public agent, suspension probe        | **S1a** runs → **S1b** survives a locked screen | 1–2 d | [✅](./2026-08-13-expo-s1-background-audio.md)    | ✅     |
-| **S2** | `react-native-auth0` login + Bearer on the server           | a Bearer call returns the right `sub`           | 2–3 d | [🔲](./2026-08-13-expo-s2-auth0-bearer.md)        | ⬜     |
+| **S2** | `react-native-auth0` login + Bearer on the server           | a Bearer call returns the right `sub`           | 2–3 d | [✅](./2026-08-13-expo-s2-auth0-bearer.md)        | ✅     |
 | **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [🔲](./2026-08-13-expo-s3-conversation-token.md)  | ⬜     |
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
 | **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [🔲](./2026-08-13-expo-s4-tutor-screen.md)        | ⬜     |
@@ -279,7 +280,7 @@ about headroom. Results table: appendix B.
 
 ## S2 — B1: Auth0 on a device
 
-**Research note:** [2026-08-13-expo-s2-auth0-bearer.md](./2026-08-13-expo-s2-auth0-bearer.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s2-auth0-bearer.md](./2026-08-13-expo-s2-auth0-bearer.md) — ✅ researched 2026-08-13. **It supersedes the steps below where they differ** — notably the callback scheme (D14: the plugin's `{bundleId}.auth0` default, not `variant.scheme`), the untestable renewal gate (D17), and the ATS trap when testing against a local server (§6).
 
 **Goal:** a native client that can authenticate against our server.
 

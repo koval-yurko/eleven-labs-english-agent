@@ -1,5 +1,6 @@
 import { useConversation } from "@elevenlabs/react-native";
 import Constants from "expo-constants";
+import { Link } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -101,6 +102,10 @@ export default function SuspensionProbeScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
+      <Link href="/auth" style={styles.link}>
+        S2 auth →
+      </Link>
+
       <View style={styles.stats}>
         <Stat label="status" value={status} />
         <Stat label="app state" value={appState} />
@@ -167,6 +172,7 @@ const KIND_STYLE = StyleSheet.create({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
+  link: { color: "#7FB2FF", fontSize: 12, paddingVertical: 8, textAlign: "right" },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 8 },
   stat: { minWidth: "30%", flexGrow: 1, backgroundColor: "#1B1B22", borderRadius: 8, padding: 8 },
   statLabel: { color: "#8A8A8A", fontSize: 10, fontVariant: ["tabular-nums"] },

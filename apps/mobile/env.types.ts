@@ -27,17 +27,43 @@ export type MobileEnv = {
    * token and the authoritative conversation_id, and this field is deleted. See S1 §2 D11.
    */
   agentId: string;
-  // S2 adds: auth0Domain, auth0ClientId, auth0Audience
-  // S3 adds: apiBaseUrl, appEnv
+
+  // ── S2: Auth0 ──────────────────────────────────────────────────────────────────────────────
+  /** Auth0 tenant, e.g. "your-tenant.eu.auth0.com". The server derives `iss` from the same. */
+  auth0Domain: string;
+  /**
+   * The **Native** Auth0 application's client id — a second app beside the web Regular Web App.
+   * One Native application serves all three variants; they differ only by callback URL, which the
+   * SDK derives from the bundle identifier. So this value is identical across variants by design.
+   */
+  auth0ClientId: string;
+  /**
+   * The Auth0 API "Identifier" — requested via `authorize({ audience })` and matched byte-for-byte
+   * against the token's `aud` claim by the server's `AUTH0_API_AUDIENCE`. It is an opaque string,
+   * never fetched, and needs no DNS.
+   */
+  auth0Audience: string;
+  /**
+   * Origin the `/api/v2/*` routes are called on, with no trailing slash.
+   *
+   * EMPTY UNTIL THE SERVER IS DEPLOYED — `required()` throws rather than letting a build silently
+   * point at nothing. A LAN `http://` address is not an option: App Transport Security blocks
+   * cleartext in a Release build (S2 §6).
+   */
+  apiBaseUrl: string;
+  // S3 adds: appEnv
 };
 
-/** One variant's complete definition: build-time identity plus the runtime values it ships with. */
-export type VariantConfig = {
+/**
+ * One variant's build-time IDENTITY — committed, because it decides which app is produced.
+ *
+ * Values are deliberately not here: they come from the environment (`.env` locally, EAS environment
+ * variables in the cloud) and are assembled in `app.config.ts`'s `readEnv()`.
+ */
+export type VariantIdentity = {
   /** Appended to the bundle identifier. */
   suffix: string;
   name: string;
-  /** Deep-link scheme; Auth0's customScheme must match it (S2). Lowercase, no separators. */
+  /** Deep-link scheme for expo-router. Separate from Auth0's callback scheme (S2 D14). */
   scheme: string;
-  /** The subset handed to the app at runtime as `extra.env`. */
-  env: MobileEnv;
 };

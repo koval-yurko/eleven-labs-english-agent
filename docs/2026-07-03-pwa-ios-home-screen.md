@@ -15,7 +15,7 @@ worker or any extra library. You need exactly three things:
 3. **Apple meta tags** in `layout.tsx` metadata — `apple-mobile-web-app-capable`, title,
    status-bar style.
 
-A **service worker** (offline caching, install prompt, push) is a *separate, optional* upgrade
+A **service worker** (offline caching, install prompt, push) is a _separate, optional_ upgrade
 — see "Optional: offline + install prompt" below.
 
 Our stack (Next 16 App Router, React 19) has first-class support for all of this via file
@@ -26,7 +26,7 @@ conventions and the `Metadata` API — no `next-pwa`/webpack plugin required.
 > with `next/og` — a gradient "Id" placeholder, no binary assets) · `src/app/layout.tsx`
 > (`appleWebApp` + `viewport`) · `src/proxy.ts` (allow-lists `/manifest.webmanifest` past the auth
 > gate; `*.png` icons are already excluded by the matcher). Auth0 session lifetime fixed in
-> `src/lib/auth0.ts`. The icon code path replaces the two *options* sketched in Step 2 below —
+> `src/lib/auth0.ts`. The icon code path replaces the two _options_ sketched in Step 2 below —
 > swap in real artwork later by dropping static files in `public/`.
 
 ---
@@ -34,7 +34,7 @@ conventions and the `Metadata` API — no `next-pwa`/webpack plugin required.
 ## Context: what iOS actually requires (2026)
 
 - **iOS 16.4+** supports web push for home-screen-installed web apps.
-- **iOS 26 / iPadOS 26**: by default *every* site added to the Home Screen opens **as a web
+- **iOS 26 / iPadOS 26**: by default _every_ site added to the Home Screen opens **as a web
   app** (standalone). Older iOS still needs `apple-mobile-web-app-capable` to drop the Safari
   chrome, so we set it regardless.
 - **iOS does not use the manifest `icons` for the Home Screen icon.** It reads the
@@ -80,6 +80,7 @@ export default function manifest(): MetadataRoute.Manifest {
 We have **no `public/` dir yet** — create it. Two valid approaches; pick one:
 
 **A. `public/` static files (simplest, explicit):**
+
 ```
 public/
   apple-icon.png       180×180  ← iOS Home Screen icon (the important one)
@@ -88,14 +89,17 @@ public/
   icon-512-maskable.png 512×512 ← Android adaptive (logo in center ~80% safe zone)
   favicon.ico          (optional, browser tab)
 ```
+
 With this approach, add the apple-touch-icon link yourself in metadata (Step 3).
 
 **B. Next file conventions in `src/app/` (auto-wired, no manual link tags):**
+
 ```
 src/app/
   icon.png        any square (e.g. 512×512) → <link rel="icon">
   apple-icon.png  180×180                    → <link rel="apple-touch-icon">
 ```
+
 Next auto-generates the correct `<link>` tags. This is the cleaner option — **recommended**.
 If you use B, you can skip the manual `appleWebApp.startupImage`/icon links in Step 3.
 
@@ -127,10 +131,12 @@ export const viewport: Viewport = {
   // width: "device-width", initialScale: 1, viewportFit: "cover",
 };
 ```
+
 (Add `import type { Viewport } from "next";`.)
 
 If you went with **public/ (approach A)** rather than the `app/apple-icon.png` convention, also
 add the icon link explicitly:
+
 ```ts
   icons: {
     icon: "/icon-192.png",
@@ -150,7 +156,7 @@ This app gates on Auth0 login. Standalone PWAs are historically where OAuth brea
 1. **Session must survive the OAuth round-trip and outlive a single visit.** Tapping "Log in"
    is a full-page redirect to Auth0's `/authorize`; iOS keeps that redirect inside the installed
    app context (same-window navigation, not `window.open`), so the return to our callback works —
-   *provided the session cookie is `SameSite=Lax`* (top-level GET navigations send Lax cookies;
+   _provided the session cookie is `SameSite=Lax`_ (top-level GET navigations send Lax cookies;
    `Strict` would drop them). `Lax` is the `@auth0/nextjs-auth0` v4 default.
    **The bigger PWA problem is session lifetime:** the SDK default inactivity window is **1 day**,
    so tapping the icon after a day away re-prompts login — which feels broken for an "app."
@@ -172,7 +178,7 @@ true in prod. Verify the convai session starts inside the standalone shell.
 
 ## Auth0 / OAuth configuration to update
 
-Nothing about the PWA changes *which* OAuth URLs are needed — a standalone web app reuses the
+Nothing about the PWA changes _which_ OAuth URLs are needed — a standalone web app reuses the
 same origin as the browser app. The point of this section is: **make sure prod is fully
 registered, and know exactly which knobs the session-lifetime fix touched.**
 
@@ -196,33 +202,33 @@ session: {
 ### B. Environment variables (Vercel + local `.env`)
 
 `@auth0/nextjs-auth0` **v4** derives the redirect/callback URLs from `APP_BASE_URL` (this repo
-already uses it — *not* the v3 `AUTH0_BASE_URL`). It must equal the exact origin the app is
+already uses it — _not_ the v3 `AUTH0_BASE_URL`). It must equal the exact origin the app is
 served from, per environment:
 
-| Var | Local dev | Production (Vercel) |
-| --- | --- | --- |
-| `APP_BASE_URL` | `http://localhost:3000` | `https://<your-prod-domain>` (the canonical one) |
-| `AUTH0_DOMAIN` | `yurko-kovalchuk.eu.auth0.com` | same |
-| `AUTH0_CLIENT_ID` | app client id | same (or a separate prod app) |
-| `AUTH0_CLIENT_SECRET` | secret | secret |
-| `AUTH0_SECRET` | `openssl rand -hex 32` | a **different** 32-byte hex in prod |
+| Var                   | Local dev               | Production (Vercel)                              |
+| --------------------- | ----------------------- | ------------------------------------------------ |
+| `APP_BASE_URL`        | `http://localhost:3000` | `https://<your-prod-domain>` (the canonical one) |
+| `AUTH0_DOMAIN`        | `<AUTH0_DOMAIN>`        | same                                             |
+| `AUTH0_CLIENT_ID`     | app client id           | same (or a separate prod app)                    |
+| `AUTH0_CLIENT_SECRET` | secret                  | secret                                           |
+| `AUTH0_SECRET`        | `openssl rand -hex 32`  | a **different** 32-byte hex in prod              |
 
 - `APP_BASE_URL` must be **https** in prod — the SDK sets the session cookie `Secure` only when
   the base URL is https, and iOS standalone PWAs require Secure cookies.
 - If you use Vercel preview deploys and want login to work on them too, either set
   `APP_BASE_URL` per-environment or add the preview domains to the Auth0 URLs below.
 
-### C. Auth0 Dashboard → Applications → *[your app]* → Settings
+### C. Auth0 Dashboard → Applications → _[your app]_ → Settings
 
 The SDK v4 mounts its routes under `/auth`, so the callback path is **`/auth/callback`** (not the
 v3 `/api/auth/callback`). Add both dev and prod. Use comma-separated lists:
 
-| Field | Value(s) |
-| --- | --- |
-| **Allowed Callback URLs** | `http://localhost:3000/auth/callback`, `https://<your-prod-domain>/auth/callback` |
-| **Allowed Logout URLs** | `http://localhost:3000`, `https://<your-prod-domain>` |
-| **Allowed Web Origins** | `http://localhost:3000`, `https://<your-prod-domain>` |
-| **Application Login URI** *(optional)* | `https://<your-prod-domain>/auth/login` (prod only; Auth0 forbids `http`/localhost here) |
+| Field                                  | Value(s)                                                                                 |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Allowed Callback URLs**              | `http://localhost:3000/auth/callback`, `https://<your-prod-domain>/auth/callback`        |
+| **Allowed Logout URLs**                | `http://localhost:3000`, `https://<your-prod-domain>`                                    |
+| **Allowed Web Origins**                | `http://localhost:3000`, `https://<your-prod-domain>`                                    |
+| **Application Login URI** _(optional)_ | `https://<your-prod-domain>/auth/login` (prod only; Auth0 forbids `http`/localhost here) |
 
 - **Allowed Callback URLs** — where Auth0 returns the auth code. Missing prod entry → the classic
   `Callback URL mismatch` error after login.
@@ -240,6 +246,7 @@ under **Auth0 → APIs** and that "Allow Offline Access" is enabled (we request 
 # After deploy, from the prod origin:
 curl -sI https://<your-prod-domain>/auth/login | grep -i location   # → 302 to {AUTH0_DOMAIN}/authorize
 ```
+
 Then on the installed PWA: log in → force-quit → relaunch next day → still signed in.
 
 ---
@@ -262,13 +269,15 @@ icon" you can skip this entirely.
 ## Optional: "Add to Home Screen" hint UI
 
 Since iOS has no install button, a small one-time banner improves discovery. Detect:
+
 ```ts
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-const isStandalone = window.matchMedia("(display-mode: standalone)").matches
-  || (navigator as any).standalone === true; // iOS legacy flag
+const isStandalone =
+  window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone === true; // iOS legacy flag
 // Show the hint only when isIos && !isStandalone.
 ```
-Render: *"Tap the Share icon, then **Add to Home Screen**."*
+
+Render: _"Tap the Share icon, then **Add to Home Screen**."_
 
 ---
 

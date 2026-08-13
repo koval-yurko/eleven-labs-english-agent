@@ -29,4 +29,16 @@ export const env = {
   get agentId() {
     return required("agentId");
   },
+  get auth0Domain() {
+    return required("auth0Domain");
+  },
+  get auth0ClientId() {
+    return required("auth0ClientId");
+  },
+  get auth0Audience() {
+    return required("auth0Audience");
+  },
+  get apiBaseUrl() {
+    return required("apiBaseUrl");
+  },
 };

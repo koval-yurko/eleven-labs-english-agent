@@ -394,6 +394,18 @@ Additions to the existing file (S0 §2 D7's variant machinery is unchanged and n
 
 ### 4.2 Environment values live in the codebase, per variant
 
+> **⚠️ SUPERSEDED 2026-08-13 by the owner's decision — see
+> [S2 §3.2](./2026-08-13-expo-s2-auth0-bearer.md).** The mechanism below (values committed in
+> `app.config.ts`) was reversed: identifiers such as the Auth0 client id and the agent id are not to
+> be committed, so **values now come from the environment** — `apps/mobile/.env` for local runs and
+> builds, EAS environment variables for cloud builds. What survives unchanged is everything that made
+> this design worth arguing for: `MobileEnv` still declares the field list, `app.config.ts` still
+> assembles one object into `extra.env`, and `src/env.ts` is still the single reader that throws
+> rather than defaults. Only the _source_ of the values moved. Read the section below for the
+> reasoning that still applies (the `extra` mechanism, the build-time embedding, the Expo config
+> loader's inability to import a relative TS value module); ignore the parts that argue for
+> committing the values themselves.
+
 **`EXPO_PUBLIC_AGENT_ID` is not delivered by CLI, and no value in this project ever will be.**
 `eas env:set` puts a value into EAS-hosted state that nobody can read from a checkout, which turns
 "which values does the app depend on, and what are they in preview versus production?" into a
@@ -410,11 +422,11 @@ import type { Variant, VariantConfig } from "./env.types";
 const VARIANTS = {
   development: {
     suffix: "-dev", name: "English Tutor (Dev)", scheme: "englishtutordev",
-    env: { agentId: "agent_6101kzxdc7esesarwx8x8d9716xr" },
+    env: { agentId: "<EXPO_PUBLIC_AGENT_ID>" },
   },
   preview: {
     suffix: "-preview", name: "English Tutor (Preview)", scheme: "englishtutorpreview",
-    env: { agentId: "agent_6101kzxdc7esesarwx8x8d9716xr" },
+    env: { agentId: "<EXPO_PUBLIC_AGENT_ID>" },
   },
   production: {
     suffix: "", name: "English Tutor", scheme: "englishtutor",
@@ -958,34 +970,53 @@ exposure is bounded by repo access.
 
 ## 12. What S1 hands to S2
 
-Record these when the gate is decided, green or red.
+Filled in 2026-08-13, when the gate went green. **Three items are marked "not captured" rather than
+guessed** — they were not recorded during the run, and inventing them would be worse than the gap.
 
-- [ ] **The verdict and the numbers** — appendix B filled in for A–E, plus the foreground noise floor.
-      Numbers, not ticks.
-- [ ] **Which LiveKit rung we ended on** (2.9.8 as installed / `useIOSAudioManagement` added / 2.12.0
-      / CallKit), and whether `pnpm why livekit-client` still shows exactly one copy.
-- [ ] **Confirmation that `pnpm native && pnpm device:release` works** — S0 never ran it, and S2 will
-      want a local loop for the Auth0 callback round-trip.
-- [ ] **The `development` profile and dev client are still unbuilt and unverified** (D12) —
-      `expo-dev-client` is installed but was never exercised. S2 inherits this untouched, exactly as
-      S1 inherited it from S0, and should build it before depending on a fast local loop.
-- [ ] **`apps/mobile/env.config.ts` as it stands** — the committed list of what the app depends on
-      per variant (§4.2). S2 adds the three Auth0 fields to `MobileEnv`, which forces all three
-      variants to supply them.
-- [ ] **The observed `AppState` sequences** for lock / app-switch / Siri — S4's session UI is written
-      against these, and they are cheap to record now and expensive to guess later.
-- [ ] **Whether `onConnect`'s `conversationId` matched `/^conv_/`** and what it was when it did not.
-      This is B3's hazard seen for free; S3 acts on it.
-- [ ] **Whether `expo-doctor` printed the New-Architecture warning** — D13 predicts it will not.
-      If it did, that prediction was wrong and S2 should not inherit it as settled.
-- [ ] **The three bundle identifiers and their schemes** (S0 §2 D7) — S2 needs all three callback
-      URLs, comma-separated in one Auth0 Native application:
-      `englishtutordev://{domain}/ios/work.kovalchuk.yurii.english-tutor-dev/callback`,
-      `englishtutorpreview://…-preview/callback`, `englishtutor://…english-tutor/callback`.
-      S2's `react-native-auth0` plugin entry must read `variant.scheme`, never a literal.
-- [ ] **The throwaway agent's id and its settings** — S3 replaces it with a real private agent via the
-      token route; leaving a public agent connectable after that is a loose end, so note it for
-      deletion.
+- [x] **The verdict:** S1a green; **S1b A–E all pass**, uplink included. ⚠️ **`max drift` was not
+      captured** — appendix B records the passes but no margins, so nothing here says how much
+      headroom exists. Capture on the next probe run.
+- [x] **We ended on rung zero.** `@livekit/react-native@2.9.8` exactly as installed — no
+      `useIOSAudioManagement` fallback, no move to 2.12.0, **no CallKit**. `pnpm why livekit-client`
+      shows one copy at **2.16.1**, held there by the scoped `@livekit/components-react@2.9.19`
+      override (§2 D10). S4's estimate is unaffected.
+- [x] **`pnpm native` works** — `expo prebuild --clean --platform ios` completed **including
+      CocoaPods**, on SDK 57, with `@config-plugins/react-native-webrtc@15.0.1` despite its
+      `expo: ^56` peer. ⚠️ **`pnpm device:release` was never run**; the device install came from an
+      EAS `preview` build. S2 wants a local loop for the Auth0 callback round-trip, so it will be the
+      first to find out whether `expo run:ios --device` works.
+- [x] **The `development` profile and dev client remain unbuilt and unverified** (D12). Mitigating
+      fact from §9: `expo-dev-launcher` declares `"debugOnly": true`, so it is **absent from Release
+      builds entirely** — installing `expo-dev-client` did not add risk to the `preview` builds S1
+      measured on, and will not at S2.
+- [x] **The env mechanism changed shape — read §4.2 before adding to it.** There is no
+      `env.config.ts`: Expo's config loader cannot import a relative TS **value** module, so the map
+      lives in `app.config.ts`'s `VARIANTS` (`env` per variant), typed by `apps/mobile/env.types.ts`
+      and read through `extra.env` by `apps/mobile/src/env.ts`. **S2 adds `auth0Domain`,
+      `auth0ClientId`, `auth0Audience` and `apiBaseUrl` to `MobileEnv`**, and
+      `satisfies Record<Variant, VariantConfig>` then forces all three variants to supply them —
+      verified to fire as TS2741.
+- [ ] ⚠️ **The `AppState` sequences were not recorded.** Lock, app-switch and Siri produce different
+      sequences and S4's session UI is written against them. The probe screen logs them, so this is
+      one cheap re-run away rather than lost.
+- [ ] ⚠️ **Whether `onConnect`'s `conversationId` matched `/^conv_/` was not reported.** The screen
+      flags a non-`conv_` id in red, so it likely did match — but "likely" is not a finding. **S3 must
+      check this directly**; it is B3's hazard and the reason the token route returns the
+      authoritative id (creation doc §9 B3).
+- [x] **`expo-doctor` printed no New-Architecture warning at all** — 20/20. **D13 confirmed**: the
+      registry metadata had gone stale, and there is no architecture escape hatch to fall back to
+      anyway (`newArchEnabled: false` was removed in RN 0.82 / SDK 55).
+- [x] **The three bundle ids and schemes** are unchanged from S0/D7. S2 needs all three callback URLs
+      in one Auth0 Native application, and its plugin entry must read `variant.scheme` (or the
+      plugin's own default — that is S2's D14 to settle), never a literal:
+      `work.kovalchuk.yurii.english-tutor{,-preview,-dev}` with schemes
+      `englishtutor` / `englishtutorpreview` / `englishtutordev`.
+- [x] **The throwaway agent is `<EXPO_PUBLIC_AGENT_ID>`** ("Test Voice"),
+      `enable_auth: false`, and now `max_duration_seconds: 7200` so long probe runs are not cut off.
+      **Delete it at S3**, when the token route replaces it.
+- [x] **New for S4, from §11:** `maxDurationSeconds` is now a registry field defaulting to **1800**,
+      applied to all four tutor agents. The API's accepted range is **60–7200**. A lesson is no longer
+      capped at ten minutes.
 
 ---
 

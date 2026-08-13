@@ -25,6 +25,19 @@ import type { TranscriptLine } from "./tutor";
  * Route paths, relative to the app origin. A native client prefixes its API base URL; the browser
  * uses them as-is (same origin).
  */
+/**
+ * The native namespace. Everything the mobile app calls lives under here, and nothing under
+ * `/api/*` is touched — which is what keeps the Bearer code path from ever running for the web app
+ * (creation doc §3.1). A native client prefixes its own origin; there is no same-origin shortcut.
+ */
+export const API_V2 = "/api/v2";
+
+/** Route paths under `API_V2`. Joined to the app's `apiBaseUrl` by the native client. */
+export const API_V2_ROUTES = {
+  /** Echoes the authenticated learner's Auth0 `sub`. An auth + liveness probe. */
+  me: `${API_V2}/me`,
+} as const;
+
 export const API_ROUTES = {
   /** Mint a short-lived signed WebSocket URL for a tutor version's agent. */
   signedUrl: "/api/words-agent/signed-url",
@@ -108,6 +121,21 @@ export interface TutorSessionInput {
 /** `POST /api/lessons/session` — 200. */
 export interface LessonSessionResponse {
   ok: true;
+}
+
+/**
+ * `GET /api/v2/me` — 200. The whole point is that `sub` is the SAME owner id the cookie path
+ * produces, so every owner-scoped query works unchanged whichever client asked.
+ */
+export interface MeResponse {
+  sub: string;
+}
+
+/** Narrow an already-parsed body to a usable `/api/v2/me` response. */
+export function isMeResponse(body: unknown): body is MeResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<MeResponse>;
+  return typeof b.sub === "string" && b.sub.length > 0;
 }
 
 /** One integration probe in the health payload. */

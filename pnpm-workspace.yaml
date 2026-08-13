@@ -48,3 +48,8 @@ allowBuilds:
   # Explicitly denied rather than left unanswered: an unanswered package makes `pnpm install` exit
   # non-zero, and bunyan degrades to plain logging without it. Nothing here wants DTrace probes.
   dtrace-provider: false
+  # browser-tabs-lock — its postinstall is a console.log advertisement and nothing else (verified by
+  # reading scripts/postinstall.js). It arrives via @auth0/auth0-spa-js, which is
+  # react-native-auth0's WEB platform adapter — code an iOS-only app never executes. Denied rather
+  # than left unanswered, for the same reason as dtrace-provider above.
+  browser-tabs-lock: false

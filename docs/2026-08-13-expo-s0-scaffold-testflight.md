@@ -22,7 +22,7 @@ One research file per stage, numbered:
 | ----- | ------------------------------------------------------------------------------- | -------------- |
 | S0    | this file                                                                       | **researched** |
 | S1    | [`…-expo-s1-background-audio.md`](./2026-08-13-expo-s1-background-audio.md)     | **researched** |
-| S2    | [`…-expo-s2-auth0-bearer.md`](./2026-08-13-expo-s2-auth0-bearer.md)             | placeholder    |
+| S2    | [`…-expo-s2-auth0-bearer.md`](./2026-08-13-expo-s2-auth0-bearer.md)             | **researched** |
 | S3    | [`…-expo-s3-conversation-token.md`](./2026-08-13-expo-s3-conversation-token.md) | placeholder    |
 | S4    | [`…-expo-s4-tutor-screen.md`](./2026-08-13-expo-s4-tutor-screen.md)             | placeholder    |
 | S5    | [`…-expo-s5-lessons.md`](./2026-08-13-expo-s5-lessons.md)                       | placeholder    |
