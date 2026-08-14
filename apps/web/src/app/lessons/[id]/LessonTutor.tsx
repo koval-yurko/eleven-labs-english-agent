@@ -139,6 +139,34 @@ function Tutor({
       // Journal as we go: iOS can discard this tab without ever running `onDisconnect`.
       void writeJournal(snapshot());
     },
+    /**
+     * Barge-in: the agent was cut off mid-sentence and the server says what it actually finished
+     * saying. Without this the record claims the teacher completed sentences the learner interrupted
+     * — in an app whose whole premise is interrupting freely.
+     *
+     * It usually goes unnoticed because the post-call webhook later overwrites the row with
+     * ElevenLabs' own corrected transcript. "Usually" is the problem: a webhook that fails (as it
+     * silently did for 47 days — see docs/2026-08-13-expo-s3-conversation-token.md §8) leaves the
+     * wrong text as the permanent record. Ported back from the native tutor (S4 D34).
+     */
+    onAgentResponseCorrection: ({ original_agent_response, corrected_agent_response }) => {
+      // A backwards scan rather than `findLastIndex`: this app's `lib` target predates ES2023, and
+      // raising it for one call would be a compiler-wide change made for a three-line callback.
+      let index = -1;
+      for (let i = linesRef.current.length - 1; i >= 0; i--) {
+        const line = linesRef.current[i];
+        if (line && line.role === "agent" && line.text === original_agent_response) {
+          index = i;
+          break;
+        }
+      }
+      if (index === -1) return;
+      const corrected = [...linesRef.current];
+      corrected[index] = { role: "agent", text: corrected_agent_response };
+      linesRef.current = corrected;
+      setLines(corrected);
+      void writeJournal(snapshot());
+    },
     onDisconnect: () => {
       void persistSession();
     },

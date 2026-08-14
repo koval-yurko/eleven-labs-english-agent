@@ -39,6 +39,8 @@ built one screen, would be inventing conventions no code has tested.
 - [ ] The navigation shape in `expo-router` (which routes exist, how the tutor is reached)
 - [ ] D3 settled in practice: the component/styling approach S4 actually used
 - [ ] Error/loading conventions S4 established
+- [x] **`GET /api/v2/lessons/:id` and a generic `withBearer`** already exist (S4 D30, D32) — the
+      dynamic-route pattern S5's routes follow is set, including 404-for-not-yours.
 
 ## Questions this research must answer
 
@@ -47,6 +49,10 @@ built one screen, would be inventing conventions no code has tested.
       the client, and how a rejected op surfaces in the UI
 - [ ] Optimistic UI **without** the mirror — what stands in for `planNewItems`' guarantee that the
       optimistic view and the queued intent cannot disagree?
+- [ ] **Item history — moved here from S4** (S4 D30). `listLessonItemHistory` powers the web's "Word
+      changes" disclosure; it is *editing* history, so it belongs on the screen that generates the
+      events rather than in the tutor's first-paint payload. `GET /api/v2/lessons/:id` already exists
+      by then — decide whether it grows a field or history gets its own route.
 - [ ] Delete-lesson semantics (words survive — see `docs/2026-07-17-delete-lesson-keep-words.md`) and
       the confirm-dialog pattern on native
 - [ ] Add-word from a lesson: `resolve_words` is server-only, so what does the round-trip look like,

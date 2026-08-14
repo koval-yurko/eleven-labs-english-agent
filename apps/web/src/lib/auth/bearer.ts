@@ -72,13 +72,19 @@ export async function getBearerOwnerId(req: Request): Promise<string | null> {
  * It is also the single place CORS is applied (D25) — including to the 401, so a browser sees the
  * status rather than an opaque network error. Routes still re-export `OPTIONS = preflight` for the
  * preflight itself, which never reaches a handler.
+ *
+ * `Ctx` is Next's second handler argument — `{ params: Promise<{ id: string }> }` on a dynamic route.
+ * It defaults to `undefined`, so the static routes keep their two-parameter handlers unchanged; a
+ * dynamic route names its own shape. Passing it through is the alternative to every dynamic route
+ * re-deriving its own id from `new URL(req.url).pathname`, which is routing by string surgery.
+ * See docs/2026-08-13-expo-s4-tutor-screen.md D32.
  */
-export function withBearer(
-  handler: (req: Request, ownerId: string) => Promise<NextResponse>,
-): (req: Request) => Promise<NextResponse> {
-  return async (req: Request) => {
+export function withBearer<Ctx = undefined>(
+  handler: (req: Request, ownerId: string, ctx: Ctx) => Promise<NextResponse>,
+): (req: Request, ctx: Ctx) => Promise<NextResponse> {
+  return async (req: Request, ctx: Ctx) => {
     const ownerId = await getBearerOwnerId(req);
     if (!ownerId) return withCors(unauthorized());
-    return withCors(await handler(req, ownerId));
+    return withCors(await handler(req, ownerId, ctx));
   };
 }

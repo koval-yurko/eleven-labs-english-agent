@@ -1,10 +1,11 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S4** — 🚩 **the gate is passed. All
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S5** — 🚩 **the gate is passed. All
 three blockers are cleared.** B2 (locked-screen audio, both directions, no CallKit), B1 (Auth0 on
 device, Bearer on the server) and B3 (the conversation id survives WebRTC) are all answered on real
-hardware, S0–S3 in three days. **Next action: write S4's research** from its placeholder, then build
-the tutor screen proper.
+hardware, S0–S3 in three days. **S4 is done** (2026-08-14): a real lesson, spoken end to end on the
+phone, with `words.details` reaching the tutor over the native transport. **Current stage: S5** —
+**next action: write S5's research** from its placeholder, then build the lessons list.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -48,7 +49,7 @@ which stage to work on and which research to write.**
 | **S1** | [s1 — background audio](./2026-08-13-expo-s1-background-audio.md)        | ✅ full        | ✅    | **passed 2026-08-13 — A–E all green, both directions**                    |
 | **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | ✅ full        | ✅    | **passed 2026-08-13 — login on device; `/api/v2/me` deferred to S3**      |
 | **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | ✅ full        | ✅    | **passed 2026-08-14 — 2 native sessions, 2 rows, both enriched**           |
-| **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | 🔲 placeholder | ⬜    | —                                                                         |
+| **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | ✅ full        | ✅    | **passed 2026-08-14 — real lesson end to end, enriched `items_list`**      |
 | **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —                                                                         |
 | **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | 🔲 placeholder | ⬜    | —                                                                         |
 | **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | 🔲 placeholder | ⬜    | —                                                                         |
@@ -83,7 +84,7 @@ When a stage's gate is decided — green **or** red:
 | **S2** | `react-native-auth0` login + Bearer on the server           | a Bearer call returns the right `sub`           | 2–3 d | [✅](./2026-08-13-expo-s2-auth0-bearer.md)        | ✅     |
 | **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [✅](./2026-08-13-expo-s3-conversation-token.md)  | ✅     |
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
-| **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [🔲](./2026-08-13-expo-s4-tutor-screen.md)        | ⬜     |
+| **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [✅](./2026-08-13-expo-s4-tutor-screen.md)        | ✅     |
 | **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [🔲](./2026-08-13-expo-s5-lessons.md)             | ⬜     |
 | **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [🔲](./2026-08-13-expo-s6-collection.md)          | ⬜     |
 | **S7** | theming, navigation, error/empty states                     | shippable                                       | 3–5 d | [🔲](./2026-08-13-expo-s7-ship.md)                | ⬜     |
@@ -446,29 +447,53 @@ blamed on WebRTC. The lesson generalises: **probe the deployment, don't read the
 
 ## S4 — the tutor screen
 
-**Research note:** [2026-08-13-expo-s4-tutor-screen.md](./2026-08-13-expo-s4-tutor-screen.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s4-tutor-screen.md](./2026-08-13-expo-s4-tutor-screen.md) — ✅ full
+(2026-08-14). Decisions **D30–D43**; build order in its §11.
 
 **Goal:** the feature the app exists for, against a real lesson.
 
 The port is mostly mechanical — the RN package re-exports every hook from `@elevenlabs/react` with an
-identical API, and everything from `@tutor/shared/tutor` is used as-is (research doc §4).
+identical API, and everything from `@tutor/shared/tutor` is used as-is (creation doc §4). Of
+`LessonTutor.tsx`'s 504 lines, **~210 port, ~200 are deleted and ~90 are JSX rewritten**. The one part
+that is not mechanical is the session lifecycle, and it is **not** the web machine with the browser
+bits removed: native is told *why* a session ended (`onDisconnect`'s typed reason), so every inference
+the browser needed disappears. Research §3.
 
-### Steps
+### Steps — all done 2026-08-14
 
-- [ ] `GET /api/v2/lessons/:id` → `LessonDetail` + sessions + item history
-- [ ] Port `LessonTutor`'s state machine: proactive kickoff, hidden-message filter,
+- [x] Make `withBearer` generic over the route context — `/api/v2/lessons/[id]` is the first dynamic
+      v2 route and the current wrapper drops Next's `{ params }` (**D32**)
+- [x] `GET /api/v2/lessons/:id` → **one** response `{ lesson, sessions, sessionCount }`, sessions
+      capped at 20 with the total reported (**D30, D31**). Item history moved to S5.
+- [x] `pnpm add expo-sqlite` → journal on `expo-sqlite/kv-store` (**D35**). **A native rebuild, not a
+      JS reload** — do it early, when a build failure is cheap to attribute.
+- [x] Move today's `index.tsx` to `probe.tsx` and keep it: it is the upgrade regression instrument
+      (**D43**). `index.tsx` becomes a launcher holding one lesson id, deleted at S5 (**D42**).
+- [x] Port `LessonTutor`'s state machine: proactive kickoff, hidden-message filter,
       per-conversation-id save guard, carried transcript, resume context
-- [ ] Session journal on `expo-sqlite` (crash insurance now, not backgrounding insurance)
-- [ ] Version picker fed by `GET /api/v2/agent-versions`
-- [ ] **Do not port** `useKeepAwake`, `useAudioHealth`, the visibility dance, `pagehide` beacons, or
-      the `"background"` pause card — research doc §1
-- [ ] Exercise `sendContextualUpdate` deliberately: the resume flow is the one piece of the tutor
-      whose transport genuinely changed (LiveKit data channel rather than the socket)
+- [x] New pause reasons `"dropped"` / `"ended"` / `"recovered"`, sourced from `onDisconnect` and never
+      inferred; **`AppState` is logged, never branched on** (**D33**)
+- [x] ⚠️ **End the session on unmount** — `ConversationProvider` lives in `_layout.tsx` and
+      `UIBackgroundModes: ["audio"]` is set, so navigating away otherwise leaves a live, billed,
+      listening session running. No web ancestor (**D41**, research §3.5).
+- [x] Wire `onAgentResponseCorrection`, then port it back to the web app (**D34**)
+- [x] Version picker fed by `GET /api/v2/agent-versions`
+- [x] **Do not port** `useKeepAwake`, `useAudioHealth`, the visibility dance, `pagehide` beacons, the
+      `"background"` pause card, or `sendUserActivity` — the agents have no idle timeout to defeat
+      (**D36, D40**)
+- [x] Exercise `sendContextualUpdate` deliberately (**D38**): the transport is verified in source and
+      already proven by the kickoff, but **server-side handling of a contextual update over the data
+      channel is not verifiable from source**. Behavioural test, run twice.
 
 ### Gate
 
-- [ ] A real lesson's words, spoken end to end, transcript saved to that lesson's history
-- [ ] Resume after an interruption continues the lesson rather than restarting it
+- [x] A real lesson's words, spoken end to end, transcript saved to that lesson's history —
+      **verified in the database and against ElevenLabs** (S4 §14)
+- [x] Resume after an interruption continues the lesson rather than restarting it — ⚠️ reported
+      green, but it left no separately identifiable evidence (S4 §14)
+- [x] No session survives leaving the screen (**D41**)
+- [x] The locked-screen behaviour still holds on the real screen, not just the probe
+- [x] The journal recovers a force-quit session from `expo-sqlite`
 
 ---
 
@@ -477,6 +502,8 @@ identical API, and everything from `@tutor/shared/tutor` is used as-is (research
 **Research note:** [2026-08-13-expo-s5-lessons.md](./2026-08-13-expo-s5-lessons.md) — 🔲 placeholder.
 
 - [ ] `GET /api/v2/lessons` → `LessonListItem[]`
+- [ ] Item history (`listLessonItemHistory` → the "Word changes" list) — **moved here from S4** (S4
+      D30): it is editing history, and this is the stage that generates the events
 - [ ] `POST /api/v2/sync/flush` — **single-op batches** through the existing, property-checked op
       algebra. Keep this even though v1 is online-only: adding offline later becomes a purely
       client-side change (research doc §3.3).

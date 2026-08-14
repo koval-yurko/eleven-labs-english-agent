@@ -17,6 +17,7 @@
  * call it; its op algebra lives in `./sync-ops.ts`), and the ElevenLabs webhook, which is an
  * inbound contract owned by ElevenLabs rather than by us.
  */
+import type { LessonDetail, LessonSession } from "./lesson-types";
 import type { TranscriptLine } from "./tutor";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
@@ -43,6 +44,17 @@ export const API_V2_ROUTES = {
   /** Save a finished conversation's transcript. Same body as the v1 beacon route. */
   lessonSession: `${API_V2}/lessons/session`,
 } as const;
+
+/**
+ * `GET /api/v2/lessons/:id` — everything the tutor screen needs on first paint.
+ *
+ * `session` above is a LITERAL segment and this is a DYNAMIC one. Next matches literals first, so
+ * `/api/v2/lessons/session` never resolves to a lesson whose id happens to be "session" — which uuids
+ * make unreachable anyway. Worth stating because it reads like a collision and is not.
+ */
+export function lessonPath(id: string): string {
+  return `${API_V2}/lessons/${encodeURIComponent(id)}`;
+}
 
 export const API_ROUTES = {
   /** Mint a short-lived signed WebSocket URL for a tutor version's agent. */
@@ -234,6 +246,51 @@ export function isAgentVersionsResponse(body: unknown): body is AgentVersionsRes
   const b = body as Partial<AgentVersionsResponse>;
   return (
     Array.isArray(b.versions) && typeof b.defaultVersion === "string" && b.defaultVersion.length > 0
+  );
+}
+
+/**
+ * `GET /api/v2/lessons/:id` — 200. One response, not three.
+ *
+ * The tutor screen wants the lesson, its words and its history together on first paint; three round
+ * trips is three chances to half-load and three error states for data that is one owner-scoped read
+ * on the server. See docs/2026-08-13-expo-s4-tutor-screen.md D30.
+ *
+ * Deliberately absent: the lesson's add/remove item history. That is EDITING history — it belongs to
+ * the screen that generates the events (S5), not to the tutor's first paint.
+ */
+export interface LessonDetailResponse {
+  /** The lesson plus `itemsDetailed` — the fat shape `formatItemsList` consumes. */
+  lesson: LessonDetail;
+  /**
+   * Past conversations, newest first, CAPPED server-side (`MAX_LESSON_SESSIONS`).
+   *
+   * Sent fat (transcripts included) because the screen renders them on expand and a second route per
+   * session would be a request per tap. If that turns out to dominate the payload, the answer is a
+   * summaries-only list plus a per-session fetch — not a smaller silent cap.
+   */
+  sessions: LessonSession[];
+  /**
+   * How many the learner actually has, so a capped list can say "showing 20 of 37" rather than
+   * implying that is all of them. A cap the client cannot see is a cap that lies.
+   */
+  sessionCount: number;
+}
+
+/** How many sessions `GET /api/v2/lessons/:id` returns. See `LessonDetailResponse.sessions`. */
+export const MAX_LESSON_SESSIONS = 20;
+
+/** Narrow an already-parsed lesson-detail response. */
+export function isLessonDetailResponse(body: unknown): body is LessonDetailResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<LessonDetailResponse>;
+  return (
+    typeof b.lesson === "object" &&
+    b.lesson !== null &&
+    typeof b.lesson.id === "string" &&
+    Array.isArray(b.lesson.itemsDetailed) &&
+    Array.isArray(b.sessions) &&
+    typeof b.sessionCount === "number"
   );
 }
 
