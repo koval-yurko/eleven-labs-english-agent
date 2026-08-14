@@ -26,9 +26,6 @@ function required<K extends keyof MobileEnv>(key: K): NonNullable<MobileEnv[K]> 
  * message; a throw at first use lands in the error boundary carrying the text above.
  */
 export const env = {
-  get agentId() {
-    return required("agentId");
-  },
   get auth0Domain() {
     return required("auth0Domain");
   },

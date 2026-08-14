@@ -1,7 +1,9 @@
 import type { MeResponse } from "@tutor/shared/api";
 
 import { withBearer } from "../../../../lib/auth/bearer";
-import { json } from "../../../../lib/http";
+import { json, preflight } from "../../../../lib/http";
+
+export const OPTIONS = preflight;
 
 /**
  * `GET /api/v2/me` — the authenticated learner's Auth0 `sub`.

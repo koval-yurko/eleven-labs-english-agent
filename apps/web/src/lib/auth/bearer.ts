@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import type { NextResponse } from "next/server";
 
-import { unauthorized } from "../http";
+import { unauthorized, withCors } from "../http";
 
 /**
  * Bearer authentication for the `/api/v2/*` namespace — the native client's path, and ONLY the
@@ -67,13 +68,17 @@ export async function getBearerOwnerId(req: Request): Promise<string | null> {
  * A wrapper rather than a per-route call, deliberately: a route that forgot the check would serve
  * another learner's rows, it would fail OPEN, and it would look finished. Here the handler's
  * signature makes "forgot to authenticate" inexpressible.
+ *
+ * It is also the single place CORS is applied (D25) — including to the 401, so a browser sees the
+ * status rather than an opaque network error. Routes still re-export `OPTIONS = preflight` for the
+ * preflight itself, which never reaches a handler.
  */
 export function withBearer(
-  handler: (req: Request, ownerId: string) => Promise<Response>,
-): (req: Request) => Promise<Response> {
+  handler: (req: Request, ownerId: string) => Promise<NextResponse>,
+): (req: Request) => Promise<NextResponse> {
   return async (req: Request) => {
     const ownerId = await getBearerOwnerId(req);
-    if (!ownerId) return unauthorized();
-    return handler(req, ownerId);
+    if (!ownerId) return withCors(unauthorized());
+    return withCors(await handler(req, ownerId));
   };
 }

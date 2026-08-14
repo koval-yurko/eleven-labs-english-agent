@@ -1,32 +1,74 @@
 import { useConversation } from "@elevenlabs/react-native";
+import {
+  API_V2_ROUTES,
+  conversationTokenPath,
+  isConversationTokenResponse,
+  type ConversationTokenResponse,
+  type TutorSessionInput,
+} from "@tutor/shared/api";
+import {
+  formatItemsList,
+  HIDDEN_KICKOFF_MESSAGES,
+  KICKOFF_MESSAGE,
+  type TranscriptLine,
+  type TutorItem,
+} from "@tutor/shared/tutor";
 import Constants from "expo-constants";
 import { Link } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  AppState,
+  type AppStateStatus,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth0 } from "react-native-auth0";
 
-import { env } from "@/env";
+import { apiFetch } from "@/api";
 import { useEventLog } from "@/hooks/use-event-log";
 import { useSuspensionProbe } from "@/hooks/use-suspension-probe";
 
 /**
- * S1 — the suspension probe. The whole product surface of this stage.
+ * S1's suspension probe, now driven by S3's token route.
  *
- * The question is B2: does a locked screen kill a live conversation? You cannot watch a locked
- * screen, so nothing here is observed live — everything is measured and written to a scrollback
- * that is read AFTER unlocking. See docs/2026-08-13-expo-s1-background-audio.md §5 and §6.
+ * S1 asked whether a locked screen kills a live conversation (it does not). S3 asks a different
+ * question on the same screen: does the `conversation_id` we key `lesson_sessions` on survive the
+ * WebRTC transport? The two rules that made S1's numbers mean anything still apply — NO DEBUGGER,
+ * Release configuration — and this screen stays the regression check for every SDK and iOS upgrade.
  *
- * Two rules that decide whether any number on this screen means anything:
- *   1. NO DEBUGGER. Xcode's debugger prevents iOS from suspending the app at all — it prints a
- *      confident green pass on a test that never happened. Measure on a `preview` build installed
- *      from a link and launched from the home screen.
- *   2. RELEASE CONFIGURATION, never a dev client, whose Metro connection drops on background and
- *      manufactures false failures.
+ * What changed from S1:
+ *   - the session starts from a CONVERSATION TOKEN minted by our server, not a public `agentId`;
+ *   - `conversationIdRef` is seeded from that response BEFORE startSession, and nothing overwrites
+ *     it — the SDK derives its own id from the LiveKit room name and can fall back to
+ *     `room_${Date.now()}`, which no other writer will ever produce;
+ *   - both `onConversationMetadata` and `onConnect` are compared against it and warn on a mismatch;
+ *   - the transcript is posted to `/api/v2/lessons/session` when the session ends.
  *
- * Keep this screen after S1 goes green: it is the regression check for every SDK and iOS upgrade.
+ * See docs/2026-08-13-expo-s3-conversation-token.md §6.
  */
-export default function SuspensionProbeScreen() {
+
+/**
+ * S3 hard-codes the lesson, deliberately (research doc §5.5): the stage's question is the
+ * conversation id, and `GET /api/v2/lessons/:id` is S4's work. Every extra route here is one more
+ * thing that can fail the run for an unrelated reason.
+ *
+ * The id must be a lesson owned by the signed-in learner, or the save answers 404. The word list
+ * only has to be plausible — S4 replaces both with the real lesson payload.
+ */
+const LESSON_ID = "eb47597e-cac3-446b-b5de-26b0ebd068c2";
+const LESSON_ITEMS: TutorItem[] = [
+  { text: "incentive", details: null },
+  { text: "obscure", details: null },
+  { text: "inevitable", details: null },
+];
+
+export default function TutorProbeScreen() {
   const { entries, log, clear } = useEventLog();
+  const { getCredentials } = useAuth0();
 
   // Toggled by the buttons rather than derived from `status`, so the probe also measures the
   // connecting window — a session that never connects still produces a readable timeline.
@@ -35,35 +77,100 @@ export default function SuspensionProbeScreen() {
 
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
+
+  /**
+   * THE ROW KEY. Seeded from the token response before the session starts, and never written by a
+   * callback. Everything else about the id is advisory.
+   */
+  const conversationIdRef = useRef<string | null>(null);
+  const versionRef = useRef<string>("");
+  const linesRef = useRef<TranscriptLine[]>([]);
+  /** Per-conversation save guard: a reconnect must not re-post the same transcript. */
+  const savedForRef = useRef<string | null>(null);
+
+  const accessToken = useCallback(async () => {
+    const credentials = await getCredentials();
+    return credentials?.accessToken ?? null;
+  }, [getCredentials]);
+
+  /** Post the collected transcript. Called on disconnect; idempotent per conversation id. */
+  const saveTranscript = useCallback(async () => {
+    const id = conversationIdRef.current;
+    if (!id || savedForRef.current === id) return;
+    savedForRef.current = id;
+
+    const payload: TutorSessionInput = {
+      lessonId: LESSON_ID,
+      conversationId: id,
+      agentVersion: versionRef.current,
+      lines: linesRef.current,
+    };
+    try {
+      await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      log("status", `transcript saved · ${payload.lines.length} lines · ${id}`);
+    } catch (e) {
+      // Un-guard so a retry is possible: a lost transcript is the one failure this stage cannot
+      // recover from after the fact.
+      savedForRef.current = null;
+      log("error", `save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [accessToken, log]);
 
   const conversation = useConversation({
-    onConnect: ({ conversationId: id }) => {
-      setConversationId(id);
-      log("status", `connected · ${id}`);
-      // A free early look at the B3 hazard (creation doc §9 B3): on WebRTC the SDK DERIVES this id
-      // from room.name and falls back to `room_${Date.now()}` when that is empty. Any such id never
-      // matches what the post-call webhook reports. S3 fixes it by taking the id from the token
-      // route; S1 only needs to know whether it happens.
-      if (!/^conv_/.test(id)) log("error", `conversationId is NOT conv_* → "${id}" (B3 hazard)`);
+    onConnect: ({ conversationId: sdkId }) => {
+      log("status", `connected · sdk id ${sdkId}`);
+      // ADVISORY ONLY — compared, never trusted, never written to the ref. The SDK derives this
+      // from `room.name` and falls back to `room_<timestamp>` when that is empty. In the normal
+      // path it agrees with the token id; this is the tripwire for the day it stops.
+      const authoritative = conversationIdRef.current;
+      if (authoritative && sdkId !== authoritative) {
+        log("error", `B3: onConnect id ${sdkId} ≠ token id ${authoritative}`);
+      }
+      if (!/^conv_/.test(sdkId)) {
+        log("error", `B3: derived id is not conv_* → "${sdkId}"`);
+      }
     },
-    onDisconnect: (details) => log("status", `disconnected · reason=${details.reason}`),
+    // The server's OWN id, delivered in band over the data channel — a strictly better cross-check
+    // than the derived one. Silence here means "no cross-check available", not an error: the
+    // WebRTC connection does not wait for this event the way the WebSocket one does.
+    onConversationMetadata: ({ conversation_id }) => {
+      const authoritative = conversationIdRef.current;
+      log("note", `metadata id ${conversation_id}`);
+      if (authoritative && conversation_id !== authoritative) {
+        log("error", `B3: metadata id ${conversation_id} ≠ token id ${authoritative}`);
+      }
+    },
+    onDisconnect: (details) => {
+      log("status", `disconnected · reason=${details.reason}`);
+      void saveTranscript();
+    },
     onStatusChange: ({ status }) => log("status", status),
     // Split by role, because the two directions fail independently and only one of them is
     // audible. A locked-screen session where iOS kept playback alive but killed microphone capture
     // produces agent lines and NO user lines — which passes every other criterion while being a
-    // tutor you cannot talk to. See the research doc §7, criterion 4.
-    onMessage: ({ message, role }) =>
-      role === "user" ? log("you", `you: ${message}`) : log("agent", `agent: ${message}`),
+    // tutor you cannot talk to.
+    onMessage: ({ message, role }) => {
+      // The kickoff is a hidden instruction, not a learner turn: it is filtered out of the stored
+      // history by every other writer, so it must not be collected here either.
+      if (!HIDDEN_KICKOFF_MESSAGES.includes(message)) {
+        linesRef.current = [...linesRef.current, { role, text: message }];
+      }
+      log(role === "user" ? "you" : "agent", `${role}: ${message}`);
+    },
     // The mic prompt is triggered by the SDK itself (no pre-flight call), so a DENIED microphone
     // arrives here as a session error rather than as a permission dialog.
     onError: (message) => log("error", `${message} (a denied microphone also looks like this)`),
   });
 
-  const { status, isMuted, setMuted, startSession, endSession } = conversation;
+  const { status, isMuted, setMuted, startSession, endSession, sendUserMessage } = conversation;
 
   // AppState transitions are an OBSERVATION, not an assumption: lock, app-switch and Siri produce
-  // different sequences, and test D exists because backgrounding and locking are different
-  // suspension paths. Recording them here is what S4's session UI gets written against.
+  // different sequences, and S1's test D exists because backgrounding and locking are different
+  // suspension paths.
   const appStateRef = useRef(appState);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -74,18 +181,67 @@ export default function SuspensionProbeScreen() {
     return () => sub.remove();
   }, [log]);
 
-  const onStart = useCallback(() => {
+  /**
+   * Proactive kickoff: the agent greets and starts teaching on its own once connected. An empty
+   * first_message makes it wait for the learner, and a hidden user message reliably triggers its
+   * opening turn.
+   */
+  const kickedOffRef = useRef(false);
+  useEffect(() => {
+    if (status !== "connected" || kickedOffRef.current) return;
+    kickedOffRef.current = true;
+    sendUserMessage(KICKOFF_MESSAGE);
+    log("note", "kickoff sent");
+  }, [status, sendUserMessage, log]);
+
+  const onStart = useCallback(async () => {
     clear();
     setConversationId(null);
+    setVersion(null);
+    conversationIdRef.current = null;
+    savedForRef.current = null;
+    linesRef.current = [];
+    kickedOffRef.current = false;
+
+    let body: ConversationTokenResponse;
+    try {
+      // Minted HERE, immediately before startSession — the token lives 900 s and the conversation
+      // id is created with it, so fetching at screen mount would hand a stale token to a learner
+      // who read the word list first.
+      log("note", "requesting conversation token…");
+      const res = await apiFetch<unknown>(conversationTokenPath(), accessToken, { method: "POST" });
+      if (!isConversationTokenResponse(res)) {
+        log("error", "malformed token response — missing token, conversationId or appEnv");
+        return;
+      }
+      body = res;
+    } catch (e) {
+      log("error", `token request failed: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
+    // Seeded BEFORE startSession. From here on this is the row key, whatever the transport says.
+    conversationIdRef.current = body.conversationId;
+    versionRef.current = body.version;
+    setConversationId(body.conversationId);
+    setVersion(body.version);
+    log("note", `token ok · ${body.version} · ${body.appEnv} · ${body.conversationId}`);
+
     setSessionActive(true);
-    log("note", `starting · agent ${env.agentId}`);
     startSession({
-      agentId: env.agentId,
+      conversationToken: body.token,
       connectionType: "webrtc", // the only transport the RN SDK supports; websocket throws
       // Never hold the screen awake: "passes only with the screen awake-but-dimmed" is not a pass.
       useWakeLock: false,
+      dynamicVariables: {
+        items_list: formatItemsList(LESSON_ITEMS),
+        lesson_id: LESSON_ID,
+        // Required, never defaulted — the post-call webhook routes on it, and a missing one files
+        // the session under the wrong environment.
+        app_env: body.appEnv,
+      },
     });
-  }, [clear, log, startSession]);
+  }, [accessToken, clear, log, startSession]);
 
   const onEnd = useCallback(() => {
     log("note", "ending session");
@@ -93,8 +249,7 @@ export default function SuspensionProbeScreen() {
     setSessionActive(false);
   }, [endSession, log]);
 
-  // The uplink tally: how many turns got through in each direction. After unlocking, "you" is the
-  // number to check against the words you actually spoke into the locked phone (§6.3, alpha-echo).
+  // The uplink tally: how many turns got through in each direction.
   const youTurns = entries.filter((e) => e.kind === "you").length;
   const agentTurns = entries.filter((e) => e.kind === "agent").length;
 
@@ -111,11 +266,11 @@ export default function SuspensionProbeScreen() {
         <Stat label="app state" value={appState} />
         <Stat label="elapsed" value={`${elapsed.toFixed(0)}s`} />
         <Stat label="drift" value={`${drift.toFixed(2)}s`} />
-        {/* The one the gate is read from: < 3s passes. Live `drift` can collapse back to ~0. */}
+        {/* The one S1's gate is read from: < 3s passes. Live `drift` can collapse back to ~0. */}
         <Stat label="MAX DRIFT" value={`${maxDrift.toFixed(2)}s`} emphasis />
         <Stat label="mic" value={isMuted ? "muted" : "live"} />
-        {/* Uplink vs downlink turn counts — criterion 4 is read from the first of these. */}
         <Stat label="you / agent turns" value={`${youTurns} / ${agentTurns}`} />
+        <Stat label="version" value={version ?? "—"} />
       </View>
 
       <Text style={styles.meta} numberOfLines={1}>
@@ -126,8 +281,10 @@ export default function SuspensionProbeScreen() {
       </Text>
 
       <View style={styles.buttons}>
-        <Button label={sessionActive ? "End" : "Start"} onPress={sessionActive ? onEnd : onStart} />
-        {/* Test C: mute and lock, to check whether track PRESENCE alone holds the app awake. */}
+        <Button
+          label={sessionActive ? "End" : "Start"}
+          onPress={sessionActive ? onEnd : () => void onStart()}
+        />
         <Button label={isMuted ? "Unmute" : "Mute"} onPress={() => setMuted(!isMuted)} />
       </View>
 

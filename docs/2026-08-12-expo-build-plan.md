@@ -1,10 +1,10 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S3** — **S1 and S2 both passed on
-2026-08-13.** B2 is answered (locked-screen audio, both directions, no CallKit) and B1 is answered
-(Auth0 login on device). The `/api/v2/me` half of S2's gate is **deferred to S3** along with the
-deployment ([S2 §10](./2026-08-13-expo-s2-auth0-bearer.md#10-result--b1-is-answered-half-a)).
-**Next action: deploy the server** — S3 is the first stage that cannot move without a reachable API.
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S4** — 🚩 **the gate is passed. All
+three blockers are cleared.** B2 (locked-screen audio, both directions, no CallKit), B1 (Auth0 on
+device, Bearer on the server) and B3 (the conversation id survives WebRTC) are all answered on real
+hardware, S0–S3 in three days. **Next action: write S4's research** from its placeholder, then build
+the tutor screen proper.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -47,7 +47,7 @@ which stage to work on and which research to write.**
 | **S0** | [s0 — scaffold, TestFlight](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅ full        | ✅    | passed 2026-08-13 — internal distribution; TestFlight deferred to S7 (D9) |
 | **S1** | [s1 — background audio](./2026-08-13-expo-s1-background-audio.md)        | ✅ full        | ✅    | **passed 2026-08-13 — A–E all green, both directions**                    |
 | **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | ✅ full        | ✅    | **passed 2026-08-13 — login on device; `/api/v2/me` deferred to S3**      |
-| **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | 🔲 placeholder | ⬜    | —                                                                         |
+| **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | ✅ full        | ✅    | **passed 2026-08-14 — 2 native sessions, 2 rows, both enriched**           |
 | **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | 🔲 placeholder | ⬜    | —                                                                         |
 | **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —                                                                         |
 | **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | 🔲 placeholder | ⬜    | —                                                                         |
@@ -81,7 +81,7 @@ When a stage's gate is decided — green **or** red:
 | **S0** | empty Expo app, EAS, TestFlight, one `@tutor/shared` import | installs, launches, renders the shared string   | 1–2 d | [✅](./2026-08-13-expo-s0-scaffold-testflight.md) | ✅     |
 | **S1** | ElevenLabs + LiveKit, public agent, suspension probe        | **S1a** runs → **S1b** survives a locked screen | 1–2 d | [✅](./2026-08-13-expo-s1-background-audio.md)    | ✅     |
 | **S2** | `react-native-auth0` login + Bearer on the server           | a Bearer call returns the right `sub`           | 2–3 d | [✅](./2026-08-13-expo-s2-auth0-bearer.md)        | ✅     |
-| **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [🔲](./2026-08-13-expo-s3-conversation-token.md)  | ⬜     |
+| **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [✅](./2026-08-13-expo-s3-conversation-token.md)  | ✅     |
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
 | **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [🔲](./2026-08-13-expo-s4-tutor-screen.md)        | ⬜     |
 | **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [🔲](./2026-08-13-expo-s5-lessons.md)             | ⬜     |
@@ -338,9 +338,21 @@ That last one is not optional. A phone that re-prompts for login mid-lesson is n
 
 ## S3 — B3: the conversation id
 
-**Research note:** [2026-08-13-expo-s3-conversation-token.md](./2026-08-13-expo-s3-conversation-token.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s3-conversation-token.md](./2026-08-13-expo-s3-conversation-token.md) — ✅ **researched and finalized 2026-08-14; B3-M0 green; ready to build** (its §13).
 
 **Goal:** our own agent, and a transcript row that cannot silently fork.
+
+> ✅ **The research added a pre-gate (B3-M0), and it is now green.** Probing the live account found
+> the post-call webhook had **never once written a row** — 0 of 13 — for three stacked reasons: the
+> default agent version resolved to a *disabled* webhook, the deployment read a *differently named*
+> env var, and each webhook signs with its *own* secret. Fixed and proven from a browser on
+> 2026-08-13: 4 lessons → 4 rows, all enriched (§8). Had this not been found first, a red B3-M4
+> would have been blamed on WebRTC. The B3 hazard itself is narrower than feared (§3.1): the derived
+> id matches the authoritative one in the normal path.
+>
+> **Before the first line of S3 code:** set `EXPO_PUBLIC_API_BASE_URL` (still empty in
+> `apps/mobile/.env` and EAS) and run S2's Half B from the device — the only check that can tell a
+> working `AUTH0_API_AUDIENCE` on Vercel from a missing one.
 
 Swap the public agent for ours via the v2 token route, and close the hazard from research doc §9 B3:
 the WebRTC path **derives** `conversationId` from the LiveKit room name with a fallback chain, so it
@@ -349,26 +361,57 @@ converge on one `lesson_sessions` row keyed by that column.
 
 ### Steps
 
-- [ ] **B3-M1** — `POST /api/v2/words-agent/token` calls `/v1/convai/conversation/token` and returns
+- [x] **B3-M0a** — `master` pushed and the workspace post-call webhook repointed at the deployment
+      (2026-08-14). `/api/v2/me` answers 401 there instead of 404. _(Target later moved to
+      `vercel-prod-new` — see M0c.)_
+- [x] **B3-M0b** — the deployment could not accept a webhook at all: the secret had lived on Vercel
+      for 47 days under the wrong key (`ELEVENLABS_CONVAI_WEBHOOK_SECRET` vs the code's
+      `ELEVENLABS_WEBHOOK_SECRET`). Added and redeployed 2026-08-14; a signed probe now returns 200
+      and a wrongly-signed one 401. Research note §8.2.
+- [x] **B3-M0c** — the first real delivery 401'd, proving a webhook secret is **per-registration,
+      not per-workspace**. Replaced with `vercel-prod-new` (secret captured at creation, set in
+      `.env` + Vercel), **and cleared the per-agent overrides** on words-1.0/1.1 so all four
+      versions inherit one default. Signed probe passes. Research note §8.2b–c.
+- [x] **B3-M0d** — ✅ **passed** (rows at 2026-08-13 22:14–22:17 UTC). Four browser lessons → 4 rows, all four carrying both a
+      client transcript and webhook-written `duration_secs` + `summary`; no forking, no
+      `room_<digits>` ids, zero delivery failures. The webhook path is proven end to end for the
+      first time. Research note §8.3.
+- [ ] **S2 Half B** — `GET /api/v2/me` from the device: right `sub`, plus 401 on no token and on a
+      garbage token. Inherited from S2 §10; run it before adding ElevenLabs to the picture.
+**Written 2026-08-14 — built and locally verified, not yet run on a device.** Workspace gate green
+(typecheck · lint · `check:shared` · `expo export` · `next build`); all four v2 routes answer 401 +
+`access-control-allow-origin` unauthenticated and 204 to a preflight against a local dev server.
+
+- [x] **B3-M1** — `POST /api/v2/words-agent/token` calls `/v1/convai/conversation/token` and returns
       `{ token, conversationId, version, appEnv }`. A response missing `conversationId` is an error,
       exactly like `appEnv` — a derived id is worse than no session.
-- [ ] **B3-M1b** — `GET /api/v2/agent-versions` returning version + label, **`agentId` stripped**.
+- [x] **B3-M1b** — `GET /api/v2/agent-versions` returning version + label, **`agentId` stripped**.
       The app picks a version string; the token route resolves version → agent id server-side. That
       seam is what lets `pnpm sync:agents` retire a version without breaking installed binaries.
-- [ ] Declare both in `packages/shared/src/api.ts` (research doc §3.4)
-- [ ] **B3-M2** — client seeds `conversationIdRef` from the token response **before** `startSession`;
-      `onConnect` never overwrites it
-- [ ] **B3-M3** — compare, do not trust: warn if `onConnect`'s id differs from the token id or fails
-      `/^conv_/`. Three lines; the tripwire if the SDK's derivation drifts.
-- [ ] Send `dynamicVariables: { items_list, lesson_id, app_env }` and save the transcript via
-      `POST /api/v2/lessons/session`
+- [x] Declare both in `packages/shared/src/api.ts` — plus `conversationTokenPath`, the two guards,
+      and `API_V2_ROUTES` entries for all four routes
+- [x] **B3-M2** — client seeds `conversationIdRef` from the token response **before** `startSession`;
+      nothing overwrites it
+- [x] **B3-M3** — compare, do not trust: warns if `onConnect`'s id differs from the token id or fails
+      `/^conv_/`, **and** the same check against `onConversationMetadata` (the server's own id,
+      in band — a strictly better tripwire, research note §3.5)
+- [x] Send `dynamicVariables: { items_list, lesson_id, app_env }` and save the transcript via
+      `POST /api/v2/lessons/session` (D24's `persistTutorSessionFor` makes it a thin caller)
+- [x] `EXPO_PUBLIC_API_BASE_URL` set in `apps/mobile/.env` and all three EAS environments;
+      `EXPO_PUBLIC_AGENT_ID` deleted from both, and `agentId` removed from `MobileEnv`
 
 ### Gate — B3-M4
 
-- [ ] Run one native session end to end
-- [ ] In the database: the row the client wrote and the row the post-call webhook upserts are **the
-      same row** — one `lesson_sessions` record, not two
-- [ ] That row carries the **correct `app_env`**
+- [x] B3-M0 is green first — a **browser** session already produced one webhook-enriched row
+- [x] Run one native session end to end — **two** were run, 47 s and 73 s
+- [x] In the database: the row the client wrote and the row the post-call webhook upserts are **the
+      same row** — 2 sessions → 2 rows, 2 unique ids, no `room_<digits>` placeholder
+- [x] Its `conversation_id` is the one the **token route** returned — and equals ElevenLabs' own
+      `system__conversation_id`, so all three agree
+- [x] That row carries the **correct `app_env`** — read as: it has `duration_secs` (only the webhook
+      writes that) **and** the client's transcript lines. A wrong `app_env` produces no second row at
+      all, just a missing enrichment, so this is the observable form of the check
+      (research note §9.3)
 
 M1–M3 make the id correct by construction, but they all rest on an assumption about which id the
 _webhook_ reports, and no amount of client-side care tests that. M4 does.
@@ -380,12 +423,24 @@ and that is discovered much later, when dev sessions turn up in prod history.
 
 ---
 
-## 🚩 The gate
+## 🚩 The gate — ✅ **GREEN, decided 2026-08-14**
 
-All three blockers cleared, ~1–1.5 weeks in, for the price of a scaffold and one screen.
+All three blockers cleared, for the price of a scaffold and one screen.
 
-**Decide explicitly here.** Green → commit to S4–S7. Red on B2 with CallKit as the only path → re-cost
-the project before continuing. This is the cheapest stopping point that will ever exist.
+| Blocker                              | Verdict                                                                                                | Evidence                                                                     |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| **B2** — background audio            | ✅ **no CallKit needed.** A session survives a locked screen in both directions.                        | [S1](./2026-08-13-expo-s1-background-audio.md) — A–E green, max drift < 3 s  |
+| **B1** — Auth0 on a device           | ✅ JWT, `Bearer` not DPoP, silent renewal; `/api/v2/me` returns the same `sub` the web app shows.       | [S2](./2026-08-13-expo-s2-auth0-bearer.md) + S3 §11                          |
+| **B3** — the conversation id         | ✅ **it survives WebRTC.** Token-route id = row key = ElevenLabs' `system__conversation_id`.            | [S3 §14](./2026-08-13-expo-s3-conversation-token.md) — 2 sessions, 2 rows    |
+
+**Decision: GREEN → commit to S4–S7.** No blocker degraded into its expensive branch; the port stays
+"mostly a server project" as the creation doc argued, and nothing discovered on hardware re-costs it.
+
+**The one surprise was not a blocker at all.** S3's research found the post-call webhook had never
+written a row to this database — three stacked misconfigurations, none of them in the port, none
+visible from inside the repository. Finding it before the native run is what kept a red B3 from being
+blamed on WebRTC. The lesson generalises: **probe the deployment, don't read the repo**
+([S3 §8.2a](./2026-08-13-expo-s3-conversation-token.md)).
 
 ---
 

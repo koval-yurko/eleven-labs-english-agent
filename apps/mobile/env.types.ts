@@ -19,14 +19,10 @@ export type Variant = "development" | "preview" | "production";
  * (creation doc §3.5). A real secret does not belong in the client at all.
  */
 export type MobileEnv = {
-  /**
-   * ElevenLabs agent connected to directly by id, with no auth — the agent's
-   * `platform_settings.auth.enable_auth` is false.
-   *
-   * S1 ONLY. S3 replaces this with the /api/v2 conversation-token route, which returns both the
-   * token and the authoritative conversation_id, and this field is deleted. See S1 §2 D11.
-   */
-  agentId: string;
+  // S1's `agentId` is GONE, deleted by S3 as planned. The app never learns an agent id: it names a
+  // VERSION and `POST /api/v2/words-agent/token` resolves version → agent server-side. That seam is
+  // what lets `pnpm sync:agents` retire a version without bricking installed binaries — an agent id
+  // compiled into a shipped app cannot be changed without a release.
 
   // ── S2: Auth0 ──────────────────────────────────────────────────────────────────────────────
   /** Auth0 tenant, e.g. "your-tenant.eu.auth0.com". The server derives `iss` from the same. */
@@ -46,12 +42,13 @@ export type MobileEnv = {
   /**
    * Origin the `/api/v2/*` routes are called on, with no trailing slash.
    *
-   * EMPTY UNTIL THE SERVER IS DEPLOYED — `required()` throws rather than letting a build silently
-   * point at nothing. A LAN `http://` address is not an option: App Transport Security blocks
-   * cleartext in a Release build (S2 §6).
+   * `required()` throws rather than letting a build silently point at nothing. A LAN `http://`
+   * address is not an option: App Transport Security blocks cleartext in a Release build (S2 §6).
    */
   apiBaseUrl: string;
-  // S3 adds: appEnv
+  // No `appEnv` here, deliberately: it is the SERVER's value, returned by the token route and
+  // stamped onto the conversation from there. A client-side copy could disagree with the server
+  // that routes the post-call webhook, which is exactly the bug the required field exists to stop.
 };
 
 /**

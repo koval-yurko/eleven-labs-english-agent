@@ -32,7 +32,6 @@ const VARIANTS = {
 // client by design (PKCE, no secret). Real secrets never reach a client at all, which is why the
 // token route exists (docs/2026-08-12-expo-app-creation.md §3.5).
 const ENV_VARS = {
-  agentId: "EXPO_PUBLIC_AGENT_ID",
   auth0Domain: "EXPO_PUBLIC_AUTH0_DOMAIN",
   auth0ClientId: "EXPO_PUBLIC_AUTH0_CLIENT_ID",
   auth0Audience: "EXPO_PUBLIC_AUTH0_AUDIENCE",

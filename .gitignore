@@ -48,3 +48,5 @@ credentials.json
 .expo/
 apps/mobile/ios/
 apps/mobile/android/
+.vercel
+.env*

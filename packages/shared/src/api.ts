@@ -36,6 +36,12 @@ export const API_V2 = "/api/v2";
 export const API_V2_ROUTES = {
   /** Echoes the authenticated learner's Auth0 `sub`. An auth + liveness probe. */
   me: `${API_V2}/me`,
+  /** Selectable tutor versions — version + label, never the agent id. */
+  agentVersions: `${API_V2}/agent-versions`,
+  /** Mint a WebRTC conversation token + its authoritative conversation id. */
+  conversationToken: `${API_V2}/words-agent/token`,
+  /** Save a finished conversation's transcript. Same body as the v1 beacon route. */
+  lessonSession: `${API_V2}/lessons/session`,
 } as const;
 
 export const API_ROUTES = {
@@ -52,6 +58,19 @@ export function signedUrlPath(version?: string): string {
   return version
     ? `${API_ROUTES.signedUrl}?version=${encodeURIComponent(version)}`
     : API_ROUTES.signedUrl;
+}
+
+/**
+ * `?version=` selects a tutor prompt version; omitted means "newest active".
+ *
+ * Deliberately the same grammar as `signedUrlPath` — the two routes are transport twins, and one
+ * of them having the version in a JSON body would be a second convention to remember. This is the
+ * only place that grammar is written, on either side.
+ */
+export function conversationTokenPath(version?: string): string {
+  return version
+    ? `${API_V2_ROUTES.conversationToken}?version=${encodeURIComponent(version)}`
+    : API_V2_ROUTES.conversationToken;
 }
 
 // ── errors ───────────────────────────────────────────────────────────────────────────────────
@@ -136,6 +155,86 @@ export function isMeResponse(body: unknown): body is MeResponse {
   if (typeof body !== "object" || body === null) return false;
   const b = body as Partial<MeResponse>;
   return typeof b.sub === "string" && b.sub.length > 0;
+}
+
+/**
+ * `POST /api/v2/words-agent/token` — 200. The WebRTC twin of `SignedUrlResponse`.
+ *
+ * React Native cannot use the signed-URL path at all: the SDK throws for `connectionType:
+ * "websocket"` / `signedUrl`, because that transport needs `AudioContext` and `AudioWorkletNode`.
+ * See docs/2026-08-12-expo-app-creation.md §2.
+ */
+export interface ConversationTokenResponse {
+  /** Short-lived (900 s) LiveKit access token. The xi-api-key never leaves the server. */
+  token: string;
+  /**
+   * The AUTHORITATIVE conversation id, minted alongside the token.
+   *
+   * Returned rather than read off the SDK because the WebRTC transport DERIVES its id from the
+   * LiveKit room name and falls back to `room_${Date.now()}` when that name is empty — an id no
+   * other writer will ever produce. Four writers converge on one `lesson_sessions` row keyed by
+   * this column, so a derived id silently forks a learner's history.
+   * See docs/2026-08-13-expo-s3-conversation-token.md §3.
+   */
+  conversationId: string;
+  /** The version actually resolved (differs from the request when none was asked for). */
+  version: string;
+  /** Stamped as the `app_env` dynamic variable; the post-call webhook routes on it. */
+  appEnv: string;
+}
+
+/**
+ * Narrow an already-parsed token response.
+ *
+ * Requires `conversationId` and `appEnv` as well as the token: both are values the client must
+ * never invent. A missing `conversationId` means the row key would have to be derived, and a
+ * derived id is worse than no session at all; a missing `appEnv` files the session under the wrong
+ * environment. Either one is an error, not something to patch client-side.
+ */
+export function isConversationTokenResponse(body: unknown): body is ConversationTokenResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<ConversationTokenResponse>;
+  return (
+    typeof b.token === "string" &&
+    b.token.length > 0 &&
+    typeof b.conversationId === "string" &&
+    b.conversationId.length > 0 &&
+    typeof b.appEnv === "string" &&
+    b.appEnv.length > 0
+  );
+}
+
+/**
+ * One selectable tutor version.
+ *
+ * `agentId` is ABSENT on purpose. The app names a VERSION and the server owns version → agent id,
+ * which is the seam that lets `pnpm sync:agents` retire a version without bricking every installed
+ * binary. Adding the id here would compile agent ids into shipped apps.
+ */
+export interface AgentVersionSummary {
+  version: string;
+  label: string;
+}
+
+/** `GET /api/v2/agent-versions` — 200. */
+export interface AgentVersionsResponse {
+  /** Active versions in canonical order, oldest → newest. */
+  versions: AgentVersionSummary[];
+  /**
+   * The version used when the client asks for none. Sent explicitly because "newest active" is a
+   * SERVER-side rule; a client re-deriving it from array order would be a second implementation of
+   * `resolveAgent` living in a binary that cannot be hot-fixed.
+   */
+  defaultVersion: string;
+}
+
+/** Narrow an already-parsed agent-versions response. */
+export function isAgentVersionsResponse(body: unknown): body is AgentVersionsResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<AgentVersionsResponse>;
+  return (
+    Array.isArray(b.versions) && typeof b.defaultVersion === "string" && b.defaultVersion.length > 0
+  );
 }
 
 /** One integration probe in the health payload. */
