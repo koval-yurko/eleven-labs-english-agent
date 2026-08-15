@@ -20,7 +20,7 @@ import {
   RESUME_MESSAGE,
   type TranscriptLine,
 } from "@tutor/shared/tutor";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -417,10 +417,21 @@ export default function LessonTutorScreen() {
 
   return (
     <Screen title={detail.lesson.title}>
-      <Text style={styles.muted}>
-        {detail.lesson.items.length} words · {detail.sessionCount}{" "}
-        {detail.sessionCount === 1 ? "conversation" : "conversations"}
-      </Text>
+      <View style={styles.metaRow}>
+        <Text style={styles.muted}>
+          {detail.lesson.items.length} words · {detail.sessionCount}{" "}
+          {detail.sessionCount === 1 ? "conversation" : "conversations"}
+        </Text>
+        {/*
+          Editing is its own screen (D51), not a section of this one. Partly because the transcript
+          wants the viewport, but mainly because `items_list` is baked into `dynamicVariables` at
+          connect: an edit made during a session has no effect on that session, and an inline editor
+          would advertise an immediacy that does not exist.
+        */}
+        <Link href={`/lessons/${lessonId}/words`} style={styles.editLink}>
+          Edit words →
+        </Link>
+      </View>
 
       {/* Expo UI, kept deliberately small on its first outing (D39): SwiftUI owns the two controls,
           RN owns every layout and the one scrolling thing on the screen. */}
@@ -514,6 +525,8 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
   muted: { color: "#8A8A8A", fontSize: 13, marginTop: 8 },
+  metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  editLink: { color: "#7FB2FF", fontSize: 13, marginTop: 8 },
   status: { color: "#7FB2FF", fontSize: 13, marginTop: 8 },
   error: { color: "#FF7A7A", fontSize: 13, marginTop: 8 },
   pickerHost: { height: 44, marginTop: 8 },

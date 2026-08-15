@@ -17,7 +17,7 @@
  * call it; its op algebra lives in `./sync-ops.ts`), and the ElevenLabs webhook, which is an
  * inbound contract owned by ElevenLabs rather than by us.
  */
-import type { LessonDetail, LessonSession } from "./lesson-types";
+import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
 import type { TranscriptLine } from "./tutor";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
@@ -43,6 +43,10 @@ export const API_V2_ROUTES = {
   conversationToken: `${API_V2}/words-agent/token`,
   /** Save a finished conversation's transcript. Same body as the v1 beacon route. */
   lessonSession: `${API_V2}/lessons/session`,
+  /** The learner's lessons, newest first. */
+  lessons: `${API_V2}/lessons`,
+  /** Replay outbox ops. The native client sends single-op batches; the shape is the same either way. */
+  syncFlush: `${API_V2}/sync/flush`,
 } as const;
 
 /**
@@ -54,6 +58,15 @@ export const API_V2_ROUTES = {
  */
 export function lessonPath(id: string): string {
   return `${API_V2}/lessons/${encodeURIComponent(id)}`;
+}
+
+/**
+ * `GET /api/v2/lessons/:id/items` — the editing screen's entire payload.
+ *
+ * Built FROM `lessonPath` so the id is encoded by one rule rather than two.
+ */
+export function lessonItemsPath(id: string): string {
+  return `${lessonPath(id)}/items`;
 }
 
 export const API_ROUTES = {
@@ -292,6 +305,50 @@ export function isLessonDetailResponse(body: unknown): body is LessonDetailRespo
     Array.isArray(b.sessions) &&
     typeof b.sessionCount === "number"
   );
+}
+
+/**
+ * `GET /api/v2/lessons` — 200.
+ *
+ * An object rather than a bare `LessonListItem[]`: an array response cannot grow a field later
+ * without breaking every installed binary, and this is the route most likely to want one (a cursor,
+ * if the payload ever justifies pagination — see docs/2026-08-13-expo-s5-lessons.md D53).
+ *
+ * `LessonListItem` already carries everything a row renders: `items` (the active texts, for the
+ * preview line), `sessionCount`, and the timestamps.
+ */
+export interface LessonListResponse {
+  /** Newest first — `listLessons` orders by `created_at` desc, items by `position` asc. */
+  lessons: LessonListItem[];
+}
+
+/** Narrow an already-parsed lessons-list response. */
+export function isLessonListResponse(body: unknown): body is LessonListResponse {
+  if (typeof body !== "object" || body === null) return false;
+  return Array.isArray((body as Partial<LessonListResponse>).lessons);
+}
+
+/**
+ * `GET /api/v2/lessons/:id/items` — 200. The lesson's item rows, INCLUDING removed ones.
+ *
+ * Two consumers, one array, deliberately: the editable list is `items.filter(i => i.removed_at ===
+ * null)` and the change log is the same array flat-mapped into added/removed events. That is what
+ * `app/lessons/[id]/page.tsx` already does with the one `listLessonItemHistory` query.
+ *
+ * This route — rather than a field on `LessonDetailResponse` — is also the ONLY way a client learns
+ * item **ids**: `LessonDetail.items` is `string[]` and `itemsDetailed` is `{ text, details }`, so
+ * neither can address a row, and the `removeItem` op needs one. See
+ * docs/2026-08-13-expo-s5-lessons.md D44.
+ */
+export interface LessonItemsResponse {
+  /** Oldest first (`created_at` asc, then `position`) — the order the change log wants. */
+  items: LessonItem[];
+}
+
+/** Narrow an already-parsed lesson-items response. */
+export function isLessonItemsResponse(body: unknown): body is LessonItemsResponse {
+  if (typeof body !== "object" || body === null) return false;
+  return Array.isArray((body as Partial<LessonItemsResponse>).items);
 }
 
 /** One integration probe in the health payload. */

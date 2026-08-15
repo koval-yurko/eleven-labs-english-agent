@@ -40,6 +40,7 @@ import {
   MAX_LESSON_TITLE,
   nextLessonTitle,
   opLessonId,
+  parseOutboxRecords,
   planNewItems,
 } from "./src/sync-ops";
 
@@ -226,6 +227,54 @@ eq("opLessonId: createLesson", opLessonId({ kind: "createLesson", lesson: { id: 
 eq("opLessonId: addItems", opLessonId({ kind: "addItems", lessonId: "L2", items: [] }), "L2");
 eq("opLessonId: removeItem", opLessonId({ kind: "removeItem", lessonId: "L3", itemId: "i" }), "L3");
 eq("opLessonId: deleteLesson", opLessonId({ kind: "deleteLesson", lessonId: "L4" }), "L4");
+
+// `parseOutboxRecords` — the guard the /api/v2/sync/flush route narrows an untrusted body with.
+// The `kind: "nonsense"` case is the one that matters: `applyOp`'s switch has no `default`, so
+// without this guard such a record is silently REPORTED AS APPLIED (D46).
+const goodRecord = {
+  id: "r1",
+  seq: 1,
+  createdAt: "2026-08-14T00:00:00.000Z",
+  op: { kind: "removeItem", lessonId: "L1", itemId: "i1" },
+};
+
+eq("parseOutboxRecords: empty batch", parseOutboxRecords([]), []);
+eq("parseOutboxRecords: accepts a well-formed batch", parseOutboxRecords([goodRecord]), [goodRecord]);
+eq(
+  "parseOutboxRecords: accepts every op kind",
+  parseOutboxRecords([
+    { ...goodRecord, op: { kind: "createLesson", lesson: { id: "L1", title: "t", items: [{ id: "i1", text: "a" }] } } },
+    { ...goodRecord, op: { kind: "addItems", lessonId: "L1", items: [{ id: "i1", text: "a", position: 0 }] } },
+    { ...goodRecord, op: { kind: "removeItem", lessonId: "L1", itemId: "i1" } },
+    { ...goodRecord, op: { kind: "deleteLesson", lessonId: "L1" } },
+  ])?.length,
+  4,
+);
+
+const rejected: [string, unknown][] = [
+  ["not an array", goodRecord],
+  ["null", null],
+  ["unknown op kind", [{ ...goodRecord, op: { kind: "nonsense", lessonId: "L1" } }]],
+  ["missing op", [{ id: "r1", seq: 1, createdAt: "x" }]],
+  ["missing seq", [{ id: "r1", createdAt: "x", op: goodRecord.op }]],
+  ["empty record id", [{ ...goodRecord, id: "" }]],
+  ["removeItem without itemId", [{ ...goodRecord, op: { kind: "removeItem", lessonId: "L1" } }]],
+  ["addItems with a non-array items", [{ ...goodRecord, op: { kind: "addItems", lessonId: "L1", items: "a" } }]],
+  ["addItems item without a position", [
+    { ...goodRecord, op: { kind: "addItems", lessonId: "L1", items: [{ id: "i1", text: "a" }] } },
+  ]],
+  ["createLesson without a title", [
+    { ...goodRecord, op: { kind: "createLesson", lesson: { id: "L1", items: [] } } },
+  ]],
+];
+for (const [label, body] of rejected) {
+  if (parseOutboxRecords(body) !== null) failures.push(`parseOutboxRecords: should reject ${label}`);
+}
+
+// All-or-nothing: one bad member rejects the batch rather than applying a prefix of it.
+if (parseOutboxRecords([goodRecord, { ...goodRecord, op: { kind: "nonsense" } }]) !== null) {
+  failures.push("parseOutboxRecords: one bad member must reject the whole batch");
+}
 
 console.log("checked sync-ops properties");
 

@@ -181,3 +181,80 @@ export function nextLessonTitle(taken: ReadonlySet<string>, date: Date): string 
   while (taken.has(`${base} ${n}`)) n += 1;
   return `${base} ${n}`;
 }
+
+// ── validating a batch off the wire ───────────────────────────────────────────────────────────
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** `{ id, text }` — a create op's item, whose position comes from array order. */
+function isNewItem(value: unknown): boolean {
+  return isRecord(value) && isId(value.id) && typeof value.text === "string";
+}
+
+/** `{ id, text, position }` — an add op's item, which carries its own position. */
+function isPlacedItem(value: unknown): boolean {
+  return isNewItem(value) && typeof (value as { position: unknown }).position === "number";
+}
+
+function isOutboxOp(value: unknown): value is OutboxOp {
+  if (!isRecord(value)) return false;
+  switch (value.kind) {
+    case "createLesson": {
+      const lesson = value.lesson;
+      return (
+        isRecord(lesson) &&
+        isId(lesson.id) &&
+        typeof lesson.title === "string" &&
+        Array.isArray(lesson.items) &&
+        lesson.items.every(isNewItem)
+      );
+    }
+    case "addItems":
+      return isId(value.lessonId) && Array.isArray(value.items) && value.items.every(isPlacedItem);
+    case "removeItem":
+      return isId(value.lessonId) && isId(value.itemId);
+    case "deleteLesson":
+      return isId(value.lessonId);
+    default:
+      // The one case the type system cannot cover: `applyOp` is an exhaustive switch over `OutboxOp`
+      // with no `default`, so at runtime an unknown `kind` matches nothing, falls out of the
+      // function without throwing, and gets REPORTED AS APPLIED. Over the Server Action that is only
+      // a lie to our own client; over the Bearer route it is a lie to an arbitrary caller.
+      return false;
+  }
+}
+
+function isOutboxRecord(value: unknown): value is OutboxRecord {
+  return (
+    isRecord(value) &&
+    isId(value.id) &&
+    typeof value.seq === "number" &&
+    typeof value.createdAt === "string" &&
+    isOutboxOp(value.op)
+  );
+}
+
+/**
+ * Narrow an untrusted body to a batch of outbox records, or `null` if anything about it is wrong.
+ *
+ * Lives here rather than beside the route because `sync-ops.ts` owns the algebra: a new op kind
+ * should be unable to be added without this guard being the next thing that fails to compile. It is
+ * shape validation ONLY — ownership, existence and limits are the data layer's job, and `applyOps`
+ * still caps the batch at `MAX_FLUSH_RECORDS`.
+ *
+ * All-or-nothing on purpose. A batch is replayed in `seq` order and later ops depend on earlier ones
+ * (add-items after create-lesson), so silently dropping the malformed member of a batch would apply
+ * a prefix and report success for the whole thing.
+ *
+ * See docs/2026-08-13-expo-s5-lessons.md D46.
+ */
+export function parseOutboxRecords(body: unknown): OutboxRecord[] | null {
+  if (!Array.isArray(body)) return null;
+  return body.every(isOutboxRecord) ? (body as OutboxRecord[]) : null;
+}

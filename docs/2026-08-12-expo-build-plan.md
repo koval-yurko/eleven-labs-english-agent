@@ -1,11 +1,19 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S5** — 🚩 **the gate is passed. All
-three blockers are cleared.** B2 (locked-screen audio, both directions, no CallKit), B1 (Auth0 on
-device, Bearer on the server) and B3 (the conversation id survives WebRTC) are all answered on real
-hardware, S0–S3 in three days. **S4 is done** (2026-08-14): a real lesson, spoken end to end on the
-phone, with `words.details` reaching the tutor over the native transport. **Current stage: S5** —
-**next action: write S5's research** from its placeholder, then build the lessons list.
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S6.**
+
+🚩 **The blocker gate is long passed.** B2 (locked-screen audio, both directions, no CallKit), B1
+(Auth0 on device, Bearer on the server) and B3 (the conversation id survives WebRTC) were all
+answered on real hardware, S0–S3 in three days. **S4** (2026-08-14): a real lesson, spoken end to end
+on the phone, with `words.details` reaching the tutor over the native transport. **S5** (2026-08-15):
+lessons create, add, remove and delete from the phone and land on the server.
+
+**S6 — the collection.** Research written 2026-08-15, and it revised the stage down rather than up:
+measuring the real database (**70 items, 0 category facets**) removed the virtualization and
+pagination questions, and SwiftUI's `List` supplies the multiselect the web built by hand. Next
+action: **build**, starting with the one route — steps 1–4 of [S6
+§11](./2026-08-13-expo-s6-collection.md) are the gate and are testable from `curl` before a screen
+exists.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -50,8 +58,8 @@ which stage to work on and which research to write.**
 | **S2** | [s2 — Auth0 + Bearer](./2026-08-13-expo-s2-auth0-bearer.md)              | ✅ full        | ✅    | **passed 2026-08-13 — login on device; `/api/v2/me` deferred to S3**      |
 | **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | ✅ full        | ✅    | **passed 2026-08-14 — 2 native sessions, 2 rows, both enriched**           |
 | **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | ✅ full        | ✅    | **passed 2026-08-14 — real lesson end to end, enriched `items_list`**      |
-| **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | 🔲 placeholder | ⬜    | —                                                                         |
-| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | 🔲 placeholder | ⬜    | —                                                                         |
+| **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | ✅ full        | ✅    | **passed 2026-08-15 — create / add / remove / delete, all from the phone** |
+| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | ✅ full        | ⬜    | — (research written 2026-08-15; next action: build)                       |
 | **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | 🔲 placeholder | ⬜    | —                                                                         |
 
 **Research legend:** 🔲 placeholder (seeded, not researched) · 🟡 being written · ✅ full.
@@ -85,8 +93,8 @@ When a stage's gate is decided — green **or** red:
 | **S3** | private agent via the v2 token route                        | one `lesson_sessions` row, right `app_env`      | 2–3 d | [✅](./2026-08-13-expo-s3-conversation-token.md)  | ✅     |
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
 | **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [✅](./2026-08-13-expo-s4-tutor-screen.md)        | ✅     |
-| **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [🔲](./2026-08-13-expo-s5-lessons.md)             | ⬜     |
-| **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [🔲](./2026-08-13-expo-s6-collection.md)          | ⬜     |
+| **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [✅](./2026-08-13-expo-s5-lessons.md)             | ✅     |
+| **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [✅](./2026-08-13-expo-s6-collection.md)          | ⬜     |
 | **S7** | theming, navigation, error/empty states                     | shippable                                       | 3–5 d | [🔲](./2026-08-13-expo-s7-ship.md)                | ⬜     |
 | —      | _post-v1_ SQLite mirror + offline queue                     |                                                 | +1 wk | —                                                 | ⬜     |
 
@@ -499,14 +507,16 @@ the browser needed disappears. Research §3.
 
 ## S5 — lessons
 
-**Research note:** [2026-08-13-expo-s5-lessons.md](./2026-08-13-expo-s5-lessons.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s5-lessons.md](./2026-08-13-expo-s5-lessons.md) — ✅ researched.
 
 - [ ] `GET /api/v2/lessons` → `LessonListItem[]`
-- [ ] Item history (`listLessonItemHistory` → the "Word changes" list) — **moved here from S4** (S4
-      D30): it is editing history, and this is the stage that generates the events
-- [ ] `POST /api/v2/sync/flush` — **single-op batches** through the existing, property-checked op
-      algebra. Keep this even though v1 is online-only: adding offline later becomes a purely
-      client-side change (research doc §3.3).
+- [ ] `GET /api/v2/lessons/:id/items` — item history (`listLessonItemHistory` → the "Word changes"
+      list), **moved here from S4** (S4 D30). Its own route rather than a field, because
+      `LessonDetail` carries **no item ids** and `removeItem` needs one (S5 D44)
+- [ ] `POST /api/v2/sync/flush` — **single-op batches** through the existing, checked op algebra.
+      Keep this even though v1 is online-only: adding offline later becomes a purely client-side
+      change (creation doc §3.3). It calls a new `lib/sync-flush.ts`, **never `flushOutbox`**, which
+      is cookie-bound (S5 D45).
 - [ ] Lessons list + new-lesson form; lesson detail with item add/remove
 - [ ] Gate: create a lesson, add items, remove an item, delete a lesson — all reflected on the web app
 
@@ -514,7 +524,7 @@ the browser needed disappears. Research §3.
 
 ## S6 — the collection
 
-**Research note:** [2026-08-13-expo-s6-collection.md](./2026-08-13-expo-s6-collection.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s6-collection.md](./2026-08-13-expo-s6-collection.md) — ✅ researched.
 
 The largest UI item. **D3 (component strategy) is decided: Expo UI** (`@expo/ui`, SwiftUI — stable in
 SDK 56 and shipped in the default template) —
@@ -522,10 +532,14 @@ SDK 56 and shipped in the default template) —
 `Host` sizing boundary and the `matchContents` scroll trap are recorded in the S6 placeholder.
 
 - [ ] `GET /api/v2/lesson-items?…` — serialize with `serializeItemsQuery`, parse with
-      `parseItemsQuery`. Do not invent a second query format.
-- [ ] `GET /api/v2/lesson-items/:id` → `ItemDetail`; `POST` for add-word and favorite
+      `parseItemsQuery`. Do not invent a second query format. Needs `searchParamsToBag`, which today
+      exists only inside `check.ts` (S6 D55)
+- [ ] `GET /api/v2/lesson-items/:id` → `ItemDetail`; `POST` for add-word and favorite — **the add
+      route must call `scheduleWordJobs`** or phone-added words go unlevelled (S6 §5.3)
 - [ ] Search (`searchItems`, in memory), facets, filters, sort, multiselect — all the logic is already
-      pure and shared; only the chrome is new
+      pure and shared; only the chrome is new. **SwiftUI `List` supplies the multiselect** (S6 D58)
+- [ ] **Measured 2026-08-15: 70 items, 0 category facets** — no virtualization, no pagination, and the
+      category filter is currently dead UI (S6 §3)
 - [ ] Gate: filter, search and sort return the same results as the web app for the same query
 
 ---
