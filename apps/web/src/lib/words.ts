@@ -12,6 +12,7 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { wordInputKey } from "@tutor/shared/word-key";
+import type { AddWordResult } from "@tutor/shared/word-types";
 
 export interface ResolvedWord {
   id: string;
@@ -50,13 +51,6 @@ export async function resolveWords(
     out.set(row.input_text, { id: row.word_id, created: row.was_created });
   }
   return out;
-}
-
-export interface AddWordResult {
-  status: "added" | "already-present" | "empty";
-  id: string | null;
-  /** The stored spelling — trimmed, and what the list will show. */
-  text: string;
 }
 
 /**

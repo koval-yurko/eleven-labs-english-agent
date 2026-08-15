@@ -21,6 +21,7 @@ import process from "node:process";
 import {
   parseItemsQuery,
   parseSearchTerm,
+  searchParamsToBag,
   serializeItemsQuery,
   SORT_KEYS,
   type ItemsQuery,
@@ -44,16 +45,13 @@ import {
   planNewItems,
 } from "./src/sync-ops";
 
-/** Query string → the bag Next hands a page (a repeated key collapses to an array). */
+/**
+ * Query string → the bag Next hands a page. Now a THIN wrapper over the shared
+ * `searchParamsToBag`, so this suite exercises the exact function `/api/v2/lesson-items` runs rather
+ * than a look-alike beside it (S6 D55).
+ */
 function toSearchParams(qs: string): ItemsSearchParams {
-  const out: ItemsSearchParams = {};
-  for (const [key, value] of new URLSearchParams(qs)) {
-    const prev = out[key];
-    if (prev === undefined) out[key] = value;
-    else if (Array.isArray(prev)) prev.push(value);
-    else out[key] = [prev, value];
-  }
-  return out;
+  return searchParamsToBag(new URLSearchParams(qs));
 }
 
 const LEVEL_SETS: string[][] = [[], ["B1"], ["C1", UNLEVELED], [...CEFR_LEVELS, UNLEVELED]];
@@ -148,6 +146,19 @@ const eq = (label: string, actual: unknown, expected: unknown) => {
     failures.push(`${label}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
   }
 };
+
+// ── items-query: searchParamsToBag ───────────────────────────────────────────────────────────
+// Down here only because `eq` is defined here; it belongs to the grammar above. It is now a ROUTE's
+// input step (S6 D55), so the repeated-key rule is pinned directly: `?level=B1&level=C1` must become
+// an array — that is why `ItemsQuery.levels` is a list — while a single key stays a scalar. A second
+// implementation that kept only the last value would silently drop a filter.
+eq("searchParamsToBag: single key", searchParamsToBag(new URLSearchParams("sort=text")), { sort: "text" });
+eq(
+  "searchParamsToBag: repeated key collapses to an array",
+  searchParamsToBag(new URLSearchParams("level=B1&level=C1&level=unleveled")),
+  { level: ["B1", "C1", "unleveled"] },
+);
+eq("searchParamsToBag: empty", searchParamsToBag(new URLSearchParams("")), {});
 
 // Normalizes, drops blanks, dedupes within the batch AND against what's already there.
 eq(

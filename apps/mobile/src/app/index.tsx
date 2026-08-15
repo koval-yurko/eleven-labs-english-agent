@@ -336,7 +336,23 @@ function NewLessonForm({
 function Screen({ children }: { children: React.ReactNode }) {
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
-      <Stack.Screen options={{ headerShown: true, title: "Lessons" }} />
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: "Lessons",
+          /*
+            How the collection is reached. S5 deleted the launcher that used to answer this
+            question, and a tab bar — the eventual right answer for two top-level destinations — is
+            a navigation decision, which is S7's stage. A header button now; tabs when navigation is
+            the thing being worked on (S6 D65).
+          */
+          headerRight: () => (
+            <Link href="/lesson-items" style={styles.headerLink}>
+              Words
+            </Link>
+          ),
+        }}
+      />
       {children}
     </SafeAreaView>
   );
@@ -370,6 +386,7 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   quiet: { paddingVertical: 10, paddingHorizontal: 6 },
   quietLabel: { color: "#8A8A8A", fontSize: 15 },
+  headerLink: { color: "#7FB2FF", fontSize: 16 },
   footer: { marginTop: 24, gap: 4, paddingBottom: 24 },
   link: { color: "#7FB2FF", fontSize: 16, paddingVertical: 10 },
   linkQuiet: { color: "#5A5A5A", fontSize: 15, paddingVertical: 10 },

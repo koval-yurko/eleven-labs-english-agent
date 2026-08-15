@@ -68,6 +68,23 @@ export interface ItemDetail extends ItemRow {
   details_at: string | null;
 }
 
+/**
+ * The outcome of adding one word straight to the collection (`addWord`).
+ *
+ * `already-present` is a RESULT, not an error: `owner_items` groups by `norm_key`, so a duplicate add
+ * changes nothing on screen and would read as a broken button unless the caller says so.
+ *
+ * Here rather than beside `addWord` because a native client has to *render* it, and `lib/words.ts`
+ * imports the service-role Supabase client — the same reason every other DTO moved (R1). The query
+ * stayed where it was; only the shape is shared.
+ */
+export interface AddWordResult {
+  status: "added" | "already-present" | "empty";
+  id: string | null;
+  /** The stored spelling — trimmed, and what the list will show. */
+  text: string;
+}
+
 /** One (name, value) pair in use, for rendering the category filter from the data itself. */
 export interface ItemFacet {
   name: string;

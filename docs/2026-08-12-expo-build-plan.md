@@ -1,6 +1,6 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S6.**
+**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S7 — the last one.**
 
 🚩 **The blocker gate is long passed.** B2 (locked-screen audio, both directions, no CallKit), B1
 (Auth0 on device, Bearer on the server) and B3 (the conversation id survives WebRTC) were all
@@ -8,12 +8,16 @@ answered on real hardware, S0–S3 in three days. **S4** (2026-08-14): a real le
 on the phone, with `words.details` reaching the tutor over the native transport. **S5** (2026-08-15):
 lessons create, add, remove and delete from the phone and land on the server.
 
-**S6 — the collection.** Research written 2026-08-15, and it revised the stage down rather than up:
-measuring the real database (**70 items, 0 category facets**) removed the virtualization and
-pagination questions, and SwiftUI's `List` supplies the multiselect the web built by hand. Next
-action: **build**, starting with the one route — steps 1–4 of [S6
-§11](./2026-08-13-expo-s6-collection.md) are the gate and are testable from `curl` before a screen
-exists.
+**S6** (2026-08-15): the collection filters, searches and sorts on the phone and agrees with the web.
+Expo UI is fully exercised — `List`, `SwipeActions`, `Menu`, `BottomSheet`, `ContentUnavailableView`.
+
+**S7 — ship.** Research written 2026-08-15, and it is a different shape from the plan: **two thirds
+of the remaining risk is on Apple's side of the line**, and the research found three hard submission
+blockers that no polish would clear — a missing privacy manifest (an automated rejection), two
+required URLs that do not exist, and a store pipeline that has never run since S0 deferred it.
+The app-side work is mechanical by comparison: 116 colour literals, one provider, one tab layout,
+six empty states. Next action: **build, blockers first** — [S7
+§8](./2026-08-13-expo-s7-ship.md) is the checklist and the gate.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -59,8 +63,8 @@ which stage to work on and which research to write.**
 | **S3** | [s3 — conversation token](./2026-08-13-expo-s3-conversation-token.md)    | ✅ full        | ✅    | **passed 2026-08-14 — 2 native sessions, 2 rows, both enriched**           |
 | **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | ✅ full        | ✅    | **passed 2026-08-14 — real lesson end to end, enriched `items_list`**      |
 | **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | ✅ full        | ✅    | **passed 2026-08-15 — create / add / remove / delete, all from the phone** |
-| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | ✅ full        | ⬜    | — (research written 2026-08-15; next action: build)                       |
-| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | 🔲 placeholder | ⬜    | —                                                                         |
+| **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | ✅ full        | ✅    | **passed 2026-08-15 — phone and web agree for the same query**             |
+| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | ✅ full        | ⬜    | — (research written 2026-08-15; next action: build)                       |
 
 **Research legend:** 🔲 placeholder (seeded, not researched) · 🟡 being written · ✅ full.
 
@@ -94,8 +98,8 @@ When a stage's gate is decided — green **or** red:
 | —      | **🚩 GATE — all three blockers cleared. Commit, or stop.**  |                                                 |       |                                                   |        |
 | **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [✅](./2026-08-13-expo-s4-tutor-screen.md)        | ✅     |
 | **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [✅](./2026-08-13-expo-s5-lessons.md)             | ✅     |
-| **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [✅](./2026-08-13-expo-s6-collection.md)          | ⬜     |
-| **S7** | theming, navigation, error/empty states                     | shippable                                       | 3–5 d | [🔲](./2026-08-13-expo-s7-ship.md)                | ⬜     |
+| **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [✅](./2026-08-13-expo-s6-collection.md)          | ✅     |
+| **S7** | theming, navigation, error/empty states, **TestFlight**     | shippable                                       | 4–7 d | [✅](./2026-08-13-expo-s7-ship.md)                | ⬜     |
 | —      | _post-v1_ SQLite mirror + offline queue                     |                                                 | +1 wk | —                                                 | ⬜     |
 
 **S0–S3 is ~1–1.5 weeks and answers every open question.** S4–S7 is ~3–5 weeks. The ordering exists
@@ -546,15 +550,35 @@ SDK 56 and shipped in the default template) —
 
 ## S7 — ship
 
-**Research note:** [2026-08-13-expo-s7-ship.md](./2026-08-13-expo-s7-ship.md) — 🔲 placeholder.
+**Research note:** [2026-08-13-expo-s7-ship.md](./2026-08-13-expo-s7-ship.md) — ✅ researched.
 
-- [ ] Theming (light/dark), navigation polish, error and empty states
+**Blockers first — the research found three, and none is polish (S7 §1):**
+
+- [ ] 🔴 **`ios.privacyManifests`** — Expo does NOT generate `PrivacyInfo.xcprivacy`, and a missing
+      required reason is rejected by automated email minutes after upload. The exact block, derived
+      from the installed tree, is in [S7 §5.2](./2026-08-13-expo-s7-ship.md) (**D69**)
+- [ ] 🔴 **A privacy policy URL and a support URL** — both required by App Store Connect, and the web
+      app has neither route today (**D70**)
+- [ ] 🔴 **The store pipeline has never run** (S0 D9): `ascAppId` + `appleId` missing from `eas.json`,
+      and `autoIncrement` / `appVersionSource: remote` have never executed (**D68**)
+- [ ] Clear the 7-package `expo-doctor` drift first, with a rebuild behind it (**D78**)
+
+**Then the app:**
+
+- [ ] Theming (light/dark): **116 colour literals, 13 colours, 7 screens** — and headers are
+      currently LIGHT on dark content because there is no theme provider (**D71, D72**). Import
+      `ThemeProvider` from **`expo-router`**, never `@react-navigation/native` — SDK 57 vendors it
+- [ ] Navigation: the stable `Tabs`, not `unstable-native-tabs` (**D73**). The session-vs-navigation
+      question is already settled by S4 D41 — do not reopen it
+- [ ] `ContentUnavailableView` for the six remaining empty states (**D74**)
 - [ ] Mic-permission denial copy — on native a denial surfaces as a _session error_, not a pre-flight
-      prompt (research doc §4)
-- [ ] **App Review prep:** a demo account and review notes describing how to background the app
-      mid-session. Guideline 2.5.4 rejects apps declaring `audio` when the reviewer cannot hear
-      background audio — ours genuinely produces it, but the reviewer has to reach it.
-- [ ] TestFlight → submit
+      prompt (creation doc §4). Must survive the rewrite
+- [ ] Measure `sendContextualUpdate` at last — two rows, two ids (**D77**, carried from S4)
+- [ ] **App Review prep:** a demo account **pre-populated with a lesson containing words**, and review
+      notes that tell the reviewer to lock the screen. Guideline 2.5.4 rejects apps declaring `audio`
+      when the reviewer cannot hear background audio — ours genuinely produces it, but the reviewer
+      has to reach it. Draft notes: [S7 §5.4](./2026-08-13-expo-s7-ship.md)
+- [ ] TestFlight → submit. **Internal only for v1** — external needs Beta App Review (**D76**)
 
 ---
 

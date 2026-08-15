@@ -59,6 +59,32 @@ export const DEFAULT_DIR: SortDir = "desc";
 /** URL parameters as a plain bag — what Next hands a page, and what any client can build. */
 export type ItemsSearchParams = Record<string, string | string[] | undefined>;
 
+/**
+ * `URLSearchParams` → the bag `parseItemsQuery` reads, collapsing a repeated key to an array.
+ *
+ * Next hands a page this shape already, so the browser never needed the conversion — which is why it
+ * lived only inside `check.ts`, where the round-trip suite had to reconstruct it. **A route handler
+ * needs exactly the same step**, and the one thing worse than no implementation is two: the
+ * repeated-key rule (`?level=B1&level=C1`) is the whole reason `levels` is an array, and a second
+ * version of it that kept only the last value would silently drop a filter.
+ *
+ * Takes an iterable of pairs rather than `URLSearchParams` itself so this stays free of the DOM lib
+ * — `packages/shared` compiles with `types: []` and no `DOM.Iterable` on purpose (CLAUDE.md), and
+ * `URLSearchParams` is iterable everywhere it exists.
+ *
+ * See docs/2026-08-13-expo-s6-collection.md D55.
+ */
+export function searchParamsToBag(pairs: Iterable<[string, string]>): ItemsSearchParams {
+  const bag: ItemsSearchParams = {};
+  for (const [key, value] of pairs) {
+    const prev = bag[key];
+    if (prev === undefined) bag[key] = value;
+    else if (Array.isArray(prev)) prev.push(value);
+    else bag[key] = [prev, value];
+  }
+  return bag;
+}
+
 /** Prefix marking a category filter parameter: `cat.topic=business`. */
 const CATEGORY_PREFIX = "cat.";
 

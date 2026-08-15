@@ -6,7 +6,8 @@ import { getOwnerId } from "../../lib/auth/session";
 import { setItemFavorite } from "../../lib/lesson-items";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
-import { addWord, type AddWordResult } from "../../lib/words";
+import { addWord } from "../../lib/words";
+import type { AddWordResult } from "@tutor/shared/word-types";
 
 /**
  * Mark/unmark one item as a favorite — the only mutation on `/lesson-items`. Like every action

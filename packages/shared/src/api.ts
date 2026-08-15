@@ -17,8 +17,11 @@
  * call it; its op algebra lives in `./sync-ops.ts`), and the ElevenLabs webhook, which is an
  * inbound contract owned by ElevenLabs rather than by us.
  */
+import type { ItemsQuery } from "./items-query";
+import { serializeItemsQuery } from "./items-query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
 import type { TranscriptLine } from "./tutor";
+import type { AddWordResult, ItemDetail, ItemFacet, ItemRow } from "./word-types";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,10 @@ export const API_V2_ROUTES = {
   lessons: `${API_V2}/lessons`,
   /** Replay outbox ops. The native client sends single-op batches; the shape is the same either way. */
   syncFlush: `${API_V2}/sync/flush`,
+  /** The collection: every word the learner has, filtered and sorted server-side. */
+  items: `${API_V2}/lesson-items`,
+  /** Mark/unmark one word as a favorite. */
+  itemFavorite: `${API_V2}/lesson-items/favorite`,
 } as const;
 
 /**
@@ -67,6 +74,28 @@ export function lessonPath(id: string): string {
  */
 export function lessonItemsPath(id: string): string {
   return `${lessonPath(id)}/items`;
+}
+
+/** `GET /api/v2/lesson-items/:id` — one word with its enrichment payload. */
+export function itemPath(id: string): string {
+  return `${API_V2_ROUTES.items}/${encodeURIComponent(id)}`;
+}
+
+/**
+ * `GET /api/v2/lesson-items?…` — the collection, filtered and sorted.
+ *
+ * Built on `serializeItemsQuery`, which is **the only encoder of this grammar that may exist**. On
+ * the web it encodes an address bar; here it encodes a request. The server decodes the result with
+ * `parseItemsQuery`, and `pnpm check:shared` proves the two are inverse over 10,752 cases — a
+ * property that holds only while there is one of each.
+ *
+ * The search term is deliberately NOT a parameter: `?q=` is not part of `ItemsQuery`, filtering by it
+ * happens in memory (`searchItems`), and sending it would imply a server-side search that does not
+ * exist. See docs/2026-08-13-expo-s6-collection.md D60, D61.
+ */
+export function itemsPath(query: ItemsQuery): string {
+  const qs = serializeItemsQuery(query);
+  return qs ? `${API_V2_ROUTES.items}?${qs}` : API_V2_ROUTES.items;
 }
 
 export const API_ROUTES = {
@@ -349,6 +378,82 @@ export interface LessonItemsResponse {
 export function isLessonItemsResponse(body: unknown): body is LessonItemsResponse {
   if (typeof body !== "object" || body === null) return false;
   return Array.isArray((body as Partial<LessonItemsResponse>).items);
+}
+
+/**
+ * `GET /api/v2/lesson-items?…` — 200. The collection plus the category facets, in one response.
+ *
+ * One response rather than two calls because the facets are **empty**: `owner_item_facets` had zero
+ * rows when this was measured (docs/2026-08-13-expo-s6-collection.md §3), so a second round trip
+ * would fetch an empty array. They also change only when a category does, which is never so far.
+ *
+ * Unpaginated, for the reason the lessons list is (D53): measured at 70 rows / ~32 KB. The trigger to
+ * revisit is a payload past ~100 KB, and the fix then is `?limit=&cursor=` — not a silent slice.
+ */
+export interface ItemsResponse {
+  /** Filtered and sorted by Postgres. Free-text search is applied by the CLIENT, in memory. */
+  items: ItemRow[];
+  /** The (name, value) pairs actually in use — the source for the category filter rows. */
+  facets: ItemFacet[];
+}
+
+/** Narrow an already-parsed collection response. */
+export function isItemsResponse(body: unknown): body is ItemsResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<ItemsResponse>;
+  return Array.isArray(b.items) && Array.isArray(b.facets);
+}
+
+/** `GET /api/v2/lesson-items/:id` — 200. */
+export interface ItemDetailResponse {
+  /** The `owner_items` row plus `details` / `details_at` — the three-state enrichment payload. */
+  item: ItemDetail;
+}
+
+/** Narrow an already-parsed word-detail response. */
+export function isItemDetailResponse(body: unknown): body is ItemDetailResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const item = (body as Partial<ItemDetailResponse>).item;
+  return typeof item === "object" && item !== null && typeof item.id === "string";
+}
+
+/** `POST /api/v2/lesson-items` — the request body. Adds one word, attached to no lesson. */
+export interface AddWordRequest {
+  text: string;
+}
+
+/**
+ * `POST /api/v2/lesson-items` — 200.
+ *
+ * `AddWordResult` carries `status: "already-present"`, which is a RESULT and not an error: the
+ * collection groups by `norm_key`, so a duplicate add changes nothing on screen. The client is
+ * expected to say so out loud.
+ */
+export type AddWordResponse = AddWordResult;
+
+/** Narrow an already-parsed add-word response. */
+export function isAddWordResponse(body: unknown): body is AddWordResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<AddWordResponse>;
+  return b.status === "added" || b.status === "already-present" || b.status === "empty";
+}
+
+/**
+ * `POST /api/v2/lesson-items/favorite` — the request body.
+ *
+ * Keyed by **`norm_key`**, not by the word id — the odd one out among this app's writes, and it is
+ * `setItemFavorite`'s existing signature rather than a choice made here. `norm_key` is the identity
+ * the collection groups by, and it is what `owner_items` exposes for the purpose.
+ */
+export interface FavoriteRequest {
+  normKey: string;
+  isFavorite: boolean;
+}
+
+/** `POST /api/v2/lesson-items/favorite` — 200. */
+export interface FavoriteResponse {
+  /** False when no row matched — a key that is not the caller's. */
+  ok: boolean;
 }
 
 /** One integration probe in the health payload. */
