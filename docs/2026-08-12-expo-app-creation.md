@@ -1,8 +1,17 @@
 # Expo app — full native port
 
-**Date:** 2026-08-12 · **Status:** research. Nothing implemented. **Ready to start at S0.** The three
-hard blockers are researched (§9) and become the first three stages of the build (§8) — one app,
-proven one risk at a time.
+**Date:** 2026-08-12 · **Status:** ✅ **built 2026-08-13 → 2026-08-15.** This note is the research
+and the decisions; the ladder it proposed ran to completion in
+[the build plan](./2026-08-12-expo-build-plan.md) (S0–S7), which is the live document. The three hard
+blockers (§9) were the first three stages and all three were answered on real hardware.
+
+**What is still open is release, not the port** — a store-signed build has never been uploaded. See
+[the release tail](./2026-08-12-expo-build-plan.md#release--the-open-tail).
+
+⚠️ **Everything below is preserved as written in advance**, so where it disagrees with what was built
+the stage docs win. Two known divergences: §8's rule that *every stage ends installed from TestFlight*
+did not survive S0 — D9 swapped it for internal distribution and deferred the whole Apple leg to S7,
+where it is still open — and the offline mirror was deferred to post-v1 (D1).
 
 **The decision:** `apps/mobile` as a full native Expo app, **iOS only**. Every screen in React Native,
 the ElevenLabs tutor rebuilt on the native SDK, and a **`/api/v2/*` endpoint surface** built

@@ -1,11 +1,12 @@
 import type { ItemDetail, WordDetails } from "@tutor/shared/word-types";
 import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth0 } from "react-native-auth0";
 
 import { fetchItem, setFavorite } from "@/lib/items";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * One word: its attributes, cross-lesson statistics, the enrichment payload, and the lessons it is
@@ -17,6 +18,8 @@ import { fetchItem, setFavorite } from "@/lib/items";
 export default function WordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getCredentials } = useAuth0();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const accessToken = useCallback(async () => {
     const credentials = await getCredentials();
@@ -67,7 +70,7 @@ export default function WordDetailScreen() {
   if (!item) {
     return (
       <Screen title="Word">
-        <ActivityIndicator color="#7FB2FF" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       </Screen>
     );
   }
@@ -92,7 +95,9 @@ export default function WordDetailScreen() {
             hitSlop={8}
             accessibilityRole="button"
             accessibilityState={{ selected: item.is_favorite }}
-            accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
+            accessibilityLabel={
+              item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`
+            }
           >
             <Text style={[styles.star, item.is_favorite ? styles.starOn : null]}>
               {item.is_favorite ? "★" : "☆"}
@@ -129,6 +134,11 @@ export default function WordDetailScreen() {
             ))
           ) : (
             // Removing a word from a lesson detaches it; it never deletes it. A real state.
+            //
+            // Muted text rather than the native empty view (D74): this and "Details are being
+            // prepared…" are notes INSIDE a section of a populated page, not the page's own empty
+            // state. A ContentUnavailableView here would be a full-bleed illustrated block
+            // announcing that one of four sections has nothing in it.
             <Text style={styles.muted}>In no lesson right now.</Text>
           )}
         </Section>
@@ -157,6 +167,9 @@ function DetailsSection({
   details: WordDetails | null;
   attemptedAt: string | null;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
   if (!details) {
     return (
       <Section title="Details">
@@ -211,6 +224,8 @@ function DetailsSection({
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -220,6 +235,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Screen({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
       <Stack.Screen options={{ headerShown: true, title, headerBackTitle: "Words" }} />
@@ -228,29 +245,38 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  body: { paddingTop: 12, paddingBottom: 40 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  star: { color: "#5A5A5A", fontSize: 22 },
-  starOn: { color: "#FFC46B" },
-  title: { color: "#E6E6E6", fontSize: 26, fontWeight: "700", flexShrink: 1 },
-  badge: {
-    color: "#8A8A8A",
-    fontSize: 13,
-    borderWidth: 1,
-    borderColor: "#2A2A34",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  muted: { color: "#8A8A8A", fontSize: 13 },
-  section: { marginTop: 24 },
-  sectionTitle: { color: "#E6E6E6", fontSize: 15, fontWeight: "700", marginBottom: 8 },
-  row: { color: "#E6E6E6", fontSize: 15 },
-  entry: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "#26262E" },
-  link: { color: "#7FB2FF", fontSize: 16, paddingVertical: 8 },
-  error: { color: "#FF7A7A", fontSize: 13, marginTop: 8 },
-  button: { backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14, alignSelf: "flex-start", marginTop: 8 },
-  buttonLabel: { color: "#E6E6E6", fontSize: 15, fontWeight: "600" },
-});
+/** Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx. */
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    body: { paddingTop: 12, paddingBottom: 40 },
+    titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    star: { color: t.faint, fontSize: 22 },
+    starOn: { color: t.warning },
+    title: { color: t.text, fontSize: 26, fontWeight: "700", flexShrink: 1 },
+    badge: {
+      color: t.muted,
+      fontSize: 13,
+      borderWidth: 1,
+      borderColor: t.control,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    muted: { color: t.muted, fontSize: 13 },
+    section: { marginTop: 24 },
+    sectionTitle: { color: t.text, fontSize: 15, fontWeight: "700", marginBottom: 8 },
+    row: { color: t.text, fontSize: 15 },
+    entry: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.border },
+    link: { color: t.accent, fontSize: 16, paddingVertical: 8 },
+    error: { color: t.danger, fontSize: 13, marginTop: 8 },
+    button: {
+      backgroundColor: t.control,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      alignSelf: "flex-start",
+      marginTop: 8,
+    },
+    buttonLabel: { color: t.text, fontSize: 15, fontWeight: "600" },
+  });

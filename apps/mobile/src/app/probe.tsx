@@ -15,7 +15,7 @@ import {
 } from "@tutor/shared/tutor";
 import Constants from "expo-constants";
 import { Link } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
   type AppStateStatus,
@@ -30,6 +30,7 @@ import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
 import { useEventLog } from "@/hooks/use-event-log";
+import { useTheme, type Palette } from "@/theme";
 import { useSuspensionProbe } from "@/hooks/use-suspension-probe";
 
 /**
@@ -71,6 +72,9 @@ const LESSON_ITEMS: TutorItem[] = [
 
 export default function ProbeScreen() {
   const { entries, log, clear } = useEventLog();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const kindStyles = useMemo(() => makeKindStyles(theme), [theme]);
   const { getCredentials } = useAuth0();
 
   // Toggled by the buttons rather than derived from `status`, so the probe also measures the
@@ -293,7 +297,7 @@ export default function ProbeScreen() {
 
       <ScrollView style={styles.log} contentContainerStyle={styles.logContent}>
         {entries.map((e) => (
-          <Text key={e.id} style={[styles.line, KIND_STYLE[e.kind]]}>
+          <Text key={e.id} style={[styles.line, kindStyles[e.kind]]}>
             {e.at} {e.text}
           </Text>
         ))}
@@ -303,6 +307,8 @@ export default function ProbeScreen() {
 }
 
 function Stat({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -312,6 +318,8 @@ function Stat({ label, value, emphasis }: { label: string; value: string; emphas
 }
 
 function Button({ label, onPress }: { label: string; onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <Pressable style={styles.button} onPress={onPress}>
       <Text style={styles.buttonLabel}>{label}</Text>
@@ -319,30 +327,38 @@ function Button({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
-const KIND_STYLE = StyleSheet.create({
-  // `you` is the loudest colour on the screen: it is the one thing a locked-screen failure removes
-  // while leaving everything else looking healthy.
-  you: { color: "#7DFF9B", fontWeight: "700" },
-  agent: { color: "#E6E6E6" },
-  status: { color: "#7FB2FF" },
-  appstate: { color: "#FFC46B" },
-  error: { color: "#FF7A7A" },
-  note: { color: "#8A8A8A" },
-});
+/**
+ * Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx.
+ *
+ * `KIND_STYLE` is indexed by the log entry's kind, so it becomes a factory alongside `makeStyles`
+ * rather than staying a module constant.
+ */
+const makeKindStyles = (t: Palette) =>
+  StyleSheet.create({
+    // `you` is the loudest colour on the screen: it is the one thing a locked-screen failure removes
+    // while leaving everything else looking healthy.
+    you: { color: t.success, fontWeight: "700" },
+    agent: { color: t.text },
+    status: { color: t.accent },
+    appstate: { color: t.warning },
+    error: { color: t.danger },
+    note: { color: t.muted },
+  });
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  link: { color: "#7FB2FF", fontSize: 12, paddingVertical: 8, textAlign: "right" },
-  stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 8 },
-  stat: { minWidth: "30%", flexGrow: 1, backgroundColor: "#1B1B22", borderRadius: 8, padding: 8 },
-  statLabel: { color: "#8A8A8A", fontSize: 10, fontVariant: ["tabular-nums"] },
-  statValue: { color: "#E6E6E6", fontSize: 18, fontVariant: ["tabular-nums"] },
-  statValueEmphasis: { color: "#7DFF9B", fontWeight: "700" },
-  meta: { color: "#5A5A5A", fontSize: 10, marginTop: 6 },
-  buttons: { flexDirection: "row", gap: 8, marginVertical: 12 },
-  button: { flex: 1, backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 14 },
-  buttonLabel: { color: "#E6E6E6", textAlign: "center", fontSize: 16, fontWeight: "600" },
-  log: { flex: 1, backgroundColor: "#16161C", borderRadius: 8 },
-  logContent: { padding: 8, gap: 2 },
-  line: { fontSize: 11, fontVariant: ["tabular-nums"] },
-});
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    link: { color: t.accent, fontSize: 12, paddingVertical: 8, textAlign: "right" },
+    stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 8 },
+    stat: { minWidth: "30%", flexGrow: 1, backgroundColor: t.surface, borderRadius: 8, padding: 8 },
+    statLabel: { color: t.muted, fontSize: 10, fontVariant: ["tabular-nums"] },
+    statValue: { color: t.text, fontSize: 18, fontVariant: ["tabular-nums"] },
+    statValueEmphasis: { color: t.success, fontWeight: "700" },
+    meta: { color: t.faint, fontSize: 10, marginTop: 6 },
+    buttons: { flexDirection: "row", gap: 8, marginVertical: 12 },
+    button: { flex: 1, backgroundColor: t.control, borderRadius: 8, paddingVertical: 14 },
+    buttonLabel: { color: t.text, textAlign: "center", fontSize: 16, fontWeight: "600" },
+    log: { flex: 1, backgroundColor: t.sunken, borderRadius: 8 },
+    logContent: { padding: 8, gap: 2 },
+    line: { fontSize: 11, fontVariant: ["tabular-nums"] },
+  });

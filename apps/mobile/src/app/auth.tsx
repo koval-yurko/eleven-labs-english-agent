@@ -1,12 +1,13 @@
 import { API_V2_ROUTES, isApiError, isMeResponse } from "@tutor/shared/api";
 import { Link } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth0 } from "react-native-auth0";
 
 import { env } from "@/env";
 import { useEventLog } from "@/hooks/use-event-log";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * S2 — Auth0 on the device, Bearer against the server.
@@ -22,6 +23,9 @@ export default function AuthScreen() {
   const { authorize, clearSession, clearCredentials, getCredentials, user, isLoading, error } =
     useAuth0();
   const { entries, log } = useEventLog();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const kindStyles = useMemo(() => makeKindStyles(theme), [theme]);
 
   const [tokenSummary, setTokenSummary] = useState<string>("—");
 
@@ -44,7 +48,9 @@ export default function AuthScreen() {
       const segments = accessToken.split(".").length;
       const isJwt = segments === 3;
       const secondsLeft = Math.round(expiresAt - Date.now() / 1000);
-      setTokenSummary(`${tokenType} · ${isJwt ? "JWT" : `OPAQUE (${segments} seg)`} · ${secondsLeft}s left`);
+      setTokenSummary(
+        `${tokenType} · ${isJwt ? "JWT" : `OPAQUE (${segments} seg)`} · ${secondsLeft}s left`,
+      );
       log(isJwt ? "you" : "error", `token: ${tokenType}, ${isJwt ? "JWT ✓" : "NOT a JWT ✗"}`);
       if (!isJwt) {
         log("error", "an opaque token means no audience was requested — check auth0Audience");
@@ -76,7 +82,8 @@ export default function AuthScreen() {
   const onRefresh = useCallback(async () => {
     try {
       const credentials = await getCredentials();
-      if (!credentials) return log("error", "getCredentials returned nothing — is the session gone?");
+      if (!credentials)
+        return log("error", "getCredentials returned nothing — is the session gone?");
       describe(credentials.accessToken, credentials.tokenType, credentials.expiresAt);
       log("status", "getCredentials returned without prompting ✓");
     } catch (e) {
@@ -119,7 +126,10 @@ export default function AuthScreen() {
         const res = await fetch(`${base}${API_V2_ROUTES.me}`, { headers });
         const body: unknown = await res.json().catch(() => null);
         const ok = res.status === 401 && isApiError(body);
-        log(ok ? "you" : "error", `${label} → ${res.status}${ok ? " (401 envelope ✓)" : " — expected 401"}`);
+        log(
+          ok ? "you" : "error",
+          `${label} → ${res.status}${ok ? " (401 envelope ✓)" : " — expected 401"}`,
+        );
       } catch (e) {
         log("error", `${label}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -178,7 +188,7 @@ export default function AuthScreen() {
 
       <ScrollView style={styles.log} contentContainerStyle={styles.logContent}>
         {entries.map((e) => (
-          <Text key={e.id} style={[styles.line, KIND_STYLE[e.kind]]}>
+          <Text key={e.id} style={[styles.line, kindStyles[e.kind]]}>
             {e.at} {e.text}
           </Text>
         ))}
@@ -188,6 +198,8 @@ export default function AuthScreen() {
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -197,6 +209,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function Button({ label, onPress }: { label: string; onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <Pressable style={styles.button} onPress={onPress}>
       <Text style={styles.buttonLabel}>{label}</Text>
@@ -204,28 +218,36 @@ function Button({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
-const KIND_STYLE = StyleSheet.create({
-  you: { color: "#7DFF9B", fontWeight: "700" },
-  agent: { color: "#E6E6E6" },
-  status: { color: "#7FB2FF" },
-  appstate: { color: "#FFC46B" },
-  error: { color: "#FF7A7A" },
-  note: { color: "#8A8A8A" },
-});
+/**
+ * Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx.
+ *
+ * `KIND_STYLE` is indexed by the log entry's kind, so it becomes a factory alongside `makeStyles`
+ * rather than staying a module constant.
+ */
+const makeKindStyles = (t: Palette) =>
+  StyleSheet.create({
+    you: { color: t.success, fontWeight: "700" },
+    agent: { color: t.text },
+    status: { color: t.accent },
+    appstate: { color: t.warning },
+    error: { color: t.danger },
+    note: { color: t.muted },
+  });
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  link: { color: "#7FB2FF", fontSize: 12, paddingVertical: 8 },
-  stats: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  stat: { minWidth: "45%", flexGrow: 1, backgroundColor: "#1B1B22", borderRadius: 8, padding: 8 },
-  statLabel: { color: "#8A8A8A", fontSize: 10 },
-  statValue: { color: "#E6E6E6", fontSize: 14, fontVariant: ["tabular-nums"] },
-  meta: { color: "#5A5A5A", fontSize: 10, marginTop: 6 },
-  err: { color: "#FF7A7A", fontSize: 11, marginTop: 6 },
-  buttons: { flexDirection: "row", gap: 8, marginTop: 10 },
-  button: { flex: 1, backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 12 },
-  buttonLabel: { color: "#E6E6E6", textAlign: "center", fontSize: 14, fontWeight: "600" },
-  log: { flex: 1, backgroundColor: "#16161C", borderRadius: 8, marginTop: 12 },
-  logContent: { padding: 8, gap: 2 },
-  line: { fontSize: 11, fontVariant: ["tabular-nums"] },
-});
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    link: { color: t.accent, fontSize: 12, paddingVertical: 8 },
+    stats: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    stat: { minWidth: "45%", flexGrow: 1, backgroundColor: t.surface, borderRadius: 8, padding: 8 },
+    statLabel: { color: t.muted, fontSize: 10 },
+    statValue: { color: t.text, fontSize: 14, fontVariant: ["tabular-nums"] },
+    meta: { color: t.faint, fontSize: 10, marginTop: 6 },
+    err: { color: t.danger, fontSize: 11, marginTop: 6 },
+    buttons: { flexDirection: "row", gap: 8, marginTop: 10 },
+    button: { flex: 1, backgroundColor: t.control, borderRadius: 8, paddingVertical: 12 },
+    buttonLabel: { color: t.text, textAlign: "center", fontSize: 14, fontWeight: "600" },
+    log: { flex: 1, backgroundColor: t.sunken, borderRadius: 8, marginTop: 12 },
+    logContent: { padding: 8, gap: 2 },
+    line: { fontSize: 11, fontVariant: ["tabular-nums"] },
+  });

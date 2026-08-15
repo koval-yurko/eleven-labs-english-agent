@@ -1,6 +1,8 @@
 # Expo app — build plan
 
-**Date:** 2026-08-12 · **Status:** in progress. **Current stage: S7 — the last one.**
+**Date:** 2026-08-12 · closed 2026-08-15 · **Status:** ✅ **the migration is done.** S0–S7 are
+all built; every screen the web app has, the phone has. What remains is **release**, not migration —
+tracked as an open tail at the end of this file rather than as a stage.
 
 🚩 **The blocker gate is long passed.** B2 (locked-screen audio, both directions, no CallKit), B1
 (Auth0 on device, Bearer on the server) and B3 (the conversation id survives WebRTC) were all
@@ -11,13 +13,23 @@ lessons create, add, remove and delete from the phone and land on the server.
 **S6** (2026-08-15): the collection filters, searches and sorts on the phone and agrees with the web.
 Expo UI is fully exercised — `List`, `SwipeActions`, `Menu`, `BottomSheet`, `ContentUnavailableView`.
 
-**S7 — ship.** Research written 2026-08-15, and it is a different shape from the plan: **two thirds
-of the remaining risk is on Apple's side of the line**, and the research found three hard submission
-blockers that no polish would clear — a missing privacy manifest (an automated rejection), two
-required URLs that do not exist, and a store pipeline that has never run since S0 deferred it.
-The app-side work is mechanical by comparison: 116 colour literals, one provider, one tab layout,
-six empty states. Next action: **build, blockers first** — [S7
-§8](./2026-08-13-expo-s7-ship.md) is the checklist and the gate.
+**S7 — ship** (built 2026-08-15, app side). Two of the three submission blockers are cleared —
+`ios.privacyManifests` is in the config (re-derived after the upgrade, not copied), and `/privacy` +
+`/support` exist as static pages **exempt from the Auth0 gate**, which the research had missed. The
+app is themed: 12 tokens, two palettes, 7 screens, a tab bar, and headers that are no longer light on
+dark content. `expo-doctor` is **20/20**, up from 13/20.
+
+**The ladder is finished.** Seven stages in three days, no rung skipped and no gate renegotiated.
+The three blockers that could have killed the whole idea — locked-screen audio, Auth0 on the device,
+a conversation id surviving WebRTC — were all answered on real hardware in the first three, which is
+the entire reason the ordering put the cheap part first.
+
+**What is left is release, and it is deliberately not a stage.** The store pipeline has still never
+run (S0's D9, carried the whole way), and the app has not been rendered on a device since the
+theming. Neither is migration work: no screen is missing, no shared contract is unported, and nothing
+below depends on a further code decision. See [the release tail](#release--the-open-tail) at the
+foot of this file, and [S7 §11](./2026-08-13-expo-s7-ship.md) for what each outstanding item is
+blocked on.
 
 The stage-by-stage build order for `apps/mobile`. This is the working document — update the status
 column as you go.
@@ -64,7 +76,8 @@ which stage to work on and which research to write.**
 | **S4** | [s4 — tutor screen](./2026-08-13-expo-s4-tutor-screen.md)                | ✅ full        | ✅    | **passed 2026-08-14 — real lesson end to end, enriched `items_list`**      |
 | **S5** | [s5 — lessons](./2026-08-13-expo-s5-lessons.md)                          | ✅ full        | ✅    | **passed 2026-08-15 — create / add / remove / delete, all from the phone** |
 | **S6** | [s6 — collection](./2026-08-13-expo-s6-collection.md)                    | ✅ full        | ✅    | **passed 2026-08-15 — phone and web agree for the same query**             |
-| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | ✅ full        | ⬜    | — (research written 2026-08-15; next action: build)                       |
+| **S7** | [s7 — ship](./2026-08-13-expo-s7-ship.md)                                | ✅ full        | ✅    | **built 2026-08-15 — themed, tabbed, manifests + legal pages done**        |
+| —      | **✅ MIGRATION COMPLETE 2026-08-15.** Release is [an open tail](#release--the-open-tail), not a stage. |                |       |                                                                           |
 
 **Research legend:** 🔲 placeholder (seeded, not researched) · 🟡 being written · ✅ full.
 
@@ -99,7 +112,7 @@ When a stage's gate is decided — green **or** red:
 | **S4** | the tutor screen proper                                     | a real lesson, spoken end to end                | 4–6 d | [✅](./2026-08-13-expo-s4-tutor-screen.md)        | ✅     |
 | **S5** | lessons list + lesson detail                                | create / add / remove a lesson                  | 3–5 d | [✅](./2026-08-13-expo-s5-lessons.md)             | ✅     |
 | **S6** | collection + word detail                                    | filters, search, facets                         | 5–8 d | [✅](./2026-08-13-expo-s6-collection.md)          | ✅     |
-| **S7** | theming, navigation, error/empty states, **TestFlight**     | shippable                                       | 4–7 d | [✅](./2026-08-13-expo-s7-ship.md)                | ⬜     |
+| **S7** | theming, navigation, error/empty states, **TestFlight**     | shippable                                       | 4–7 d | [✅](./2026-08-13-expo-s7-ship.md)                | ✅     |
 | —      | _post-v1_ SQLite mirror + offline queue                     |                                                 | +1 wk | —                                                 | ⬜     |
 
 **S0–S3 is ~1–1.5 weeks and answers every open question.** S4–S7 is ~3–5 weeks. The ordering exists
@@ -550,35 +563,83 @@ SDK 56 and shipped in the default template) —
 
 ## S7 — ship
 
-**Research note:** [2026-08-13-expo-s7-ship.md](./2026-08-13-expo-s7-ship.md) — ✅ researched.
+**Research note:** [2026-08-13-expo-s7-ship.md](./2026-08-13-expo-s7-ship.md) — ✅ researched,
+✅ built 2026-08-15 ([§11](./2026-08-13-expo-s7-ship.md)). **The last stage of the migration.**
+
+The three unticked boxes below are not code — they moved to [the release
+tail](#release--the-open-tail), which is where they are tracked from here.
 
 **Blockers first — the research found three, and none is polish (S7 §1):**
 
-- [ ] 🔴 **`ios.privacyManifests`** — Expo does NOT generate `PrivacyInfo.xcprivacy`, and a missing
-      required reason is rejected by automated email minutes after upload. The exact block, derived
-      from the installed tree, is in [S7 §5.2](./2026-08-13-expo-s7-ship.md) (**D69**)
-- [ ] 🔴 **A privacy policy URL and a support URL** — both required by App Store Connect, and the web
-      app has neither route today (**D70**)
+- [x] 🔴 **`ios.privacyManifests`** — in `app.config.ts`, re-derived from the tree AFTER the
+      dependency upgrade rather than copied from the research (**D69**)
+- [x] 🔴 **A privacy policy URL and a support URL** — `/privacy` and `/support`, static, and added to
+      `proxy.ts`'s public allowlist; verified 200 unauthenticated while `/lessons` still 307s
+      (**D70**). ⚠️ `SUPPORT_EMAIL` in `apps/web/src/app/legal.ts` is still `support@example.com`
 - [ ] 🔴 **The store pipeline has never run** (S0 D9): `ascAppId` + `appleId` missing from `eas.json`,
-      and `autoIncrement` / `appVersionSource: remote` have never executed (**D68**)
-- [ ] Clear the 7-package `expo-doctor` drift first, with a rebuild behind it (**D78**)
+      and `autoIncrement` / `appVersionSource: remote` have never executed (**D68**) — →
+      [release tail](#release--the-open-tail)
+- [x] Clear the 7-package `expo-doctor` drift — **20/20 checks pass**; the native rebuild is still
+      owed (**D78**). It moved `Tabs` to `expo-router/js-tabs` under us
 
 **Then the app:**
 
-- [ ] Theming (light/dark): **116 colour literals, 13 colours, 7 screens** — and headers are
-      currently LIGHT on dark content because there is no theme provider (**D71, D72**). Import
-      `ThemeProvider` from **`expo-router`**, never `@react-navigation/native` — SDK 57 vendors it
-- [ ] Navigation: the stable `Tabs`, not `unstable-native-tabs` (**D73**). The session-vs-navigation
-      question is already settled by S4 D41 — do not reopen it
-- [ ] `ContentUnavailableView` for the six remaining empty states (**D74**)
-- [ ] Mic-permission denial copy — on native a denial surfaces as a _session error_, not a pre-flight
-      prompt (creation doc §4). Must survive the rewrite
-- [ ] Measure `sendContextualUpdate` at last — two rows, two ids (**D77**, carried from S4)
-- [ ] **App Review prep:** a demo account **pre-populated with a lesson containing words**, and review
-      notes that tell the reviewer to lock the screen. Guideline 2.5.4 rejects apps declaring `audio`
-      when the reviewer cannot hear background audio — ours genuinely produces it, but the reviewer
-      has to reach it. Draft notes: [S7 §5.4](./2026-08-13-expo-s7-ship.md)
-- [ ] TestFlight → submit. **Internal only for v1** — external needs Beta App Review (**D76**)
+- [x] Theming (light/dark): `src/theme.ts`, 12 tokens, two palettes, all 7 screens re-keyed; plus
+      `ThemeProvider` (from **`expo-router`**) and `StatusBar` in `_layout.tsx`, so headers and the
+      clock stop being light on dark content (**D71, D72**)
+- [x] Navigation: the stable `Tabs` (**D73**), each tab a route group with its own `Stack`. All seven
+      URLs unchanged — checked against the generated typed-routes file, not assumed
+- [x] `ContentUnavailableView` for the **three** genuine empty states (**D74**) — the "six" counted
+      two section notes that should not become full-bleed empty views; see S7 §11
+- [x] Mic-permission denial copy — verified intact through the rewrite, along with the three-state
+      `details` rule (creation doc §4)
+- [ ] Measure `sendContextualUpdate` at last — two rows, two ids (**D77**, carried from S4). Needs a
+      device — → [release tail](#release--the-open-tail)
+- [ ] **App Review prep** and TestFlight → submit, internal only for v1 (**D76**) — →
+      [release tail](#release--the-open-tail)
+
+---
+
+## Release — the open tail
+
+**Not a stage, and not migration work.** Every item here needs Apple, a phone, or a value only a
+human has; none needs a code decision. [S7 §8](./2026-08-13-expo-s7-ship.md) is the checklist and
+[S7 §11](./2026-08-13-expo-s7-ship.md) records what each one is blocked on.
+
+**Do these two first — they gate the rest:**
+
+- [ ] **`SUPPORT_EMAIL`** in `apps/web/src/app/legal.ts` is `support@example.com`. One constant, both
+      pages. A support URL nobody answers is a guideline 1.5 rejection
+- [ ] **Deploy the web app.** `/privacy` and `/support` build, but they are not at a public URL, and
+      App Store Connect *validates* the privacy-policy URL when the record is saved — so the deploy
+      gates the ASC record, not the other way round
+
+**Then the device, before the store leg — deliberately.** A native rebuild is owed twice over (the
+7-package upgrade, and `privacyManifests` only lands via prebuild), and this is the only remaining
+step that can send anyone back into code:
+
+- [ ] Every screen in light **and** dark, plus the tab bar and the three `ContentUnavailableView`
+      empty states. **The light palette has never been rendered** — it is correct by construction,
+      which is not the same as good-looking
+- [ ] `sendContextualUpdate` (**D77**, carried from S4 and unmeasured ever since): start, say two
+      things, force-quit mid-sentence, reopen, "Continue that session" → two `lesson_sessions` rows,
+      two conversation ids, and a first sentence that continues rather than greets
+
+**Then Apple — the long pole, and S0's D9 debt finally paid:**
+
+- [ ] App Store Connect record → `ascAppId` + `appleId` into `eas.json` (`ascAppId` is what makes
+      `eas submit` non-interactive, and it does not exist until the record does)
+- [ ] `pnpm testflight` → **a store-signed build appears in TestFlight.** The thing S0 deferred and
+      nothing since has exercised. Budget 5–30 min of Apple-side processing per upload
+- [ ] A second upload, proving `autoIncrement` + `appVersionSource: remote` work. Their failure mode
+      is a duplicate-build-number rejection that reads like a signing error
+- [ ] A demo account **pre-populated with a lesson containing words**, and §5.4's review notes —
+      guideline 2.5.4 rejects `audio`-mode apps whose reviewer never heard background audio, and ours
+      genuinely produces it but the reviewer has to reach it. **Internal TestFlight only for v1**
+
+**Gate (unchanged, and still open):** installed from TestFlight, with review notes and a working
+populated demo account, every screen themed in both appearances, and every reachable error and empty
+state handled.
 
 ---
 

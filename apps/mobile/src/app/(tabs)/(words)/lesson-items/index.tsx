@@ -54,6 +54,7 @@ import { useAuth0 } from "react-native-auth0";
 import { newId } from "@/lib/ids";
 import { addWord, fetchItems, setFavorite } from "@/lib/items";
 import { postOp } from "@/lib/lessons";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * The collection — every word the learner has, across every lesson.
@@ -97,6 +98,8 @@ function activeFilterCount(query: ItemsQuery): number {
 
 export default function CollectionScreen() {
   const { getCredentials } = useAuth0();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const accessToken = useCallback(async () => {
     const credentials = await getCredentials();
@@ -188,7 +191,10 @@ export default function CollectionScreen() {
     setWriteError(null);
     setData((prev) =>
       prev
-        ? { ...prev, items: prev.items.map((i) => (i.id === item.id ? { ...i, is_favorite: next } : i)) }
+        ? {
+            ...prev,
+            items: prev.items.map((i) => (i.id === item.id ? { ...i, is_favorite: next } : i)),
+          }
         : prev,
     );
     try {
@@ -198,9 +204,7 @@ export default function CollectionScreen() {
         prev
           ? {
               ...prev,
-              items: prev.items.map((i) =>
-                i.id === item.id ? { ...i, is_favorite: !next } : i,
-              ),
+              items: prev.items.map((i) => (i.id === item.id ? { ...i, is_favorite: !next } : i)),
             }
           : prev,
       );
@@ -282,7 +286,7 @@ export default function CollectionScreen() {
         value={search}
         onChangeText={setSearch}
         placeholder="Search your words and sentences…"
-        placeholderTextColor="#5A5A5A"
+        placeholderTextColor={theme.faint}
         autoCorrect={false}
         autoCapitalize="none"
         clearButtonMode="while-editing"
@@ -342,7 +346,7 @@ export default function CollectionScreen() {
       {writeError ? <Text style={styles.error}>{writeError}</Text> : null}
 
       {items === null ? (
-        <ActivityIndicator color="#7FB2FF" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       ) : (
         /* flex: 1 — NEVER matchContents on this axis (S0 §2 D3). */
         <Host style={styles.list}>
@@ -364,11 +368,15 @@ export default function CollectionScreen() {
             ) : (
               visible.map((item) => (
                 <SwipeActions key={item.id} modifiers={[tag(item.id)]}>
-                  <VStack alignment="leading" spacing={2} modifiers={[onTapGesture(() => router.push(`/lesson-items/${item.id}`))]}>
+                  <VStack
+                    alignment="leading"
+                    spacing={2}
+                    modifiers={[onTapGesture(() => router.push(`/lesson-items/${item.id}`))]}
+                  >
                     <UIText modifiers={[font({ size: 17, weight: "semibold" })]}>
                       {item.is_favorite ? `★ ${item.text}` : item.text}
                     </UIText>
-                    <UIText modifiers={[font({ size: 13 }), foregroundColor("#8A8A8A")]}>
+                    <UIText modifiers={[font({ size: 13 }), foregroundColor(theme.muted)]}>
                       {statsLine(item)}
                     </UIText>
                   </VStack>
@@ -396,7 +404,7 @@ export default function CollectionScreen() {
             value={lessonTitle}
             onChangeText={setLessonTitle}
             placeholder="Lesson title (optional)"
-            placeholderTextColor="#5A5A5A"
+            placeholderTextColor={theme.faint}
             maxLength={MAX_LESSON_TITLE}
             accessibilityLabel="New lesson title"
           />
@@ -516,13 +524,14 @@ function FilterSheet({
 }
 
 function Screen({ onAdd, children }: { onAdd: () => void; children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
       <Stack.Screen
         options={{
           headerShown: true,
           title: "Words",
-          headerBackTitle: "Lessons",
           headerRight: () => (
             <Pressable onPress={onAdd} hitSlop={8} accessibilityLabel="Add a word">
               <Text style={styles.headerAdd}>＋</Text>
@@ -535,44 +544,53 @@ function Screen({ onAdd, children }: { onAdd: () => void; children: React.ReactN
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  headerAdd: { color: "#7FB2FF", fontSize: 24, fontWeight: "600" },
-  search: {
-    color: "#E6E6E6",
-    fontSize: 16,
-    backgroundColor: "#1B1B22",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 8,
-  },
-  controls: { height: 44, marginTop: 4 },
-  count: { color: "#8A8A8A", fontSize: 13 },
-  list: { flex: 1, marginTop: 8 },
-  error: { color: "#FF7A7A", fontSize: 13, marginTop: 8 },
-  button: { backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14 },
-  buttonLabel: { color: "#E6E6E6", fontSize: 15, fontWeight: "600" },
-  disabled: { opacity: 0.4 },
-  quiet: { paddingVertical: 10, paddingHorizontal: 6 },
-  quietLabel: { color: "#8A8A8A", fontSize: 15 },
-  selectionBar: {
-    marginBottom: 8,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#2A2A34",
-    backgroundColor: "#1B1B22",
-    gap: 8,
-  },
-  selectionCount: { color: "#E6E6E6", fontSize: 15, fontWeight: "700" },
-  titleInput: {
-    color: "#E6E6E6",
-    fontSize: 15,
-    backgroundColor: "#101014",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  selectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-});
+/** Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx. */
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    headerAdd: { color: t.accent, fontSize: 24, fontWeight: "600" },
+    search: {
+      color: t.text,
+      fontSize: 16,
+      backgroundColor: t.surface,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginTop: 8,
+    },
+    controls: { height: 44, marginTop: 4 },
+    count: { color: t.muted, fontSize: 13 },
+    list: { flex: 1, marginTop: 8 },
+    error: { color: t.danger, fontSize: 13, marginTop: 8 },
+    button: {
+      backgroundColor: t.control,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    buttonLabel: { color: t.text, fontSize: 15, fontWeight: "600" },
+    disabled: { opacity: 0.4 },
+    quiet: { paddingVertical: 10, paddingHorizontal: 6 },
+    quietLabel: { color: t.muted, fontSize: 15 },
+    selectionBar: {
+      marginBottom: 8,
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: t.control,
+      backgroundColor: t.surface,
+      gap: 8,
+    },
+    selectionCount: { color: t.text, fontSize: 15, fontWeight: "700" },
+    titleInput: {
+      color: t.text,
+      fontSize: 15,
+      // Sunk INTO the selection bar, so it takes the screen background rather than the surface one
+      // — the one place `bg` is used as a fill instead of the backdrop.
+      backgroundColor: t.bg,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    selectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  });

@@ -14,8 +14,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth0 } from "react-native-auth0";
 
+import { EmptyState } from "@/components/empty-state";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, postOp } from "@/lib/lessons";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * The words in one lesson: add, remove, and the log of both (D51).
@@ -31,6 +33,8 @@ type ItemEvent = { at: string; kind: "added" | "removed"; text: string };
 export default function LessonWordsScreen() {
   const { id: lessonId } = useLocalSearchParams<{ id: string }>();
   const { getCredentials } = useAuth0();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const accessToken = useCallback(async () => {
     const credentials = await getCredentials();
@@ -67,7 +71,8 @@ export default function LessonWordsScreen() {
 
   /** Active rows in display order — what the learner edits, and what the tutor will be given. */
   const active = useMemo(
-    () => (items ?? []).filter((i) => i.removed_at === null).sort((a, b) => a.position - b.position),
+    () =>
+      (items ?? []).filter((i) => i.removed_at === null).sort((a, b) => a.position - b.position),
     [items],
   );
 
@@ -162,7 +167,7 @@ export default function LessonWordsScreen() {
   if (!items) {
     return (
       <Screen>
-        <ActivityIndicator color="#7FB2FF" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       </Screen>
     );
   }
@@ -186,7 +191,14 @@ export default function LessonWordsScreen() {
             </Pressable>
           </View>
         )}
-        ListEmptyComponent={<Text style={styles.muted}>No words yet — add some below.</Text>}
+        ListEmptyComponent={
+          <EmptyState
+            title="No words yet"
+            systemImage="text.book.closed"
+            description="Add words or sentences below — one per line."
+            height={200}
+          />
+        }
         ListFooterComponent={
           <View style={styles.footer}>
             <TextInput
@@ -194,7 +206,7 @@ export default function LessonWordsScreen() {
               value={draft}
               onChangeText={setDraft}
               placeholder="Add words or sentences — one per line"
-              placeholderTextColor="#5A5A5A"
+              placeholderTextColor={theme.faint}
               multiline
               editable={!atCap}
               accessibilityLabel="Words or sentences to add — one per line"
@@ -208,7 +220,9 @@ export default function LessonWordsScreen() {
                 <Text style={styles.buttonLabel}>Add words</Text>
               </Pressable>
               <Text style={styles.muted}>
-                {atCap ? `Lesson is full (${MAX_ITEMS} items).` : `${active.length}/${MAX_ITEMS} items`}
+                {atCap
+                  ? `Lesson is full (${MAX_ITEMS} items).`
+                  : `${active.length}/${MAX_ITEMS} items`}
               </Text>
             </View>
 
@@ -231,7 +245,10 @@ export default function LessonWordsScreen() {
             {events.length > 0 ? (
               <View style={styles.log}>
                 <Text style={styles.logTitle}>
-                  Word changes <Text style={styles.muted}>— {events.length} {events.length === 1 ? "event" : "events"}</Text>
+                  Word changes{" "}
+                  <Text style={styles.muted}>
+                    — {events.length} {events.length === 1 ? "event" : "events"}
+                  </Text>
                 </Text>
                 {events.map((e, i) => (
                   <Text key={i} style={styles.logLine}>
@@ -252,6 +269,8 @@ export default function LessonWordsScreen() {
 }
 
 function Screen({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
       <Stack.Screen options={{ headerShown: true, title: "Words", headerBackTitle: "Lesson" }} />
@@ -260,40 +279,47 @@ function Screen({ children }: { children: React.ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  muted: { color: "#8A8A8A", fontSize: 13 },
-  error: { color: "#FF7A7A", fontSize: 13, flexShrink: 1 },
-  errorRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#26262E",
-  },
-  word: { color: "#E6E6E6", fontSize: 16, flexShrink: 1 },
-  remove: { color: "#FF7A7A", fontSize: 14 },
-  footer: { marginTop: 16, gap: 8, paddingBottom: 32 },
-  input: {
-    color: "#E6E6E6",
-    fontSize: 16,
-    backgroundColor: "#1B1B22",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 84,
-    textAlignVertical: "top",
-  },
-  actions: { flexDirection: "row", alignItems: "center", gap: 12 },
-  button: { backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14 },
-  buttonLabel: { color: "#E6E6E6", fontSize: 15, fontWeight: "600" },
-  disabled: { opacity: 0.4 },
-  log: { marginTop: 24, borderTopWidth: 1, borderTopColor: "#26262E", paddingTop: 12 },
-  logTitle: { color: "#E6E6E6", fontSize: 15, fontWeight: "700", marginBottom: 8 },
-  logLine: { fontSize: 13, marginBottom: 6 },
-  added: { color: "#7DFF9B" },
-  removed: { color: "#FF7A7A" },
-});
+/** Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx. */
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    muted: { color: t.muted, fontSize: 13 },
+    error: { color: t.danger, fontSize: 13, flexShrink: 1 },
+    errorRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
+    row: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: t.border,
+    },
+    word: { color: t.text, fontSize: 16, flexShrink: 1 },
+    remove: { color: t.danger, fontSize: 14 },
+    footer: { marginTop: 16, gap: 8, paddingBottom: 32 },
+    input: {
+      color: t.text,
+      fontSize: 16,
+      backgroundColor: t.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      minHeight: 84,
+      textAlignVertical: "top",
+    },
+    actions: { flexDirection: "row", alignItems: "center", gap: 12 },
+    button: {
+      backgroundColor: t.control,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    buttonLabel: { color: t.text, fontSize: 15, fontWeight: "600" },
+    disabled: { opacity: 0.4 },
+    log: { marginTop: 24, borderTopWidth: 1, borderTopColor: t.border, paddingTop: 12 },
+    logTitle: { color: t.text, fontSize: 15, fontWeight: "700", marginBottom: 8 },
+    logLine: { fontSize: 13, marginBottom: 6 },
+    added: { color: t.success },
+    removed: { color: t.danger },
+  });

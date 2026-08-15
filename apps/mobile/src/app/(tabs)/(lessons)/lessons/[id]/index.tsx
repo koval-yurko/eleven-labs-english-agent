@@ -27,7 +27,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
+import { EmptyState } from "@/components/empty-state";
 import { clearJournal, readJournal, writeJournal } from "@/lib/session-journal";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * One lesson's voice tutor — the screen the native app exists for.
@@ -78,6 +80,8 @@ const PAUSE_COPY: Record<PauseReason, { title: string; body: string; cta: string
 export default function LessonTutorScreen() {
   const { id: lessonId } = useLocalSearchParams<{ id: string }>();
   const { getCredentials } = useAuth0();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const accessToken = useCallback(async () => {
     const credentials = await getCredentials();
@@ -410,7 +414,7 @@ export default function LessonTutorScreen() {
   if (!detail) {
     return (
       <Screen title="Lesson">
-        <ActivityIndicator color="#7FB2FF" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       </Screen>
     );
   }
@@ -493,9 +497,13 @@ export default function LessonTutorScreen() {
         keyExtractor={(_, i) => String(i)}
         renderItem={({ item }) => <Line line={item} />}
         ListEmptyComponent={
-          <Text style={styles.muted}>
-            Press start and discuss these words out loud: {detail.lesson.items.join(", ")}
-          </Text>
+          /* Not "nothing here" so much as "here is what to do" — but that is what the native empty
+             view is for, and the words still get named, which is the part that matters. */
+          <EmptyState
+            title="Nothing said yet"
+            systemImage="waveform"
+            description={`Press start and discuss these words out loud: ${detail.lesson.items.join(", ")}`}
+          />
         }
       />
     </Screen>
@@ -503,6 +511,8 @@ export default function LessonTutorScreen() {
 }
 
 const Line = memo(function Line({ line }: { line: TranscriptLine }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <Text style={styles.line}>
       <Text style={line.role === "agent" ? styles.agent : styles.you}>
@@ -514,6 +524,8 @@ const Line = memo(function Line({ line }: { line: TranscriptLine }) {
 });
 
 function Screen({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
       <Stack.Screen options={{ headerShown: true, title, headerBackTitle: "Lessons" }} />
@@ -522,31 +534,43 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  muted: { color: "#8A8A8A", fontSize: 13, marginTop: 8 },
-  metaRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
-  editLink: { color: "#7FB2FF", fontSize: 13, marginTop: 8 },
-  status: { color: "#7FB2FF", fontSize: 13, marginTop: 8 },
-  error: { color: "#FF7A7A", fontSize: 13, marginTop: 8 },
-  pickerHost: { height: 44, marginTop: 8 },
-  buttonHost: { marginTop: 12, alignSelf: "flex-start" },
-  card: {
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#FFC46B",
-    backgroundColor: "#1B1B22",
-  },
-  cardTitle: { color: "#E6E6E6", fontSize: 16, fontWeight: "700" },
-  cardActions: { flexDirection: "row", gap: 8, marginTop: 12 },
-  retry: { backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14 },
-  retryLabel: { color: "#E6E6E6", fontSize: 15, fontWeight: "600" },
-  quiet: { paddingVertical: 10, paddingHorizontal: 6 },
-  quietLabel: { color: "#8A8A8A", fontSize: 15 },
-  transcript: { flex: 1, marginTop: 16 },
-  line: { color: "#E6E6E6", fontSize: 15, marginBottom: 10 },
-  agent: { color: "#7FB2FF", fontWeight: "700" },
-  you: { color: "#7DFF9B", fontWeight: "700" },
-});
+/** Per-scheme styles (D71) — see the note in app/(tabs)/(lessons)/index.tsx. */
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    muted: { color: t.muted, fontSize: 13, marginTop: 8 },
+    metaRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+    },
+    editLink: { color: t.accent, fontSize: 13, marginTop: 8 },
+    status: { color: t.accent, fontSize: 13, marginTop: 8 },
+    error: { color: t.danger, fontSize: 13, marginTop: 8 },
+    pickerHost: { height: 44, marginTop: 8 },
+    buttonHost: { marginTop: 12, alignSelf: "flex-start" },
+    card: {
+      marginTop: 16,
+      padding: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: t.warning,
+      backgroundColor: t.surface,
+    },
+    cardTitle: { color: t.text, fontSize: 16, fontWeight: "700" },
+    cardActions: { flexDirection: "row", gap: 8, marginTop: 12 },
+    retry: {
+      backgroundColor: t.control,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    retryLabel: { color: t.text, fontSize: 15, fontWeight: "600" },
+    quiet: { paddingVertical: 10, paddingHorizontal: 6 },
+    quietLabel: { color: t.muted, fontSize: 15 },
+    transcript: { flex: 1, marginTop: 16 },
+    line: { color: t.text, fontSize: 15, marginBottom: 10 },
+    agent: { color: t.accent, fontWeight: "700" },
+    you: { color: t.success, fontWeight: "700" },
+  });

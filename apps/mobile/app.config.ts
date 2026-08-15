@@ -100,6 +100,42 @@ const config: ExpoConfig = {
       // suspends the app seconds after the screen locks and the conversation dies mid-sentence.
       UIBackgroundModes: ["audio"],
     },
+    // S7 (D69). Expo does NOT generate PrivacyInfo.xcprivacy — this key is the only way to get one,
+    // and a build without the required reason codes is rejected by an automated email minutes after
+    // upload, before any human review. Apple's tooling does not reliably read the manifests that
+    // static CocoaPods dependencies ship, so the app must REPEAT what its dependencies declare.
+    //
+    // Every code below was read out of an installed PrivacyInfo.xcprivacy, not guessed:
+    //   FileTimestamp  0A2A.1, 3B52.1 ← expo-file-system   C617.1 ← react-native core, Folly, glog
+    //   DiskSpace      E174.1, 85F4.1 ← expo-file-system
+    //   SystemBootTime 35F9.1         ← expo-device, react-native/react/timing, boost
+    //   UserDefaults   CA92.1         ← expo-constants, expo-system-ui, react-native core
+    //
+    // This is a snapshot of an installed tree, not a law. expo-sqlite, expo-crypto, the two LiveKit
+    // packages and react-native-auth0 currently ship no manifest at all. Re-run
+    //   find apps/mobile/node_modules -name PrivacyInfo.xcprivacy
+    // after any dependency upgrade and widen the union if it grew.
+    // See docs/2026-08-13-expo-s7-ship.md §5.2.
+    privacyManifests: {
+      NSPrivacyAccessedAPITypes: [
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryFileTimestamp",
+          NSPrivacyAccessedAPITypeReasons: ["0A2A.1", "3B52.1", "C617.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryDiskSpace",
+          NSPrivacyAccessedAPITypeReasons: ["E174.1", "85F4.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategorySystemBootTime",
+          NSPrivacyAccessedAPITypeReasons: ["35F9.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryUserDefaults",
+          NSPrivacyAccessedAPITypeReasons: ["CA92.1"],
+        },
+      ],
+    },
   },
   plugins: [
     "expo-router",

@@ -6,7 +6,7 @@ import {
   nextLessonTitle,
 } from "@tutor/shared/sync-ops";
 import { Link, Stack } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,8 +21,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth0 } from "react-native-auth0";
 
+import { EmptyState } from "@/components/empty-state";
+import { ThemePicker } from "@/components/theme-picker";
 import { newId } from "@/lib/ids";
 import { fetchLessons, postOp } from "@/lib/lessons";
+import { useTheme, type Palette } from "@/theme";
 
 /**
  * The learner's lessons — the app's home screen (D50).
@@ -39,6 +42,8 @@ import { fetchLessons, postOp } from "@/lib/lessons";
  */
 export default function LessonsScreen() {
   const { user, getCredentials } = useAuth0();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const accessToken = useCallback(async () => {
     const credentials = await getCredentials();
@@ -171,7 +176,7 @@ export default function LessonsScreen() {
   if (!lessons) {
     return (
       <Screen>
-        <ActivityIndicator color="#7FB2FF" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       </Screen>
     );
   }
@@ -183,7 +188,11 @@ export default function LessonsScreen() {
         keyExtractor={(l) => l.id}
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor="#7FB2FF" />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+            tintColor={theme.accent}
+          />
         }
         ListHeaderComponent={
           <>
@@ -208,10 +217,18 @@ export default function LessonsScreen() {
         renderItem={({ item }) => (
           <LessonRow lesson={item} onDelete={() => confirmDelete(item)} disabled={busy} />
         )}
-        ListEmptyComponent={<Text style={styles.muted}>No lessons yet — create your first one above.</Text>}
+        ListEmptyComponent={
+          <EmptyState
+            title="No lessons yet"
+            systemImage="bubble.left.and.bubble.right"
+            description="Tap ＋ New lesson above, or pick words from your collection in the Words tab."
+          />
+        }
         ListFooterComponent={
           <View style={styles.footer}>
-            <Text style={styles.muted}>{user ? `signed in as ${user.email ?? user.sub}` : "signed out"}</Text>
+            <Text style={styles.muted}>
+              {user ? `signed in as ${user.email ?? user.sub}` : "signed out"}
+            </Text>
             <Link href="/auth" style={styles.link}>
               Account →
             </Link>
@@ -219,6 +236,8 @@ export default function LessonsScreen() {
             <Link href="/probe" style={styles.linkQuiet}>
               Session probe →
             </Link>
+            <Text style={styles.muted}>Appearance</Text>
+            <ThemePicker />
           </View>
         }
       />
@@ -235,13 +254,20 @@ function LessonRow({
   onDelete: () => void;
   disabled: boolean;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <View style={styles.row}>
       <View style={styles.rowHead}>
         <Link href={`/lessons/${lesson.id}`} style={styles.rowTitle} numberOfLines={1}>
           {lesson.title}
         </Link>
-        <Pressable onPress={onDelete} disabled={disabled} hitSlop={8} accessibilityLabel={`Delete ${lesson.title}`}>
+        <Pressable
+          onPress={onDelete}
+          disabled={disabled}
+          hitSlop={8}
+          accessibilityLabel={`Delete ${lesson.title}`}
+        >
           <Text style={styles.delete}>Delete</Text>
         </Pressable>
       </View>
@@ -267,6 +293,8 @@ function NewLessonForm({
   busy: boolean;
   onCreate: (title: string, texts: string[]) => void;
 }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -292,7 +320,7 @@ function NewLessonForm({
         value={title}
         onChangeText={setTitle}
         placeholder="Title (optional — defaults to today's date)"
-        placeholderTextColor="#5A5A5A"
+        placeholderTextColor={theme.faint}
         maxLength={MAX_LESSON_TITLE}
         accessibilityLabel="Lesson title (optional)"
       />
@@ -301,7 +329,7 @@ function NewLessonForm({
         value={body}
         onChangeText={setBody}
         placeholder={"One word, phrase, or sentence per line"}
-        placeholderTextColor="#5A5A5A"
+        placeholderTextColor={theme.faint}
         multiline
         accessibilityLabel="Words, phrases, or sentences — one per line"
       />
@@ -334,60 +362,67 @@ function NewLessonForm({
 }
 
 function Screen({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
     <SafeAreaView style={styles.screen} edges={["bottom"]}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "Lessons",
-          /*
-            How the collection is reached. S5 deleted the launcher that used to answer this
-            question, and a tab bar — the eventual right answer for two top-level destinations — is
-            a navigation decision, which is S7's stage. A header button now; tabs when navigation is
-            the thing being worked on (S6 D65).
-          */
-          headerRight: () => (
-            <Link href="/lesson-items" style={styles.headerLink}>
-              Words
-            </Link>
-          ),
-        }}
-      />
+      {/*
+        The "Words" header button that used to live here is gone: the collection is a tab now
+        (S7 D73), which is what S6's D65 said it should be once navigation was the thing being
+        worked on. `edges={["bottom"]}` stays — the tab bar sits below this view, not inside it.
+      */}
+      <Stack.Screen options={{ headerShown: true, title: "Lessons" }} />
       {children}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#101014", paddingHorizontal: 16 },
-  muted: { color: "#8A8A8A", fontSize: 13, marginTop: 4 },
-  preview: { color: "#6E6E6E", fontSize: 13, marginTop: 2 },
-  error: { color: "#FF7A7A", fontSize: 13, marginTop: 8, flexShrink: 1 },
-  errorRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 },
-  row: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#26262E" },
-  rowHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
-  rowTitle: { color: "#E6E6E6", fontSize: 17, fontWeight: "600", flexShrink: 1 },
-  delete: { color: "#FF7A7A", fontSize: 14 },
-  newToggle: { paddingVertical: 14 },
-  newToggleLabel: { color: "#7FB2FF", fontSize: 16, fontWeight: "600" },
-  form: { paddingVertical: 12, gap: 8 },
-  input: {
-    color: "#E6E6E6",
-    fontSize: 16,
-    backgroundColor: "#1B1B22",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  multiline: { minHeight: 96, textAlignVertical: "top" },
-  formActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  retry: { backgroundColor: "#2A2A34", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14 },
-  retryLabel: { color: "#E6E6E6", fontSize: 15, fontWeight: "600" },
-  disabled: { opacity: 0.4 },
-  quiet: { paddingVertical: 10, paddingHorizontal: 6 },
-  quietLabel: { color: "#8A8A8A", fontSize: 15 },
-  headerLink: { color: "#7FB2FF", fontSize: 16 },
-  footer: { marginTop: 24, gap: 4, paddingBottom: 24 },
-  link: { color: "#7FB2FF", fontSize: 16, paddingVertical: 10 },
-  linkQuiet: { color: "#5A5A5A", fontSize: 15, paddingVertical: 10 },
-});
+/**
+ * Per-scheme styles (D71). `StyleSheet.create` is static, so the factory is memoised on the palette
+ * — and because the two palettes are module constants, `theme` is referentially stable per scheme
+ * and this recomputes exactly when the appearance flips.
+ */
+const makeStyles = (t: Palette) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
+    muted: { color: t.muted, fontSize: 13, marginTop: 4 },
+    // Was its own thirteenth grey (#6E6E6E). One shade off `faint` and used once; merged.
+    preview: { color: t.faint, fontSize: 13, marginTop: 2 },
+    error: { color: t.danger, fontSize: 13, marginTop: 8, flexShrink: 1 },
+    errorRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 },
+    row: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.border },
+    rowHead: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+    },
+    rowTitle: { color: t.text, fontSize: 17, fontWeight: "600", flexShrink: 1 },
+    delete: { color: t.danger, fontSize: 14 },
+    newToggle: { paddingVertical: 14 },
+    newToggleLabel: { color: t.accent, fontSize: 16, fontWeight: "600" },
+    form: { paddingVertical: 12, gap: 8 },
+    input: {
+      color: t.text,
+      fontSize: 16,
+      backgroundColor: t.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    multiline: { minHeight: 96, textAlignVertical: "top" },
+    formActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+    retry: {
+      backgroundColor: t.control,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    retryLabel: { color: t.text, fontSize: 15, fontWeight: "600" },
+    disabled: { opacity: 0.4 },
+    quiet: { paddingVertical: 10, paddingHorizontal: 6 },
+    quietLabel: { color: t.muted, fontSize: 15 },
+    footer: { marginTop: 24, gap: 4, paddingBottom: 24 },
+    link: { color: t.accent, fontSize: 16, paddingVertical: 10 },
+    linkQuiet: { color: t.faint, fontSize: 15, paddingVertical: 10 },
+  });
