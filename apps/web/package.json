@@ -20,7 +20,9 @@
     "level:items": "tsx scripts/level-items.ts",
     "level:items:plan": "tsx scripts/level-items.ts --dry-run",
     "enrich:words": "tsx scripts/enrich-words.ts",
-    "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run"
+    "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run",
+    "lexicon:load": "tsx scripts/lexicon/load-lexicon.ts",
+    "lexicon:load:plan": "tsx scripts/lexicon/load-lexicon.ts --dry-run"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",
@@ -44,6 +46,7 @@
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "dotenv": "^16.4.7",

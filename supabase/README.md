@@ -6,21 +6,35 @@ Same Supabase project as before; the data was reset to a fresh baseline.
 
 Applied in order (`supabase/migrations/`) via `pnpm db:migrate`:
 
-| File | Purpose |
-| --- | --- |
+| File                | Purpose                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `0001_baseline.sql` | Fresh baseline. One owner-scoped example table (`health_pings`) carrying the learner's Auth0 `sub` in `owner_id`, with owner-only RLS. Add real tables as the app grows. |
 
 ## Two access paths
 
-| Client | Key | RLS | Used for |
-| --- | --- | --- | --- |
-| `getServiceSupabase()` (`src/lib/supabase/server.ts`) | `SUPABASE_SERVICE_ROLE_KEY` | **bypassed** | Trusted server reads/writes. Ownership enforced **in code** — every query filters/stamps `owner_id`. |
-| `getUserSupabase()` (`src/lib/supabase/user-client.ts`) | anon key + Auth0 access token | **enforced** | Token-scoped path. Wired but **dormant** until the Auth0 trust below is finished. |
+| Client                                                  | Key                           | RLS          | Used for                                                                                             |
+| ------------------------------------------------------- | ----------------------------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| `getServiceSupabase()` (`src/lib/supabase/server.ts`)   | `SUPABASE_SERVICE_ROLE_KEY`   | **bypassed** | Trusted server reads/writes. Ownership enforced **in code** — every query filters/stamps `owner_id`. |
+| `getUserSupabase()` (`src/lib/supabase/user-client.ts`) | anon key + Auth0 access token | **enforced** | Token-scoped path. Wired but **dormant** until the Auth0 trust below is finished.                    |
 
 > ⚠️ Today the app uses **only** the service-role client, so the `0001_baseline.sql` RLS
 > policies are dormant (RLS is bypassed). Privacy relies on the repository's explicit
-> `owner_id` filtering. `getUserSupabase()` only *enforces* RLS once Auth0 is trusted as a
+> `owner_id` filtering. `getUserSupabase()` only _enforces_ RLS once Auth0 is trusted as a
 > third-party auth provider. Check status in code via `isThirdPartyAuthConfigured()`.
+
+## One table is deliberately not owner-scoped
+
+`lexicon` (`0010_lexicon.sql`) is the exception to _"every table carries `owner_id` and an
+owner-only policy"_, and it is worth stating here rather than leaving to be inferred from a missing
+column. It is shared reference data — an English→Russian dictionary with CEFR levels, the same 53k
+rows for every learner — so there is nothing to scope. It gets `for select using (true)` and **no
+write policy at all**: the only writer is `pnpm lexicon:load`, which connects as the DB owner via
+`SUPABASE_DB_URL`, and the level job (phase 1), which uses the service role. Both bypass RLS.
+
+Its `key` column is `lesson_item_norm_key(text)` by trigger — the same function behind
+`words.norm_key` — because the "already in your collection" flag on a suggestion is a left join
+between the two, and that join is exact only if one function produces both sides. See
+`docs/2026-08-15-word-autocomplete-suggestions.md`.
 
 ## Trust Auth0 as a third-party auth provider (one-time, dashboard only)
 

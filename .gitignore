@@ -50,3 +50,7 @@ apps/mobile/ios/
 apps/mobile/android/
 .vercel
 .env*
+
+# Lexicon build inputs (~21 MB: WikDict SQLite + CEFR CSVs). Fetched on demand, never
+# committed — see apps/web/scripts/lexicon/README.md. Only the derived data/ artifact ships.
+apps/web/scripts/lexicon/sources/
