@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { parseScheme, THEME_STORAGE_KEY, type Scheme } from "@tutor/shared/theme";
 import { MoonIcon, SunIcon } from "./icons";
 import { Button } from "./Button";
 import { Tooltip } from "./Tooltip";
-
-type Theme = "light" | "dark";
 
 /**
  * Header theme switcher. Dark is the default; the choice persists in localStorage
@@ -18,7 +17,7 @@ type Theme = "light" | "dark";
 export function ThemeToggle() {
   // Start null so the first (server + client) render matches, then resolve on mount
   // from the stored preference.
-  const [theme, setTheme] = useState<Theme | null>(null);
+  const [theme, setTheme] = useState<Scheme | null>(null);
 
   useEffect(() => {
     // Read localStorage, NOT the DOM. The `data-theme` attribute is a derived value that a
@@ -28,19 +27,19 @@ export function ThemeToggle() {
     // the stored preference. See docs/2026-07-26-light-theme-reverts-to-dark-on-navigation.md.
     let stored: string | null = null;
     try {
-      stored = localStorage.getItem("theme");
+      stored = localStorage.getItem(THEME_STORAGE_KEY);
     } catch {
       // Storage can throw (Safari private mode); fall through to the dark default.
     }
     // Re-stamping also heals the attribute if it was stripped before we mounted.
-    setTheme(stored === "light" ? "light" : "dark");
+    setTheme(parseScheme(stored));
   }, []);
 
   useEffect(() => {
     if (!theme) return; // don't clobber the stored choice before it's resolved
     document.documentElement.setAttribute("data-theme", theme);
     try {
-      localStorage.setItem("theme", theme);
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
       // Unwritable storage costs us persistence, not this session's theme.
     }

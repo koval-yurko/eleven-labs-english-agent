@@ -30,6 +30,7 @@ import {
 import { CEFR_LEVELS, ITEM_KINDS, UNLEVELED, type ItemFacet } from "./src/word-types";
 import { groupFacets, searchItems } from "./src/item-list";
 import { isApiError, isSignedUrlResponse, signedUrlPath } from "./src/api";
+import { CSS_VARIABLES, DARK, LIGHT, paletteFor, parseScheme, type Palette } from "./src/theme";
 import {
   MAX_TRANSCRIPT_LINES,
   MAX_TRANSCRIPT_LINE_CHARS,
@@ -369,6 +370,56 @@ for (const bad of [
 }
 
 console.log("checked api properties");
+
+// ── theme (R8) ───────────────────────────────────────────────────────────────────────────────
+// The palettes drifted once already: LIGHT was byte-identical across the two apps while DARK
+// differed on EVERY value, because each client held its own copy. One table now, and these checks
+// pin the three ways a role can go missing from it.
+
+// 1. Both appearances define every role, with a real colour. A `Palette` with a key omitted is a
+//    type error; a key present but empty is not, and it renders as "inherit" rather than as a crash.
+const ROLES = Object.keys(CSS_VARIABLES) as (keyof Palette)[];
+for (const [name, palette] of [
+  ["DARK", DARK],
+  ["LIGHT", LIGHT],
+] as const) {
+  for (const role of ROLES) {
+    if (!/^#[0-9a-f]{6}$/.test(palette[role])) {
+      failures.push(`theme: ${name}.${role} is not a 6-digit lowercase hex (got ${JSON.stringify(palette[role])})`);
+    }
+  }
+  if (Object.keys(palette).length !== ROLES.length) {
+    failures.push(`theme: ${name} has ${Object.keys(palette).length} keys, CSS_VARIABLES has ${ROLES.length}`);
+  }
+}
+
+// 2. Every role publishes under a distinct CSS custom property. Two roles sharing a variable is the
+//    silent failure the web would show as one of them simply never applying.
+const varNames = new Set(Object.values(CSS_VARIABLES));
+if (varNames.size !== ROLES.length) {
+  failures.push(`theme: CSS_VARIABLES maps ${ROLES.length} roles onto ${varNames.size} variables`);
+}
+for (const [role, name] of Object.entries(CSS_VARIABLES)) {
+  if (!name.startsWith("--")) failures.push(`theme: CSS_VARIABLES.${role} = ${name} is not a custom property`);
+}
+
+// 3. The stored-preference rule is the SAME on both clients: only the literal "light" opts out of
+//    dark. The web re-spells this inside its pre-paint script (which must run before the bundle),
+//    so a change here that is not mirrored there is exactly the bug worth catching.
+eq("parseScheme: light", parseScheme("light"), "light");
+for (const stored of [null, undefined, "", "dark", "system", "Light", "LIGHT", "true"]) {
+  eq(`parseScheme: ${JSON.stringify(stored)} resolves dark`, parseScheme(stored), "dark");
+}
+eq("paletteFor: light", paletteFor("light"), LIGHT);
+eq("paletteFor: dark", paletteFor("dark"), DARK);
+
+// 4. The two appearances are actually different. A copy-paste that left LIGHT equal to DARK would
+//    pass everything above.
+if (JSON.stringify(LIGHT) === JSON.stringify(DARK)) {
+  failures.push("theme: LIGHT and DARK are identical");
+}
+
+console.log("checked theme properties");
 
 if (failures.length > 0) {
   console.error(`FAILED: ${failures.length}`);

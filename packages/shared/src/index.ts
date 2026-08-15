@@ -11,6 +11,7 @@
  * This barrel exists for external consumers. Inside `src/`, import the specific module
  * (`../shared/word-types`) rather than the barrel, so a client bundle pulls only what it names.
  */
+export * from "./theme";
 export * from "./tutor";
 export * from "./word-types";
 export * from "./word-key";

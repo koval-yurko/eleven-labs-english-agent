@@ -3,47 +3,52 @@
 // the WebRTC polyfills and the getUserMedia shim that sets the iOS audio category to playAndRecord)
 // and registers the RN session-setup strategy. Importing the web package skips all of it.
 import { ConversationProvider } from "@elevenlabs/react-native";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type Theme } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useMemo } from "react";
+import { useEffect } from "react";
+import { Appearance } from "react-native";
 import { Auth0Provider } from "react-native-auth0";
 
 import { env } from "@/env";
-import { useScheme, useTheme, type Palette } from "@/theme";
+import { useScheme, useTheme } from "@/theme";
+import { NavProgressBar } from "@/ui";
 
 /**
- * Give the navigator our palette instead of its own — S7 (D72).
+ * The root layout: providers, the status bar, one stack, and the progress bar above it.
  *
- * `ThemeProvider` comes from **`expo-router`**, not `@react-navigation/native`. SDK 57's router does
- * not depend on that package at all: its navigation dependency is `standard-navigation` and it
- * *vendors* a react-navigation fork, re-exporting `ThemeProvider` / `DarkTheme` / `DefaultTheme` /
- * `useTheme` from `build/exports.d.ts`. Installing `@react-navigation/native` to get them would put
- * a second, unrelated copy of the library in the bundle and the provider would talk to a context
- * the router never reads.
+ * **The navigator theme is gone.** This used to build a react-navigation `Theme` from the palette
+ * and install expo-router's `ThemeProvider`, so the native `Stack` headers and back chevrons took
+ * the app's colours (S7 D72). There are no native headers any more — every screen draws the web's
+ * `<header>` inside its own content (`ui/Screen.tsx`), and `headerShown: false` is set on all of
+ * them. All the navigator still paints is the background behind a push transition, which is what
+ * `contentStyle` below is for; a whole `ThemeProvider` to colour a chevron that no longer exists
+ * would be scaffolding around an absence.
  *
- * Spreading a base theme rather than writing one from scratch keeps `fonts` — a required field of
- * the navigator's `Theme`, and one with nothing to do with colour.
+ * See docs/2026-08-15-web-design-parity-on-mobile.md §5.1, §8.1.
  */
-function navTheme(scheme: "light" | "dark", palette: Palette): Theme {
-  const base = scheme === "light" ? DefaultTheme : DarkTheme;
-  return {
-    ...base,
-    colors: {
-      ...base.colors,
-      primary: palette.accent, // back-chevron and header buttons
-      background: palette.bg,
-      card: palette.bg, // the header bar itself — flush with the screen, not a distinct band
-      text: palette.text,
-      border: palette.border,
-      notification: palette.danger,
-    },
-  };
-}
-
 export default function RootLayout() {
   const scheme = useScheme();
-  const palette = useTheme();
-  const theme = useMemo(() => navTheme(scheme, palette), [scheme, palette]);
+  const theme = useTheme();
+
+  /**
+   * Tell iOS which appearance the app is actually in.
+   *
+   * `app.config.ts` declares `userInterfaceStyle: "automatic"`, which means "this app supports both
+   * appearances" — and left alone, iOS resolves that against the SYSTEM setting. The app no longer
+   * follows the system: it paints from a stored preference the learner sets in the header. So a
+   * phone in light mode with the app toggled to dark would draw a **light keyboard** over a dark
+   * screen, along with light native alerts and share sheets. That is the same complaint
+   * `theme.ts` used to make about the pre-S7 app — "it told iOS it supported both appearances and
+   * then painted one" — reappearing from the other side.
+   *
+   * `Appearance.setColorScheme` sets `overrideUserInterfaceStyle` on the window, which is exactly
+   * the missing half: the declaration stays "automatic", and this says which one is current. It has
+   * to live in an effect rather than in `setScheme` so that it also runs at launch, for the
+   * preference that was read synchronously at module load.
+   */
+  useEffect(() => {
+    Appearance.setColorScheme(scheme);
+  }, [scheme]);
 
   return (
     <Auth0Provider
@@ -58,13 +63,23 @@ export default function RootLayout() {
       useDPoP={false}
     >
       <ConversationProvider>
-        <ThemeProvider value={theme}>
-          {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
-              background: dark glyphs on a light screen. Without this the status bar keeps its
-              light glyphs and vanishes into a white header. */}
-          <StatusBar style={scheme === "light" ? "dark" : "light"} />
-          <Stack screenOptions={{ headerShown: false }} />
-        </ThemeProvider>
+        {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
+            background: dark glyphs on a light screen. Without this the status bar keeps its
+            light glyphs and vanishes into a white page. */}
+        <StatusBar style={scheme === "light" ? "dark" : "light"} />
+        <Stack
+          screenOptions={{
+            // Set here AND in `Screen`, deliberately: this is what stops a native header flashing
+            // during the first frame of a push, before the screen's own `Stack.Screen` applies.
+            headerShown: false,
+            // The only colour the navigator still owns — without it a push slides the new screen in
+            // over white, which reads as a flash on a dark theme.
+            contentStyle: { backgroundColor: theme.bg },
+          }}
+        />
+        {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
+            is `position: fixed` with `z-index: 100` for the same reason. */}
+        <NavProgressBar />
       </ConversationProvider>
     </Auth0Provider>
   );

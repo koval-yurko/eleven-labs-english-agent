@@ -5,7 +5,6 @@
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.1",
     "@elevenlabs/react-native": "1.2.18",
-    "@expo/ui": "~57.0.11",
     "@livekit/react-native": "2.9.8",
     "@livekit/react-native-expo-plugin": "^1.0.2",
     "@livekit/react-native-webrtc": "137.0.3",
@@ -23,7 +22,6 @@
     "expo-splash-screen": "~57.0.6",
     "expo-sqlite": "~57.0.1",
     "expo-status-bar": "~57.0.1",
-    "expo-symbols": "~57.0.2",
     "expo-system-ui": "~57.0.2",
     "expo-web-browser": "~57.0.2",
     "livekit-client": "2.16.1",
@@ -35,6 +33,7 @@
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1"
   },

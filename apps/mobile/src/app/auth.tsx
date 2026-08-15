@@ -160,7 +160,7 @@ export default function AuthScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <Link href="/" style={styles.link}>
-        ← S1 suspension probe
+        ← home
       </Link>
 
       <View style={styles.stats}>
@@ -226,11 +226,11 @@ function Button({ label, onPress }: { label: string; onPress: () => void }) {
  */
 const makeKindStyles = (t: Palette) =>
   StyleSheet.create({
-    you: { color: t.success, fontWeight: "700" },
+    you: { color: t.ok, fontWeight: "700" },
     agent: { color: t.text },
     status: { color: t.accent },
-    appstate: { color: t.warning },
-    error: { color: t.danger },
+    appstate: { color: t.warn },
+    error: { color: t.error },
     note: { color: t.muted },
   });
 
@@ -239,13 +239,13 @@ const makeStyles = (t: Palette) =>
     screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
     link: { color: t.accent, fontSize: 12, paddingVertical: 8 },
     stats: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    stat: { minWidth: "45%", flexGrow: 1, backgroundColor: t.surface, borderRadius: 8, padding: 8 },
+    stat: { minWidth: "45%", flexGrow: 1, backgroundColor: t.panel, borderRadius: 8, padding: 8 },
     statLabel: { color: t.muted, fontSize: 10 },
     statValue: { color: t.text, fontSize: 14, fontVariant: ["tabular-nums"] },
     meta: { color: t.faint, fontSize: 10, marginTop: 6 },
-    err: { color: t.danger, fontSize: 11, marginTop: 6 },
+    err: { color: t.error, fontSize: 11, marginTop: 6 },
     buttons: { flexDirection: "row", gap: 8, marginTop: 10 },
-    button: { flex: 1, backgroundColor: t.control, borderRadius: 8, paddingVertical: 12 },
+    button: { flex: 1, backgroundColor: t.panel, borderRadius: 8, paddingVertical: 12 },
     buttonLabel: { color: t.text, textAlign: "center", fontSize: 14, fontWeight: "600" },
     log: { flex: 1, backgroundColor: t.sunken, borderRadius: 8, marginTop: 12 },
     logContent: { padding: 8, gap: 2 },

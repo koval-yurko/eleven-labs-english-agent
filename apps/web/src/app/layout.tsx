@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import { DARK, LIGHT, THEME_STORAGE_KEY } from "@tutor/shared/theme";
 import { ASSET_VERSION } from "../lib/asset-version";
+import { THEME_CSS } from "../lib/theme-css";
 import { ThemeToggle } from "./ThemeToggle";
 import { NavLink } from "./NavLink";
 import { NavProgressBar } from "./NavProgressBar";
@@ -32,8 +34,8 @@ export const viewport: Viewport = {
   // Follows the OS preference for the mobile browser chrome / iOS status bar. (It can't
   // read the in-app localStorage override, so it tracks the system theme only.)
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0b0b12" },
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: DARK.bg },
+    { media: "(prefers-color-scheme: light)", color: LIGHT.bg },
   ],
   width: "device-width",
   initialScale: 1,
@@ -41,13 +43,21 @@ export const viewport: Viewport = {
 };
 
 // Runs before first paint to stamp data-theme onto <html>, preventing a flash of the
-// wrong theme. Dark is the default; only an explicit stored "light" opts out.
-const themeInitScript = `(function(){try{var c=localStorage.getItem('theme');document.documentElement.setAttribute('data-theme',c==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
+// wrong theme. Dark is the default; only an explicit stored "light" opts out — the rule
+// `parseScheme` states for both clients. The key comes from the shared module so the web and the
+// phone cannot end up reading different slots; the rule itself is re-spelled rather than imported
+// because this string has to be self-contained to run before the bundle does.
+const themeInitScript = `(function(){try{var c=localStorage.getItem(${JSON.stringify(
+  THEME_STORAGE_KEY,
+)});document.documentElement.setAttribute('data-theme',c==='light'?'light':'dark');}catch(e){document.documentElement.setAttribute('data-theme','dark');}})();`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* The palette, from the shared token table. Before the script below, so the variables the
+            stamped attribute selects are already declared. */}
+        <style dangerouslySetInnerHTML={{ __html: THEME_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>

@@ -1,33 +1,7 @@
-:root,
-:root[data-theme="dark"] {
-  --bg: #0f1115;
-  --panel: #1a1d24;
-  --text: #e8eaed;
-  --muted: #9aa0a6;
-  --accent: #7c9cff;
-  --warn: #ffb86b;
-  --error: #ff6b6b;
-  --ok: #6bd49a;
-  --border: #2a2e37;
-  --field-bg: #0c0e12;
-  --on-accent: #0c0e12;
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] {
-  --bg: #ffffff;
-  --panel: #f6f7f9;
-  --text: #1a1d24;
-  --muted: #5f6368;
-  --accent: #4361ee;
-  --warn: #b26a00;
-  --error: #c0392b;
-  --ok: #1e7d4f;
-  --border: #d9dce3;
-  --field-bg: #f0f2f5;
-  --on-accent: #ffffff;
-  color-scheme: light;
-}
+/* The palette is NOT declared here. `:root` comes from the shared token table, emitted into
+   <head> by RootLayout via src/lib/theme-css.ts, so the web and the mobile app cannot drift —
+   they did, on every dark value. Everything below only *consumes* var(--x).
+   See docs/2026-08-15-web-design-parity-on-mobile.md §7. */
 
 * {
   box-sizing: border-box;

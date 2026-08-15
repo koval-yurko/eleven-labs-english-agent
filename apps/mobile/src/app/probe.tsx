@@ -337,11 +337,11 @@ const makeKindStyles = (t: Palette) =>
   StyleSheet.create({
     // `you` is the loudest colour on the screen: it is the one thing a locked-screen failure removes
     // while leaving everything else looking healthy.
-    you: { color: t.success, fontWeight: "700" },
+    you: { color: t.ok, fontWeight: "700" },
     agent: { color: t.text },
     status: { color: t.accent },
-    appstate: { color: t.warning },
-    error: { color: t.danger },
+    appstate: { color: t.warn },
+    error: { color: t.error },
     note: { color: t.muted },
   });
 
@@ -350,13 +350,13 @@ const makeStyles = (t: Palette) =>
     screen: { flex: 1, backgroundColor: t.bg, paddingHorizontal: 16 },
     link: { color: t.accent, fontSize: 12, paddingVertical: 8, textAlign: "right" },
     stats: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 8 },
-    stat: { minWidth: "30%", flexGrow: 1, backgroundColor: t.surface, borderRadius: 8, padding: 8 },
+    stat: { minWidth: "30%", flexGrow: 1, backgroundColor: t.panel, borderRadius: 8, padding: 8 },
     statLabel: { color: t.muted, fontSize: 10, fontVariant: ["tabular-nums"] },
     statValue: { color: t.text, fontSize: 18, fontVariant: ["tabular-nums"] },
-    statValueEmphasis: { color: t.success, fontWeight: "700" },
+    statValueEmphasis: { color: t.ok, fontWeight: "700" },
     meta: { color: t.faint, fontSize: 10, marginTop: 6 },
     buttons: { flexDirection: "row", gap: 8, marginVertical: 12 },
-    button: { flex: 1, backgroundColor: t.control, borderRadius: 8, paddingVertical: 14 },
+    button: { flex: 1, backgroundColor: t.panel, borderRadius: 8, paddingVertical: 14 },
     buttonLabel: { color: t.text, textAlign: "center", fontSize: 16, fontWeight: "600" },
     log: { flex: 1, backgroundColor: t.sunken, borderRadius: 8 },
     logContent: { padding: 8, gap: 2 },
