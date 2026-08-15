@@ -30,10 +30,10 @@ import process from "node:process";
 import dotenv from "dotenv";
 import { hasAnthropicEnv } from "../src/lib/llm";
 import { hasLexiconDbEnv, connectLexiconDb, LEXICON_DB_ENV_HELP } from "../src/lib/lexicon-db";
+import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/word-types";
 import {
   DEFAULT_LEXICON_MODEL,
   LEXICON_BATCH_SIZE,
-  LEXICON_LEVELS,
   batchProgress,
   chunk,
   collectBatch,
@@ -44,7 +44,6 @@ import {
   submitBatch,
   writeLevels,
   type BatchManifest,
-  type LexiconLevel,
   type LexiconQueueRow,
 } from "../src/lib/lexicon-levels";
 

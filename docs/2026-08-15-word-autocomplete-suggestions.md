@@ -447,8 +447,10 @@ select text, level, ru
 ```
 
 Ranking by `zipf desc` alone puts the right answer first in every prefix tested above (`come` for
-`com`, `the` for `th`, `absolutely` for `abs`). An exact-match boost is worth adding so that typing
-`run` in full keeps `run` above `running`.
+`com`, `the` for `th`, `absolutely` for `abs`). ~~An exact-match boost is worth adding so that
+typing `run` in full keeps `run` above `running`.~~ **Measured in phase 2 and rejected — it is
+strictly harmful, and the problem it solves does not exist. See §14.** What zipf does need is a
+tiebreaker for multiword entries, which turned out to be the real ranking bug.
 
 **Both indexes earn their keep, and which one runs depends on the prefix** — measured against the
 loaded table (§12). A rare prefix range-scans `lexicon_prefix_idx`; a common one walks
@@ -650,11 +652,13 @@ Two opportunities the `owned` flag opens up:
   misspelling) and it is not free: `pg_trgm` + GIN, a similarity threshold to tune, and a real risk
   of burying the exact prefix match under noise. It also belongs server-side rather than in the
   app, since that is where the corpus is. Ship prefix first, measure, then decide.
-- **Phrases and sentences.** The collection holds `word` / `phrase` / `sentence`
-  (`lesson_item_kind`), and the lexicon covers 155 multiword entries out of 53k. Suggestions will
-  effectively only fire for single words. That is correct — nobody wants a dropdown while typing a
-  sentence — but the dropdown should quietly stop querying once the input contains a space rather
-  than showing an empty popup.
+- ~~**Phrases and sentences.** … the lexicon covers 155 multiword entries out of 53k … the dropdown
+  should quietly stop querying once the input contains a space.~~ **Wrong on the facts, and reversed
+  in phase 2.** The lexicon has **23,789 multiword entries — 44.4% of it** — and they are real
+  idioms (`put up with`, `come in`, `absolute power`), not noise. Suppressing on a space would throw
+  away suggestions for exactly the `phrase` kind the collection already supports, and it would break
+  the measured behaviour `put up w` → `put up with [B2]`. What the 44% actually required was a
+  ranking fix, not a kill switch — §14.
 - **Personalization.** Ranking by the learner's own level (surface B1 words to a B1 learner) is a
   real idea and needs a learner-level concept the app does not have.
 
@@ -698,8 +702,8 @@ Russian is good.
 | 3     | `apps/mobile`                  | `Autocomplete` in `@/ui`, wired into `AddWordForm`. Debounce, stale-response guard, `owned` badge, the five hazards in §7.1.                                                     | Medium — the only real client work |
 | 4     | _Optional_                     | Cached top-10k slice locally → instant first keystroke + offline                                                                                                                 | Medium                             |
 
-Phases 0–3 deliver the whole ask and are all approved (D1, D2); phases 0 and 1 are built, so the
-level badge now appears on 86.5% of rows instead of 15.5%. Phase 4 is
+Phases 0–3 deliver the whole ask and are all approved (D1, D2); phases 0, 1 and 2 are built, so the
+corpus, the levels and the route all exist and only the mobile UI is left. Phase 4 is
 explicitly **not** approved — it is recorded as the additive move if offline suggestions are ever
 wanted, not as planned work. Nothing here touches the web UI.
 
@@ -867,6 +871,111 @@ what makes a surprising level legible.
   re-asked and never overwritten — the queue predicate is `level is null and level_at is null`.
 - **No extended thinking.** Per item this is recall, not reasoning, and adaptive thinking across
   1,810 requests would multiply the output bill D2 was approved on.
+
+---
+
+## §14 Phase 2, as built (2026-08-15)
+
+| Artifact             | Where                                                                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The level vocabulary | `packages/shared/src/word-types.ts` — `LEXICON_LEVELS` / `LexiconLevel`                                                                                        |
+| The contract         | `packages/shared/src/api.ts` — `suggest` route, `suggestPath`, `SUGGEST_MIN_PREFIX`, `SUGGEST_LIMIT`, `WordSuggestion`, `SuggestResponse`, `isSuggestResponse` |
+| The query            | `supabase/migrations/0012_suggest_words.sql` — applied                                                                                                         |
+| The data access      | `apps/web/src/lib/suggestions.ts`                                                                                                                              |
+| The route            | `apps/web/src/app/api/v2/lexicon/suggest/route.ts`                                                                                                             |
+
+### The A1 question, settled
+
+§6 left it open; it is now decided the way §6 recommended. **`CEFR_LEVELS` was not widened.**
+`packages/shared/src/word-types.ts` grows a second, wider vocabulary instead:
+
+```ts
+export const LEXICON_LEVELS = ["A1", ...CEFR_LEVELS] as const;
+```
+
+Two vocabularies because there are two questions. `CefrLevel` answers _"what level can a word in the
+learner's collection be"_, where A1 is not a sensible answer — 0004 calls it "headroom", the level
+job never assigns it, and the filter does not offer it. `LexiconLevel` answers _"what level is this
+English word"_, where A1 is necessary: the corpus has 1,448 A1 rows and `the` is one of them.
+Widening `CEFR_LEVELS` would have widened the `/lesson-items` URL grammar — `items-query.ts`
+whitelists those values and `check.ts` round-trips every combination of them — to add a level nothing
+can ever be filtered to. Deriving by spread rather than retyping keeps `CefrLevel` a strict subset of
+`LexiconLevel` by construction.
+
+### The ranking, which is where the real work was
+
+The prototype's first output looked wrong, and both problems were in the ORDER BY.
+
+**1. Phrases were burying words, and §9's premise was off by two orders of magnitude.** The doc said
+the lexicon "covers 155 multiword entries out of 53k". It has **23,789 — 44.4%** — and their mean
+zipf is _higher_ than single words' (4.07 vs 3.49), because `wordfreq` estimates a phrase's
+frequency from its parts. Ranking by zipf alone therefore returns, for `com`:
+
+```
+come, come in, come to, come on, come on to, come at
+```
+
+Six rows, five of them phrases built on the same word. Adding `order by (key like '% %')` first:
+
+```
+come, company, coming, coming-out, community, common
+```
+
+Phrases are **not excluded** — `put up w` still returns `put up with [B2]`, and the collection has a
+`phrase` kind that deserves suggestions. They just stop crowding out words. Once the prefix itself
+contains a space, every match does and the clause becomes a no-op.
+
+**2. The exact-match boost §5.2 proposed is strictly harmful.** It promotes any rare all-caps
+abbreviation that happens to equal a short prefix:
+
+| prefix | with the boost                | without                       |
+| ------ | ----------------------------- | ----------------------------- |
+| `abs`  | **ABS**, absolutely, Absolute | absolutely, Absolute, absence |
+| `car`  | **CAR**, care, career         | care, CAR, career             |
+| `pro`  | **pro**, problem, probably    | problem, probably, program    |
+
+And the case it was meant to fix does not exist: zipf already ranks `run` above `run in` and `the`
+above `they`, because a base word is more frequent than its derivatives. Dropped.
+
+Final ordering: `(key like '% %'), zipf desc, key`. The trailing `key` makes the order total — two
+rows of equal zipf must not swap between calls, or the dropdown reshuffles under the learner's
+finger as they type.
+
+### Measured behaviour
+
+| input                              | result                                                          |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `ubi`                              | ubiquitous [C1] · ubiquity [C2]                                 |
+| `Ubiqu`                            | same — the prefix is case-folded by Postgres, not by the client |
+| `café`                             | cafe [A1] · cafeteria [A2] — unaccented by the same function    |
+| `put up w`                         | put up with [B2]                                                |
+| `alth` (a word the test owner has) | although **✓ owned**                                            |
+| `a`                                | `[]` — below `SUGGEST_MIN_PREFIX`                               |
+| `100%`                             | `[]` — the LIKE wildcard is escaped, not matched                |
+| `'; drop table lexicon; --`        | `[]`                                                            |
+
+Query plan is a `lexicon_prefix_idx` range scan plus one index probe per candidate against
+`words_owner_id_norm_key_key` — **0.07 ms** in Postgres; ~75 ms wall clock, all of it the round trip
+to Supabase.
+
+### Three decisions worth stating
+
+- **The prefix is sent RAW and normalized only in Postgres.** Not in the route, not in the client.
+  `lesson_item_norm_key` is what `lexicon.key` and `words.norm_key` are both built from, so the
+  `owned` join is exact only while exactly one implementation of it exists — the rule `CLAUDE.md`
+  states for `resolve_words`, applied here. Escaping the LIKE metacharacters lives next to the
+  pattern for the same reason.
+- **The route is behind `withBearer` even though the dictionary is public.** The dictionary half
+  would be harmless to expose; `owned` is a join against the caller's collection, so the response
+  describes them.
+- **Every degenerate input is a 200 with an empty array.** Too short, unmatched, unparseable — the
+  client debounces through all of those on the way to a word, and a 4xx would make ordinary typing
+  look like a fault.
+
+### Left for phase 3
+
+The mobile client function and the `Autocomplete` component. `suggestPath` and `isSuggestResponse`
+exist for it to use; nothing in `apps/mobile` calls the route yet.
 
 ---
 

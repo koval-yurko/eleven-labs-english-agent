@@ -11,6 +11,27 @@
 export const CEFR_LEVELS = ["A2", "B1", "B2", "C1", "C2"] as const;
 export type CefrLevel = (typeof CEFR_LEVELS)[number];
 
+/**
+ * The levels a DICTIONARY entry can carry — `CEFR_LEVELS` plus A1.
+ *
+ * Two vocabularies, deliberately, because they answer two different questions. `CefrLevel` is
+ * "what level can a word in the learner's own collection be", and A1 is not a sensible answer:
+ * `supabase/migrations/0004` calls A1 "headroom", the level job never assigns it, and the
+ * `/lesson-items` filter does not offer it. `LexiconLevel` is "what level is this English word",
+ * and there A1 is not only sensible but necessary — a dictionary contains `the` and `water`, and
+ * CEFR-J grades 1,448 rows of the suggestion corpus A1.
+ *
+ * Widening `CEFR_LEVELS` itself was the alternative and it is the wrong move: it would widen the
+ * `/lesson-items` URL grammar (`items-query.ts` whitelists these values, and `check.ts` proves
+ * round-tripping over every combination of them) to add a level nothing can ever be filtered to.
+ *
+ * Derived by spread rather than retyped, so `CefrLevel` stays a strict subset of `LexiconLevel`
+ * by construction — the one relationship between them that must never break.
+ * See docs/2026-08-15-word-autocomplete-suggestions.md §6.
+ */
+export const LEXICON_LEVELS = ["A1", ...CEFR_LEVELS] as const;
+export type LexiconLevel = (typeof LEXICON_LEVELS)[number];
+
 /** Levels the *filter* accepts: the CEFR values plus the permanent "not classified yet" state. */
 export const UNLEVELED = "unleveled";
 

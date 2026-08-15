@@ -37,6 +37,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import type pg from "pg";
+import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/word-types";
 import {
   LEXICON_LEVEL_SYSTEM_PROMPT,
   buildLexiconLevelPrompt,
@@ -45,13 +46,6 @@ import {
 
 /** Headwords per request. Same blast radius as `levels.ts`: one failed request costs this many. */
 export const LEXICON_BATCH_SIZE = 25;
-
-/**
- * The `cefr_level` Postgres enum, which is A1–C2 — NOT `CEFR_LEVELS` from `@tutor/shared`, which
- * floors at A2 for the learner's own collection. See `lexicon-levels-prompt.ts`, difference 1.
- */
-export const LEXICON_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
-export type LexiconLevel = (typeof LEXICON_LEVELS)[number];
 
 /**
  * Deliberately not `ANTHROPIC_MODEL`. That variable steers the app's REQUEST-TIME model, where a

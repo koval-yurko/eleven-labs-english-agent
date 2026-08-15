@@ -21,7 +21,7 @@ import type { ItemsQuery } from "./items-query";
 import { serializeItemsQuery } from "./items-query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
 import type { TranscriptLine } from "./tutor";
-import type { AddWordResult, ItemDetail, ItemFacet, ItemRow } from "./word-types";
+import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./word-types";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,8 @@ export const API_V2_ROUTES = {
   items: `${API_V2}/lesson-items`,
   /** Mark/unmark one word as a favorite. */
   itemFavorite: `${API_V2}/lesson-items/favorite`,
+  /** Prefix suggestions for the add-word field. Shared reference data, not owner-scoped. */
+  suggest: `${API_V2}/lexicon/suggest`,
 } as const;
 
 /**
@@ -96,6 +98,36 @@ export function itemPath(id: string): string {
 export function itemsPath(query: ItemsQuery): string {
   const qs = serializeItemsQuery(query);
   return qs ? `${API_V2_ROUTES.items}?${qs}` : API_V2_ROUTES.items;
+}
+
+/**
+ * Do not query below this many characters.
+ *
+ * Measured, not folklore: on the 53k lexicon a 1-character prefix matches 3,340 rows and a
+ * 2-character one 604 — and a 1-character prefix is exactly where a suggestion is useless anyway.
+ * Baymard's autocomplete research and every mainstream implementation land in the same place.
+ * The client checks it before firing; the route and the RPC both re-check, because "the client
+ * already checked" is not a property a server may assume.
+ */
+export const SUGGEST_MIN_PREFIX = 2;
+
+/**
+ * Rows in the dropdown. Fewer than ten (Baymard), and specifically eight because the list must not
+ * need its own scroll region on a phone — a `FlatList` that scrolls inside the screen's scroll view
+ * is the classic React Native gesture conflict. See §7 of the doc.
+ */
+export const SUGGEST_LIMIT = 8;
+
+/**
+ * `GET /api/v2/lexicon/suggest?q=…&limit=…` — prefix suggestions for the add-word field.
+ *
+ * The prefix is sent RAW. Normalizing it is Postgres's job (`lesson_item_norm_key`, the same
+ * function behind `words.norm_key`), for the reason `CLAUDE.md` gives about `resolve_words`: the
+ * client cannot compute this key and must not guess at it. `wordInputKey` is not applied here
+ * either — it trims, and a learner mid-word has a meaningful trailing state.
+ */
+export function suggestPath(prefix: string, limit: number = SUGGEST_LIMIT): string {
+  return `${API_V2_ROUTES.suggest}?q=${encodeURIComponent(prefix)}&limit=${limit}`;
 }
 
 export const API_ROUTES = {
@@ -454,6 +486,65 @@ export interface FavoriteRequest {
 export interface FavoriteResponse {
   /** False when no row matched — a key that is not the caller's. */
   ok: boolean;
+}
+
+/**
+ * One row of the add-word dropdown.
+ *
+ * Not an `ItemRow`, and not a partial one: this describes a word the learner has probably NEVER
+ * added, so it has no id, no `norm_key`, no favorite state and no `created_at`. Reusing the
+ * collection's row type would mean four fields that are structurally meaningless here.
+ */
+export interface WordSuggestion {
+  /** The spelling that goes into the input on select — Wiktionary's headword, capitals intact. */
+  text: string;
+  /**
+   * CEFR level, or null. `LexiconLevel` rather than `CefrLevel` because a dictionary contains A1
+   * words and the learner's collection does not — see `word-types.ts`.
+   *
+   * Null is a real and permanent state, exactly as on `words.level`: 7,226 rows are unlevelled
+   * because the model was asked and declined (they are Wiktionary fragments like `of the time`,
+   * not vocabulary). Render the absence; do not invent a placeholder level.
+   */
+  level: LexiconLevel | null;
+  /**
+   * Up to three Russian glosses, best first, stress marks intact (`вездесу́щий`).
+   *
+   * Load-bearing, not decoration. It is the answer to "did I spell the word I meant", and it is
+   * ALSO what makes a surprising level legible: `arms [C2]` looks like a bug next to `arm [A1]`
+   * until the gloss says `герб`. Do not drop this column for width on small screens — truncate
+   * it. See §13 of the doc.
+   */
+  ru: string[];
+  /**
+   * True when this word is already in the learner's collection.
+   *
+   * Computed server-side by joining `lexicon.key` to `words.norm_key` — the same function produces
+   * both, so the match is exact. The screen does hold the whole collection in memory and could
+   * match locally, but only through `clientDedupeKey`, which `CLAUDE.md` documents as deliberately
+   * weaker than `norm_key`.
+   */
+  owned: boolean;
+}
+
+/**
+ * `GET /api/v2/lexicon/suggest` — 200.
+ *
+ * An object rather than a bare array, for the reason `LessonListResponse` gives: an array response
+ * cannot grow a field later without breaking every installed binary.
+ *
+ * An empty `suggestions` is a normal answer — a prefix below `SUGGEST_MIN_PREFIX`, a prefix
+ * containing a space (the learner is typing a phrase, and the corpus is headwords), or simply no
+ * match. None of those is an error and none should surface as one.
+ */
+export interface SuggestResponse {
+  suggestions: WordSuggestion[];
+}
+
+/** Narrow an already-parsed suggestions response. */
+export function isSuggestResponse(body: unknown): body is SuggestResponse {
+  if (typeof body !== "object" || body === null) return false;
+  return Array.isArray((body as Partial<SuggestResponse>).suggestions);
 }
 
 /** One integration probe in the health payload. */
