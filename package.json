@@ -23,6 +23,8 @@
     "enrich:words:plan": "pnpm --filter web enrich:words:plan",
     "lexicon:load": "pnpm --filter web lexicon:load",
     "lexicon:load:plan": "pnpm --filter web lexicon:load:plan",
+    "level:lexicon": "pnpm --filter web level:lexicon",
+    "level:lexicon:plan": "pnpm --filter web level:lexicon:plan",
     "mobile": "pnpm --filter mobile start"
   },
   "devDependencies": {

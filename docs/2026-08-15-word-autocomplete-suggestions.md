@@ -342,7 +342,7 @@ Monotonic, but the distributions overlap heavily. A threshold classifier fitted 
 **39% exact, 83% within one level**. That is fine as a _sort_ signal and not good enough to print
 "B2" next to a word with authority. **Use it for ranking, never for the badge.**
 
-### 4.3 Level the lexicon offline with the job that already exists — **approved (D2), not yet built**
+### 4.3 Level the lexicon offline with the job that already exists — **approved (D2), built (§13)**
 
 `apps/web/src/lib/levels.ts` already assigns CEFR levels to arbitrary text in batches of
 `LEVEL_BATCH_SIZE = 25`. Point it at the lexicon build instead of at `words`, run it once, commit
@@ -366,6 +366,32 @@ the level requirement. Re-run only when the lexicon is rebuilt. Two notes:
   against CEFR-J before trusting the other 45k. That is a real quality gate, not a vibe check.
 - Keep the human-curated CEFR value where one exists; the LLM value fills gaps, it does not
   overwrite Tono Laboratory.
+
+**The eval was run, and it changed the model choice.** Same deterministic 300-row sample
+(`order by md5(key)`), the human grade withheld, scored by `pnpm level:lexicon --eval`:
+
+| model              |   exact | within one | declined |  bias | C1 recall | C2 recall |
+| ------------------ | ------: | ---------: | -------: | ----: | --------: | --------: |
+| `claude-haiku-4-5` |     39% |        89% |        3 | −0.30 |      9/37 |      5/25 |
+| `claude-opus-5`    | **50%** |    **93%** |       28 | +0.23 | **23/35** | **10/20** |
+
+Haiku 4.5 scores **exactly what frequency inference scored** — 39% (§4.2) — and its errors are not
+evenly spread: it calls 14 of 25 C2 words C1, and 21 of 85 B1 words A2. It is systematically soft at
+both ends, and softness at the hard end is the expensive kind of wrong here, because **the 45,237
+unlevelled rows are the dictionary tail and the tail is mostly hard words**. Opus 5 clears the bar
+frequency inference set (50% / 93%) and recovers C1–C2 specifically. It costs ~$11 against Haiku's
+~$3; on a one-off pass that difference is not worth 11 points of accuracy on the column the whole
+feature exists to display.
+
+Two honest caveats on the number:
+
+- **Opus 5 declines ~9% of items** (28 of 300) against Haiku's 1%. That is the prompt's rule 6
+  working as intended — proper nouns and fragments should be unlevelled — but it means the pass will
+  leave a few thousand rows unlevelled by choice, permanently. `level` stays nullable forever, which
+  is exactly the contract this codebase already has.
+- **50% exact is agreement with CEFR-J, not correctness.** Human CEFR assignment is itself noisy at
+  ±1 level, so 93% within-one is arguably the more meaningful figure. Treat the badge as a strong
+  hint, not an authority — §13.
 
 ---
 
@@ -672,15 +698,14 @@ Russian is good.
 | 3     | `apps/mobile`                  | `Autocomplete` in `@/ui`, wired into `AddWordForm`. Debounce, stale-response guard, `owned` badge, the five hazards in §7.1.                                                     | Medium — the only real client work |
 | 4     | _Optional_                     | Cached top-10k slice locally → instant first keystroke + offline                                                                                                                 | Medium                             |
 
-Phases 0–3 deliver the whole ask and are all approved (D1, D2); phase 0 is built. Phase 1 is what
-makes the level badge actually appear on most rows, and it is the cheapest high-impact step. Phase 4 is
+Phases 0–3 deliver the whole ask and are all approved (D1, D2); phases 0 and 1 are built, so the
+level badge now appears on 86.5% of rows instead of 15.5%. Phase 4 is
 explicitly **not** approved — it is recorded as the additive move if offline suggestions are ever
 wanted, not as planned work. Nothing here touches the web UI.
 
-**The gate between phases 1 and 2** is the eval: level the 8,301 rows CEFR-J already knows and
-measure agreement before trusting the model on the other 45k. If exact agreement is poor, the
-fallback is not to abandon D2 but to keep the human CEFR value everywhere it exists and ship the
-model's value only for words that have none — which is the design anyway.
+**The gate between phases 1 and 2** was the eval: level the 8,301 rows CEFR-J already knows and
+measure agreement before trusting the model on the other 45k. **It ran, it passed on Opus 5 and
+failed on Haiku 4.5**, and the model choice changed because of it — §4.3.
 
 ---
 
@@ -759,6 +784,89 @@ The loader is idempotent: a second run reports `53538 → 53538 rows, 0 pruned`.
   — a CEFR-sourced level is protected by design. Left alone deliberately.
 - **Single-letter headwords are excluded** by the `^[a-z][a-z' -]{1,30}$` filter, so `a` and `I` are
   not in the corpus. Harmless: the client does not query below two characters.
+
+---
+
+## §13 Phase 1, as run (2026-08-15)
+
+| Artifact      | Where                                                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| The flag      | `supabase/migrations/0011_lexicon_level_at.sql` — `level_at` + partial queue index. Applied.                           |
+| The prompt    | `apps/web/src/lib/lexicon-levels-prompt.ts` — a sibling of `levels-prompt.ts`, not a reuse                             |
+| The job       | `apps/web/src/lib/lexicon-levels.ts` — submit / poll / collect / write / score                                         |
+| The DB handle | `apps/web/src/lib/lexicon-db.ts` — `load-lexicon.ts` was refactored onto it                                            |
+| The CLI       | `apps/web/scripts/level-lexicon.ts` — `pnpm level:lexicon` / `:plan` / `--eval` / `--status` / `--collect` / `--force` |
+
+```
+  queue: 45237 row(s) → 1810 request(s) of 25
+  model: claude-opus-5
+  ≈1.73M input + 0.54M output tokens ≈ $11.12 at batch rates (estimate)
+  ended  ok=1810 err=0 running=0  (3m)
+  collected: 38011 levelled, 7226 declined, 0 request(s) failed
+
+  lexicon now: A1 1448 · A2 2772 · B1 5483 · B2 10672 · C1 15535 · C2 10402 · unlevelled 7226
+```
+
+**46,312 of 53,538 rows carry a level — 86.5%, up from 15.5%.** All 1,810 requests succeeded, in
+three minutes, for about $11. `ubiquitous`, the word this whole document started from, is C1. The
+8,301 human-graded rows are byte-for-byte unchanged, and the queue is empty, so a re-run is a no-op.
+
+### Three things worth knowing about the result
+
+**1. The model declined 7,226 rows (16%), and it declined the right ones.** Sorted by frequency, the
+refusals are `have not`, `not but`, `were-`, `in-and-out`, `I do`, `of the time`, `who is a`,
+`of that time`, `which from`, `to even` — Wiktionary fragments that are not vocabulary anyone
+studies. That is rule 6 of the prompt working exactly as written, and it is a better outcome than a
+confident level on a phrase that should not be in a study list. Those rows are unlevelled
+**permanently**: `level_at` is stamped, so they are never re-asked and never re-billed.
+
+**2. The model is internally consistent; the human/model seam is where levels disagree.** Measured
+over the 412 singular/plural pairs where both members are levelled single words:
+
+| pair          |   n | mean gap |
+| ------------- | --: | -------: |
+| model → model | 120 | **0.12** |
+| human → model | 237 | **1.39** |
+
+**3. …and that seam is a data artifact, not a model error.** The extreme cases look alarming —
+`arm` [A1, CEFR-J] beside `arms` [C2, model] — until you read the gloss WikDict attached to the
+plural entry:
+
+| row        | gloss            | verdict                                                       |
+| ---------- | ---------------- | ------------------------------------------------------------- |
+| `arms`     | герб             | heraldic coat of arms — C2 is right                           |
+| `taxis`    | таксис           | the biological term, **not** a plural of `taxi` — C2 is right |
+| `mores`    | моральный кодекс | social mores — C2 is right                                    |
+| `articles` | практика         | articles of clerkship — C2 is right                           |
+| `points`   | стрелка          | railway points — specialist, C2 is defensible                 |
+
+The model levelled the sense the Russian gloss named, which is precisely what it was told to do.
+CEFR-J levelled the base lemma's everyday sense. Both are correct about different words that happen
+to share a spelling, and Wiktionary is the one that filed them under one headword.
+
+**This is a phase 3 display problem, and the design already solves it.** A learner typing `arm`
+would otherwise see `arms [C2]` and conclude the badge is broken — but the dropdown shows the gloss
+on the same row, so they see `arms — герб [C2]` and it reads as informative rather than wrong. This
+is the requirement _"I want to see the Russian translation so I know if I typed the right word"_
+paying for itself in a way nobody anticipated: the gloss is not only spelling confirmation, it is
+what makes a surprising level legible.
+
+### Design notes
+
+- **This job does not go through LangChain,** which `CLAUDE.md` otherwise requires. LangChain has no
+  Message Batches binding, and the 50% batch discount is half the cost D2 was approved on. The trade
+  is LangSmith auto-tracing, which buys little for a one-off offline pass that measures its own
+  accuracy against a human-graded eval set. Stated at the top of `lexicon-levels.ts`.
+- **Every submission writes a manifest** (`scripts/lexicon/.batches/<id>.json`, gitignored): the
+  batch id plus, per request, the keys it asked about **in order**. Not a cache — results come back
+  keyed by `custom_id` and by index within the request, and nothing in the response says which word
+  index 7 of request 412 was. It is also what lets `--collect` finish a run whose terminal was
+  closed, and what makes `custom_id` an ordinal rather than the headword (the id must match
+  `^[a-zA-Z0-9_-]{1,64}$`, and these keys contain apostrophes, spaces and hyphens).
+- **`--force` clears only `level_source = 'job'`.** Tono Laboratory's 8,301 values are never
+  re-asked and never overwritten — the queue predicate is `level is null and level_at is null`.
+- **No extended thinking.** Per item this is recall, not reasoning, and adaptive thinking across
+  1,810 requests would multiply the output bill D2 was approved on.
 
 ---
 

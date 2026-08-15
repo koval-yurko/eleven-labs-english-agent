@@ -22,9 +22,12 @@
     "enrich:words": "tsx scripts/enrich-words.ts",
     "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run",
     "lexicon:load": "tsx scripts/lexicon/load-lexicon.ts",
-    "lexicon:load:plan": "tsx scripts/lexicon/load-lexicon.ts --dry-run"
+    "lexicon:load:plan": "tsx scripts/lexicon/load-lexicon.ts --dry-run",
+    "level:lexicon": "tsx scripts/level-lexicon.ts",
+    "level:lexicon:plan": "tsx scripts/level-lexicon.ts --dry-run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@auth0/nextjs-auth0": "^4.22.0",
     "@base-ui/react": "^1.7.0",
     "@elevenlabs/elevenlabs-js": "^2.54.0",

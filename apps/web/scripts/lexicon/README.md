@@ -75,6 +75,41 @@ Two things the loader does that a plain upsert would get wrong:
   into this table. The upsert takes an incoming level only when there is one (i.e. a human CEFR list
   vouched for that word) and otherwise keeps what is already there.
 
+## Levelling it (phase 1)
+
+Only ~15% of the corpus carries a CEFR level, because that is all the open lists cover. One offline
+pass over the Message Batches API fills the rest.
+
+```bash
+pnpm level:lexicon:plan                        # the queue + a cost estimate, ZERO API calls
+pnpm level:lexicon --eval --model=claude-opus-5   # THE GATE — score against 300 human-graded rows
+pnpm level:lexicon --model=claude-opus-5       # submit, wait, write
+pnpm level:lexicon --status                    # where are my batches
+pnpm level:lexicon --collect                   # write results from a batch submitted earlier
+```
+
+**Run `--eval` before the real pass, and run it on more than one model.** It takes rows CEFR-J
+already graded, withholds that grade from the model, and reports agreement. Measured on the same
+deterministic 300-row sample:
+
+| model              |   exact | within one | declined |           bias | C2 recall |
+| ------------------ | ------: | ---------: | -------: | -------------: | --------: |
+| `claude-haiku-4-5` |     39% |        89% |        3 | −0.30 (easier) |      5/25 |
+| `claude-opus-5`    | **50%** |    **93%** |       28 | +0.23 (harder) | **10/20** |
+
+Haiku matches frequency inference exactly (39%, §4.2 of the doc) and collapses at the hard end,
+which is the wrong end to be wrong at — the 45k unlevelled rows are the dictionary tail, and the
+dictionary tail is mostly hard words. Opus 5 costs ~4× more and is the right call here; ~$11 once.
+
+Two things the job will not do:
+
+- **It never overwrites a human CEFR value.** The queue is `level is null and level_at is null`, so
+  the 8,301 rows from CEFR-J and Octanove are not even asked about. `--force` re-levels only rows
+  with `level_source = 'job'`.
+- **It never asks twice about a word it could not level.** `level_at` is the ATTEMPTED flag (0011):
+  stamped whether or not an answer came back, so a proper noun the model declines costs one request
+  ever, not one per run.
+
 ## Verifying
 
 The probe prefixes from the doc's §5.1, against the built artifact:

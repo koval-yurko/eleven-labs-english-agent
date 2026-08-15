@@ -21,8 +21,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import process from "node:process";
-import pg from "pg";
 import dotenv from "dotenv";
+import { hasLexiconDbEnv, connectLexiconDb, LEXICON_DB_ENV_HELP } from "../../src/lib/lexicon-db";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(here, "..", ".."); // apps/web
@@ -132,18 +132,12 @@ if (dryRun) {
 }
 
 // ── env ──────────────────────────────────────────────────────────────────────────────────────
-const connectionString = process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error(
-    "✗ Missing SUPABASE_DB_URL.\n" +
-      "  Set it to the Postgres connection string from\n" +
-      "  Supabase → Project Settings → Database → Connection string → URI\n" +
-      "  (the same one scripts/migrate.mjs uses — not the service_role API key).",
-  );
+if (!hasLexiconDbEnv()) {
+  console.error(LEXICON_DB_ENV_HELP);
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
+const client = await connectLexiconDb();
 
 /** `count(*)::text` as a number. Text, then Number: pg hands back bigint as a string. */
 async function count(sql: string): Promise<number> {
@@ -152,7 +146,6 @@ async function count(sql: string): Promise<number> {
 }
 
 try {
-  await client.connect();
   await client.query("begin");
 
   // Staging, not a direct upsert: two artifact rows can normalize to ONE key (café / cafe), and a

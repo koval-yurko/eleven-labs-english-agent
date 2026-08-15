@@ -54,3 +54,7 @@ apps/mobile/android/
 # Lexicon build inputs (~21 MB: WikDict SQLite + CEFR CSVs). Fetched on demand, never
 # committed — see apps/web/scripts/lexicon/README.md. Only the derived data/ artifact ships.
 apps/web/scripts/lexicon/sources/
+
+# Message Batch manifests — they name a batch on Anthropic's side and mean nothing in
+# anyone else's checkout. See apps/web/scripts/level-lexicon.ts.
+apps/web/scripts/lexicon/.batches/
