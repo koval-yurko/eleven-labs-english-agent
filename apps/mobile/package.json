@@ -58,6 +58,7 @@
     "device:register": "npx eas-cli device:create",
     "build:dev": "npx eas-cli build --platform ios --profile development",
     "build:preview": "npx eas-cli build --platform ios --profile preview",
+    "build:preview:local": "npx eas-cli build --platform ios --profile preview --local",
     "build:prod": "npx eas-cli build --platform ios --profile production",
     "submit": "npx eas-cli submit --platform ios --latest",
     "testflight": "npx eas-cli build --platform ios --profile production --auto-submit"
