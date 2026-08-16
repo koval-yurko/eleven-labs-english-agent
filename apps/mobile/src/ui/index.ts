@@ -11,6 +11,7 @@
  * docs/2026-08-15-web-design-parity-on-mobile.md.
  */
 export { AppHeader } from "./AppHeader";
+export { Autocomplete, type AutocompleteOption } from "./Autocomplete";
 export { Button, ButtonRow, type ButtonVariant } from "./Button";
 export { Checkbox } from "./Checkbox";
 export { Chip, ChipRow } from "./Chip";

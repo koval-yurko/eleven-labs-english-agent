@@ -702,8 +702,7 @@ Russian is good.
 | 3     | `apps/mobile`                  | `Autocomplete` in `@/ui`, wired into `AddWordForm`. Debounce, stale-response guard, `owned` badge, the five hazards in §7.1.                                                     | Medium — the only real client work |
 | 4     | _Optional_                     | Cached top-10k slice locally → instant first keystroke + offline                                                                                                                 | Medium                             |
 
-Phases 0–3 deliver the whole ask and are all approved (D1, D2); phases 0, 1 and 2 are built, so the
-corpus, the levels and the route all exist and only the mobile UI is left. Phase 4 is
+Phases 0–3 deliver the whole ask, are all approved (D1, D2), and are all built. Phase 4 is
 explicitly **not** approved — it is recorded as the additive move if offline suggestions are ever
 wanted, not as planned work. Nothing here touches the web UI.
 
@@ -976,6 +975,96 @@ to Supabase.
 
 The mobile client function and the `Autocomplete` component. `suggestPath` and `isSuggestResponse`
 exist for it to use; nothing in `apps/mobile` calls the route yet.
+
+---
+
+## §15 Phase 3, as built (2026-08-15)
+
+| Artifact        | Where                                                                   |
+| --------------- | ----------------------------------------------------------------------- |
+| The component   | `apps/mobile/src/ui/Autocomplete.tsx` — exported from the `@/ui` barrel |
+| The client read | `apps/mobile/src/lib/suggestions.ts` — `fetchSuggestions`               |
+| The wiring      | `AddWordForm` in `apps/mobile/src/app/lesson-items/index.tsx`           |
+
+### The five hazards of §7.1, one by one
+
+| #   | Hazard                           | Status                                                                                                                                                                                                                                                         |
+| --- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `keyboardShouldPersistTaps`      | **Already solved before this phase.** `Screen`'s `ScrollView` sets `"handled"` app-wide; the popup's own `ScrollView` sets it too.                                                                                                                             |
+| 2   | `autoCorrect` / `autoCapitalize` | **Already set** on `AddWordForm` (the design-parity port added them; §7.1 was written against the older file). Now also **forced inside the component** — a caller that forgets would make the exact problem this feature exists to prevent worse, not better. |
+| 3   | Keyboard covering the dropdown   | Addressed by the in-flow layout below plus `Screen`'s existing `KeyboardAvoidingView`. **The one hazard not verifiable without a device** — see the caveat at the end.                                                                                         |
+| 4   | Nested scrolling                 | Sidestepped: no `FlatList`. A plain `ScrollView` capped by `maxHeight`, `nestedScrollEnabled` for Android.                                                                                                                                                     |
+| 5   | Stale responses                  | 150 ms debounce plus a monotonic ticket; a reply that is not the newest is dropped.                                                                                                                                                                            |
+
+### Two departures from the §7 plan
+
+**The list is in flow, not absolutely positioned.** §7 called for a positioned `View` over the page.
+An absolute overlay in React Native means fighting three things at once: Android clips children that
+escape their parent's bounds, `zIndex` needs a matching `elevation` there, and the popup would land
+over the filter panel that follows it. In flow, the panel simply grows downward — **the field itself
+does not move**, which is the only position the learner is looking at, and the entire class of
+clipping and stacking bugs cannot occur. The cost is that content below shifts, which is under the
+keyboard anyway.
+
+**No `FlatList`.** Eight rows do not need virtualisation, and a `FlatList` inside the screen's
+`ScrollView` is hazard 4 by construction. A `ScrollView` with `maxHeight: 260` has the same
+behaviour without it.
+
+### The state machine, and why it looks the way it does
+
+The React Compiler is enabled in this app, and it rejected the obvious implementation twice — both
+times for a real reason rather than a stylistic one.
+
+**`{ query, options }` is one state, not two.** Separate `options` / `searched` states have to be
+_cleared_ whenever the query changes, which means `setState` inside the effect on every keystroke —
+cascading renders, and a compiler error. Pairing the results with the query they belong to turns
+staleness into a comparison instead: rows render only while `result.query` still equals what is in
+the field, so shortening or editing the query hides them without anything having to erase them.
+
+**`search` is a `useCallback`, and `getToken` is safe to depend on.** The component re-runs its
+debounce effect whenever `search` changes identity, so an inline arrow would restart the timer on
+every render and the request would never fire. The first attempt used a ref written during render —
+also a compiler error, and unnecessary: the screen already builds `getToken` with `useCallback`.
+
+Three smaller rules that are easy to get wrong and invisible when you do:
+
+- **Selection fills the field and never submits** (D4). A mis-tap must stay recoverable, and the
+  write path stays byte-identical — the server never learns whether the learner picked or typed.
+- **The suppression after a selection is consumed once, not compared forever.** Filling the field
+  would otherwise re-trigger the search, match the word exactly, and reopen the list showing the row
+  just chosen. Held indefinitely, though, it would _also_ swallow the search when the learner later
+  clears the field and types that same word again.
+- **A reply that outlives the focus does not reopen the list.** Type, tap away, and an unguarded
+  `setOpen(true)` pops a dropdown under a dismissed keyboard.
+
+### What a row shows
+
+```
+ubiquitous                    C1
+вездесу́щий
+```
+
+Two glosses at phone width, three come back. `Already in your collection` is appended to owned rows,
+which is what retires the `already-present` surprise (§8). When a long-enough query matches nothing,
+the field says **"Not in the dictionary — you can still add it."** — 7,226 rows are unlevelled, real
+words fall outside the corpus, and the collection holds phrases and whole sentences that a
+dictionary never will. "No matches" must not read as "that is not a word".
+
+The Russian line is `numberOfLines={2}`, **truncated and never dropped**. §13 is why: `arms [C2]`
+reads as a bug beside `arm [A1]` until the gloss says `герб`.
+
+### Verification, and its limit
+
+`pnpm typecheck`, `pnpm lint` (React Compiler rules included) and `pnpm check:shared` pass, and
+`npx expo export --platform ios` bundles cleanly — 1,643 modules — which is what catches an import
+or `StyleSheet` error that typecheck cannot see.
+
+**Not verified: the running app.** Exercising this needs a device or simulator build and an Auth0
+login, so nothing here has made an authenticated request to `/api/v2/lexicon/suggest`. The route
+itself was verified in §14 against real data through `suggestWords`, and its 401/preflight
+behaviour over HTTP; what remains untested end to end is the token exchange (shared with every other
+v2 route) and the three things only a real screen can show — that the popup clears the keyboard,
+that a tap on a row registers first time, and that the debounce feels right at 150 ms.
 
 ---
 

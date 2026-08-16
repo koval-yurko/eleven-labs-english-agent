@@ -22,9 +22,11 @@ import { useAuth0 } from "react-native-auth0";
 
 import { newId } from "@/lib/ids";
 import { addWord, fetchItems, setFavorite } from "@/lib/items";
+import { fetchSuggestions } from "@/lib/suggestions";
 import { postOp } from "@/lib/lessons";
 import { useTheme } from "@/theme";
 import {
+  Autocomplete,
   Body,
   Button,
   ButtonRow,
@@ -47,6 +49,7 @@ import {
   space,
   type,
   useLoadingIndicator,
+  type AutocompleteOption,
   type SelectOption,
 } from "@/ui";
 
@@ -343,9 +346,7 @@ export default function CollectionScreen() {
             >
               <SortArrowIcon dir={query.dir} size={14} color={theme.text} />
             </Chip>
-            {filterCount > 0 ? (
-              <Chip label="Clear" onPress={() => setQuery(EMPTY_QUERY)} />
-            ) : null}
+            {filterCount > 0 ? <Chip label="Clear" onPress={() => setQuery(EMPTY_QUERY)} /> : null}
           </ChipRow>
         </View>
       </Panel>
@@ -444,6 +445,26 @@ function AddWordForm({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: "ok" | "warn"; message: string } | null>(null);
 
+  // Memoised because `Autocomplete` re-runs its debounce effect whenever `search` changes
+  // identity: an inline arrow would restart the timer on every keystroke's render and the request
+  // would never fire. Safe to depend on `getToken` — the screen already builds it with
+  // `useCallback` (`accessToken`, above), which is the same reason `addWord` can hold it.
+  const search = useCallback(
+    async (query: string): Promise<AutocompleteOption[]> => {
+      const suggestions = await fetchSuggestions(getToken, query);
+      return suggestions.map((s) => ({
+        key: s.text,
+        label: s.text,
+        badge: s.level,
+        // Up to three glosses come back; two is what fits at phone width. The full set is on the
+        // word detail page, which renders `WordDetails.translations_ru`.
+        detail: s.ru.slice(0, 2).join(", "),
+        marked: s.owned,
+      }));
+    },
+    [getToken],
+  );
+
   async function submit() {
     const value = text.trim();
     if (!value || busy) return;
@@ -474,12 +495,16 @@ function AddWordForm({
   return (
     <Panel title="Add a word">
       <View style={styles.addRow}>
-        <TextField
+        <Autocomplete
           value={text}
           onChangeText={setText}
+          search={search}
+          markedLabel="Already in your collection"
+          // 7,226 lexicon rows are unlevelled and plenty of real words are outside it altogether,
+          // so "no matches" must not read as "that is not a word". The collection also holds
+          // phrases and whole sentences, which the dictionary never will.
+          emptyLabel="Not in the dictionary — you can still add it."
           placeholder="A word, phrase, or sentence"
-          autoCapitalize="none"
-          autoCorrect={false}
           returnKeyType="done"
           onSubmitEditing={() => void submit()}
           accessibilityLabel="A word, phrase, or sentence"
