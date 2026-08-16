@@ -5,7 +5,9 @@
 (`apps/mobile/src/app/lessons/[id]/index.tsx`). Reaches `packages/shared/src/tutor.ts` (hidden
 messages, resume context) and, for the escalation path only, `apps/web/src/agent/` (a prompt version
 and the sync script). No web UI work.
-**Status:** **built 2026-08-16 — phases B and D. Unmeasured: P1/P2 need a real device.**
+**Status:** **built 2026-08-16 — phases B and D, plus the §4.4 audio fix found in use the same day
+(`setVolume` is a no-op on React Native, so the first held pause muted the microphone and left the
+tutor talking). Unmeasured: P1/P2 need a real device.**
 Pause now means *mute + heartbeat*; `endSession` is no longer on that path at all. What is **not**
 built: the grace timer and automatic escalation (§4.3) — deliberately, see the note there — and §6's
 `lesson_state` work. Supersedes §4.1 of
@@ -85,15 +87,15 @@ design where "exactly" is free is the one that never lets go.
 
 ```
 tap Pause
- 1. setVolume({ volume: 0 })        // instant silence, even mid-sentence
+ 1. setAgentAudioVolume(0)          // instant silence — NOT setVolume, a no-op here (§4.4)
  2. setMuted(true)                  // the learner is private from this moment
- 3. sendContextualUpdate(PAUSE_CONTEXT)
- 4. heartbeat := setInterval(sendUserActivity, 3_000)
- 5. graceTimer := setTimeout(escalate, GRACE_MS)
+ 3. mark the transcript length      // so the resume knows what went unheard (§4.4, §5)
+ 4. sendContextualUpdate(PAUSE_CONTEXT)
+ 5. heartbeat := setInterval(sendUserActivity, 3_000)
  6. keep journalling; do NOT persistSession (the conversation is still open)
 ```
 
-Step 3 is belt-and-braces: the heartbeat is what actually keeps the agent quiet (§4.1); the
+Step 4 is belt-and-braces: the heartbeat is what actually keeps the agent quiet (§4.1); the
 contextual update is there so that if a turn *does* slip through, the tutor knows why nobody is
 answering and does not start a "are you still there?" spiral.
 
@@ -101,12 +103,12 @@ answering and does not start a "are you still there?" spiral.
 
 ```
 tap Resume
- 1. clearInterval(heartbeat); clearTimeout(graceTimer)
+ 1. clearInterval(heartbeat)
  2. setMuted(false)                 // LiveKit re-attaches the input analyser for us  [source]
- 3. setVolume({ volume: 1 })
- 4. sendContextualUpdate(formatPauseResumeContext(pausedSeconds))
- 5. if the pause cut an agent turn → sendUserMessage(SOFT_RESUME_MESSAGE)
-    else                           → send nothing; the learner speaks first
+ 3. setAgentAudioVolume(1)
+ 4. sendContextualUpdate(formatHeldResumeContext(pausedSeconds))
+ 5. if an agent line arrived while held → sendUserMessage(SOFT_RESUME_MESSAGE)
+    else                                → send nothing; the learner speaks first
 ```
 
 Step 5 is the only place a held resume produces speech, and it is the correct place: the learner
@@ -138,13 +140,18 @@ design adds one state in front of an existing one rather than replacing anything
 | F5 | Agents bills **conversation duration**, with a **95% discount for silence longer than 10 s**; `max_duration_seconds` is wall-clock and is not discounted | `[docs]` |
 | F6 | `WebRTCConnection.sendMessage` **never throws** — it warns and returns when the room is gone, and swallows publish errors into `debug` | `[source]` |
 | F7 | `onMessage` keeps delivering transcript lines while the mic is muted and the output is silenced — muting is local, the agent's turn still arrives as text | `[typings]` |
+| F8 | **`conversation.setVolume()` is a no-op on React Native.** It reaches `WebRTCConnection.setAudioVolume` → `this.audioAdapter?.setVolume(v)`, and the adapter is registered only by the SDK's *web* entrypoint; `index.react-native.js` registers a setup strategy and a volume provider, never an adapter. The SDK's own docblock: *"React Native: no-op (LiveKit handles playback natively)"* | `[source]` |
+| F9 | LiveKit **does** support it: `RemoteAudioTrack.setVolume()` branches on `isReactNative()` and calls `_mediaStreamTrack._setVolume(v)` — a real native gain control in `@livekit/react-native-webrtc` (0–10, default 1) that works on **remote** tracks | `[source]` |
 
 F6 is a design constraint people get wrong: **the heartbeat cannot tell you the line died.** It
 returns cleanly forever. Liveness must be read from `status` / `onDisconnect`, never from the ping.
 
+F8 is the one that shipped broken (§4.4). It fails **silently** — no throw, no warning — so the first
+held pause muted the microphone correctly and let the tutor keep teaching out loud.
+
 ---
 
-## §4 The three problems, and their answers
+## §4 The four problems, and their answers
 
 ### 4.1 The agent re-engages into silence — the heartbeat
 
@@ -227,6 +234,41 @@ Escalation is **silent**: same card, same button. The only thing the learner can
 long pause resumes with the tutor re-orienting — which is the correct behaviour for a long pause, and
 is also the behaviour §6 has to improve.
 
+### 4.4 The tutor stays audible — `setVolume` does nothing on React Native
+
+**Found in use, on the first held pause:** *"during pause I still hear Tutor"*. The microphone was
+muted, the heartbeat was running, and the tutor kept teaching out loud.
+
+`conversation.setVolume({ volume: 0 })` is a **silent no-op on React Native** (F8) — it resolves to
+an optional call on a `null` audio adapter. Nothing throws and nothing warns, so the pause looked
+correct in every way except the one that matters.
+
+It matters more here than it would in most apps: this tutor's turns are long teaching monologues
+("weave MEANING / TRANSLATION / FORMS / USAGE / SOUND into a natural spoken explanation"), and the
+platform has **no way to abort a turn the agent has already started** — muting the microphone means
+the server never sees an interruption, so the turn plays to the end. Without local silencing, a pause
+taken mid-explanation is a minute of teaching to an empty room.
+
+**The fix** is `apps/mobile/src/lib/agent-audio.ts`: walk the LiveKit room's remote audio tracks and
+`setVolume(0)` on each, restoring `1` on release (F9). Getting to the room needs the escape hatch
+that §4.2 option 2 described as "worth probing, not worth shipping first" — `useRawConversation()` is
+documented, the hop from there to `connection.getRoom()` is through a `protected` field. It is no
+longer optional: it is the only way to silence output on this platform.
+
+So every step is **feature-detected rather than typed**, and the helper returns how many tracks it
+reached. `0` means a future SDK renamed something, and the paused status line says *"microphone
+muted, but the tutor may still be audible"* — the failure is visible in the UI instead of being
+rediscovered through the speaker. Upstream, the real fix is for ElevenLabs to register an RN audio
+adapter (or forward room options); worth an issue either way.
+
+**A related gap the same report exposed.** The in-flight turn still *happens* — it is silenced, not
+cancelled — and its text arrives through `onMessage` (F7). The resume therefore marks the transcript
+length at pause (`heldAtLineRef`) and, if any agent line arrived while held, sends
+`SOFT_RESUME_MESSAGE` so the tutor recaps what the learner missed. A mark rather than the
+`isSpeaking` boolean the first version captured, because two different things produce an unheard turn
+and only one is visible at the moment of the tap: the turn in flight, and any turn that slips past
+the heartbeat.
+
 ---
 
 ## §5 Pausing mid-sentence
@@ -236,13 +278,15 @@ button feel unresponsive — and one good one.
 
 **Silence the output immediately, let the turn finish into the void, and remember what was missed.**
 Steps 1–2 of §2.1 are instant, so the learner perceives an immediate pause. The agent's remaining
-audio plays to a muted output for up to ~2 s; the **text still arrives through `onMessage`** (F7), so
-we know exactly which line the learner did not hear. Mark it, and on resume send
-`SOFT_RESUME_MESSAGE` so the tutor restates just that.
+audio plays to a silenced output — and it can be the whole rest of a long explanation, not a couple
+of seconds, because the platform cannot abort a started turn (§4.4). The **text still arrives through
+`onMessage`** (F7), so we know exactly what the learner did not hear.
 
-Detection is off `mode` / `isSpeaking` from `useConversation` `[typings]`: `isSpeaking === true` at
-the moment of the tap ⇒ the last agent line is *unheard* ⇒ the resume nudge fires. Otherwise it does
-not, and the resume is completely silent.
+Detection is a **transcript mark**, not `isSpeaking` at the moment of the tap: record
+`linesRef.current.length` when the hold begins, and on release check whether any agent line arrived
+after it. That catches both the in-flight turn and anything that slipped past the heartbeat, where
+the boolean caught only the first. If nothing arrived, the resume is completely silent — the learner
+was mid-thought and nothing was lost.
 
 This also gives the transcript an honest rendering: an unheard trailing line can be shown dimmed or
 marked, rather than pretending the learner heard it.
@@ -294,7 +338,7 @@ no debugger, real device.**
 | P1 | Does a muted session stay connected for 1 / 5 / 15 min? | hold, log `status` + `onDisconnect.reason` | no disconnect at 15 min | tier A entirely |
 | P2 | Does the 3 s heartbeat keep the agent silent — and does removing it produce a re-engagement at ~7 s? | run both arms, count agent turns | 0 turns with, ≥1 without | the whole quiet-hold premise (and confirms F1/F3 on *our* agent) |
 | P3 | Does the iOS mic indicator go out on `setMuted(true)`? | visual, on device | expected **no** (F4) | nothing — it confirms a known; it sets the copy |
-| P4 | Does `setVolume(0)` actually silence output instantly mid-turn, and does `onMessage` still deliver that turn? | pause mid-sentence, compare audio vs transcript | silent + text present | §5's unheard-turn design |
+| P4 | Does silencing work instantly mid-turn, and does `onMessage` still deliver that turn? **Half answered by use — `setVolume` did nothing (F8); re-run against `setAgentAudioVolume`.** | pause mid-sentence, compare audio vs transcript | silent + text present | §5's unheard-turn design |
 | P5 | Does a *muted* session survive backgrounding, and do JS timers keep running? | `useSuspensionProbe` + a heartbeat counter across a background/foreground cycle | drift ≈ 0, counter keeps ticking | makes background escalation mandatory (it is already recommended) |
 | P6 | Does `getRoom().localParticipant.setMicrophoneEnabled(false)` release the mic and re-publish cleanly on resume? | escape-hatch spike behind a runtime guard | indicator off, conversation continues after re-enable | §4.2 option 2 only |
 | P7 | What does a 5-minute held pause actually cost? | `GET /v1/convai/conversations/{id}` → `metadata.charging` (`callCharge`, `freeMinutesConsumed`) | ≈5% of 5 min | the cost claim, not the design |
@@ -330,13 +374,13 @@ including the webhook.
 ### 8.1 The implementation, in the order it runs
 
 ```
-holdSession()                       releaseSession()
-  setVolume({ volume: 0 })            clearInterval(heartbeat)
-  setMuted(true)                      if (!connected) return   ← the line died; drop path owns it
-  unheard := isSpeaking               setMuted(false)
-  sendContextualUpdate(PAUSE_CONTEXT) setVolume({ volume: 1 })
-  heartbeat := every 3 s              sendContextualUpdate(formatHeldResumeContext(secs))
-    → sendUserActivity()              if (unheard) sendUserMessage(SOFT_RESUME_MESSAGE)
+holdSession()                        releaseSession()
+  setAgentAudioVolume(raw, 0)          clearInterval(heartbeat)
+  setMuted(true)                       if (!connected) return  ← line died; drop path owns it
+  heldAtLine := lines.length           setMuted(false)
+  sendContextualUpdate(PAUSE_CONTEXT)  setAgentAudioVolume(raw, 1)
+  heartbeat := every 3 s               sendContextualUpdate(formatHeldResumeContext(secs))
+    → sendUserActivity()               if (agent line since heldAtLine) → SOFT_RESUME_MESSAGE
 ```
 
 Three details that are not obvious from the sketch and are load-bearing:
@@ -348,6 +392,9 @@ Three details that are not obvious from the sketch and are load-bearing:
   screen does not pass `micMuted` as a controlled prop: controlling it would disable that reset.
 - **A `status` watcher releases the hold** whenever the connection leaves `connected`, so Resume can
   never be offered for a conversation that no longer exists.
+- **`setVolume` is not in this code at all** — it does nothing on React Native (F8/§4.4). Silencing
+  goes through `@/lib/agent-audio`, which reaches LiveKit's remote tracks and reports how many it
+  found, so the UI can admit failure instead of promising a quiet it did not deliver.
 
 ---
 

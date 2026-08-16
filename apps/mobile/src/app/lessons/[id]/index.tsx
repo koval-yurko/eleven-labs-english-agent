@@ -1,4 +1,4 @@
-import { useConversation } from "@elevenlabs/react-native";
+import { useConversation, useRawConversation } from "@elevenlabs/react-native";
 import {
   API_V2_ROUTES,
   conversationTokenPath,
@@ -32,6 +32,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
+import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, postOp } from "@/lib/lessons";
 import {
@@ -477,9 +478,13 @@ export default function LessonScreen() {
     sendContextualUpdate,
     sendUserActivity,
     setMuted,
-    setVolume,
-    isSpeaking,
   } = conversation;
+  /**
+   * The escape hatch, for exactly one job: silencing the tutor. `conversation.setVolume()` is a
+   * NO-OP on React Native — the SDK only registers an audio adapter in its web entrypoint — so a
+   * pause that called it left the tutor audible. See `@/lib/agent-audio`.
+   */
+  const rawConversation = useRawConversation();
   const connected = status === "connected";
   const busy = starting || status === "connecting";
 
@@ -500,8 +505,18 @@ export default function LessonScreen() {
   const heldRef = useRef(false);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heldSinceRef = useRef<number>(0);
-  /** Was the tutor mid-sentence when the pause landed? Then the learner owes a restatement. */
-  const unheardRef = useRef(false);
+  /**
+   * Where the transcript stood when the hold began, so a resume can tell whether the tutor said
+   * anything the learner did not hear.
+   *
+   * A mark rather than a boolean captured from `isSpeaking`, because two different things produce an
+   * unheard turn and only one of them is visible at the moment of the tap: the turn already in
+   * flight (the platform cannot abort it — it plays out to a silenced speaker) and any later turn
+   * that slipped past the heartbeat. Counting agent lines added since the mark catches both.
+   */
+  const heldAtLineRef = useRef(0);
+  /** Did we actually manage to silence the agent's audio? `false` is shown, never hidden. */
+  const [silenced, setSilenced] = useState(true);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current !== null) {
@@ -514,10 +529,16 @@ export default function LessonScreen() {
     if (!connected || heldRef.current) return;
     // Output first, then the microphone: both are instant, and between them they are the whole of
     // what the learner can perceive. The agent may still be finishing a sentence into the void —
-    // its text arrives through `onMessage` regardless, so nothing is lost from the record.
-    setVolume({ volume: 0 });
+    // its text arrives through `onMessage` regardless, so the record keeps it and the resume asks
+    // for it back.
+    //
+    // Through LiveKit, NOT through `conversation.setVolume()`, which is a silent no-op on React
+    // Native and left the tutor audible through the whole of the first held pause. The return value
+    // is how many agent tracks were actually reached; 0 means the escape hatch is closed, and the
+    // status line says so rather than claiming a silence we did not deliver (`@/lib/agent-audio`).
+    setSilenced(setAgentAudioVolume(rawConversation, 0) > 0);
     setMuted(true);
-    unheardRef.current = isSpeaking;
+    heldAtLineRef.current = linesRef.current.length;
     heldSinceRef.current = Date.now();
     sendContextualUpdate(PAUSE_CONTEXT);
     heartbeatRef.current = setInterval(() => sendUserActivity(), HEARTBEAT_MS);
@@ -534,10 +555,13 @@ export default function LessonScreen() {
     // the provider has already reset its own mute state on disconnect. The drop path owns this.
     if (!connected) return;
     setMuted(false);
-    setVolume({ volume: 1 });
+    setAgentAudioVolume(rawConversation, 1);
+    setSilenced(true);
     sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
-    if (unheardRef.current) sendUserMessage(SOFT_RESUME_MESSAGE);
-    unheardRef.current = false;
+    const unheard = linesRef.current
+      .slice(heldAtLineRef.current)
+      .some((line) => line.role === "agent");
+    if (unheard) sendUserMessage(SOFT_RESUME_MESSAGE);
   }
 
   /**
@@ -550,7 +574,7 @@ export default function LessonScreen() {
     stopHeartbeat();
     heldRef.current = false;
     setHeld(false);
-    unheardRef.current = false;
+    setSilenced(true);
   }, [status, stopHeartbeat]);
 
   /**
@@ -740,7 +764,13 @@ export default function LessonScreen() {
       // device only when the track was published with `stopMicTrackOnMute` — and the ElevenLabs SDK
       // builds its Room without it. The microphone is silent but still open, and iOS says so with
       // the indicator. See docs/2026-08-16-tutor-pause-hold-the-line.md §4.2.
-      "⏸ paused — microphone muted, the tutor is waiting"
+      //
+      // The second variant is the tripwire for the day an SDK upgrade closes the escape hatch that
+      // silences the tutor (§4.4): the pause still works, it just cannot promise quiet, and saying
+      // so beats the learner discovering it through the speaker.
+      silenced
+      ? "⏸ paused — microphone muted, the tutor is waiting"
+      : "⏸ paused — microphone muted, but the tutor may still be audible"
     : connected
       ? "● listening — just talk to interrupt"
       : pause === "paused"

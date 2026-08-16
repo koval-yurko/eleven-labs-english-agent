@@ -52,6 +52,26 @@ export const control = {
   fieldPaddingVertical: 0.6 * REM, // 9.6
   fieldPaddingHorizontal: 0.75 * REM, // 12
   /**
+   * Extra room under the last line of a MULTILINE field, so `g`, `p` and `j` keep their tails.
+   *
+   * A `lineHeight` on a `TextInput` is not the harmless declaration it is on a `Text`: iOS turns it
+   * into the paragraph style's minimum/maximum line height, and TextKit spends the whole difference
+   * between it and the font's natural line box ABOVE the baseline. The glyphs therefore sit that
+   * much lower inside their line than the box suggests, and the descenders of the last line land on
+   * — or a hair past — the bottom of the text container, which clips them. Clipped at the bottom
+   * with the ascenders untouched is the signature of exactly this and of nothing else.
+   *
+   * `TextField` answers it twice, because the two cases have different right answers: a single-line
+   * field has no line spacing to express, so it simply drops `lineHeight`; a textarea does, so it
+   * keeps it and buys the room back here.
+   *
+   * The system font's natural line box is ~1.23em (ascent 0.95 + descent 0.28), so the leading spent
+   * above the baseline is `lineHeight − 1.23 × fontSize` — 1.5rem − 1.23rem for the body scale.
+   * Rounded up: a spare pixel under a textarea is invisible, a pixel short is the bug. (The 1.5 is
+   * `type.body`'s ratio, restated rather than read because `type` is declared below this.)
+   */
+  fieldDescenderSlack: Math.ceil(1.5 * REM - 1.23 * REM), // 5
+  /**
    * `.btn--icon`: square, chrome-free, and deliberately NOT `height`. Both icon buttons in the app
    * (the favourite star, the delete bin) sit in dense list rows next to a 20px checkbox, where a
    * 45px square would inflate every row.

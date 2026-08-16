@@ -124,14 +124,19 @@ export const PAUSE_RESUME_MESSAGE =
   "I'm back. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
 
 /**
- * Hidden user turn sent when a HELD pause cut the tutor off mid-sentence.
+ * Hidden user turn sent when a HELD pause swallowed something the tutor said.
  *
- * Only sent in that case. A pause taken while the tutor was already listening resumes in silence,
- * because the learner was mid-thought and nothing was lost — making the tutor talk there would be
- * the app interrupting the learner, which is the opposite of the whole lesson design.
+ * That happens whenever the agent had a turn in flight when Pause landed — the platform has no way
+ * to abort a turn the agent has started, so it plays out to a silenced speaker — and again for any
+ * turn that slips past the `user_activity` heartbeat. Sent ONLY when at least one agent turn
+ * actually arrived while the line was held: a pause taken while the tutor was already listening
+ * resumes in silence, because nothing was lost and making the tutor talk there would be the app
+ * interrupting the learner, which is the opposite of the whole lesson design.
+ *
+ * Worded for both cases — the tail of one sentence and a whole explanation.
  */
 export const SOFT_RESUME_MESSAGE =
-  "I missed the end of that — say that last bit again, then carry on.";
+  "I'm back — I didn't hear what you said while I was away. Recap that briefly, then carry on.";
 
 /**
  * Hidden kickoff messages, filtered out of the transcript UI and the saved history.
