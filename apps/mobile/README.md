@@ -1,26 +1,33 @@
 # English Tutor — iOS app
 
-The native client for the English Tutor. It exists for **one reason the web app cannot satisfy**: iOS
-revokes the microphone, interrupts Web Audio and drops the socket the moment Safari leaves the
-foreground, so a browser voice lesson dies when the learner locks the screen. A native app with
-`UIBackgroundModes: ["audio"]` does not. Everything else here — lessons, the collection, word
-details — is a port of screens that already work on the web, and is only worth building because the
-tutor session works first.
+**This is the product.** All feature work happens here; `apps/web` is deprecated as a UI and kept as
+the backend the app calls over HTTP (`/api/v2/*`). Anything new — a screen, a flow, an interaction —
+is researched and designed for the phone, not ported from a web page.
 
-**Status: stage S0.** The app is scaffolded and bundling; it renders one string from
-`@tutor/shared` and nothing else. The tutor arrives at S4. The stage ladder and the reasoning behind
-it are in [`docs/2026-08-12-expo-build-plan.md`](../../docs/2026-08-12-expo-build-plan.md); each
-stage has its own research file, starting with
-[`docs/2026-08-13-expo-s0-scaffold-testflight.md`](../../docs/2026-08-13-expo-s0-scaffold-testflight.md).
+It exists for **one reason the web app could not satisfy**: iOS revokes the microphone, interrupts
+Web Audio and drops the socket the moment Safari leaves the foreground, so a browser voice lesson
+dies when the learner locks the screen. A native app with `UIBackgroundModes: ["audio"]` does not.
+
+**Status: the migration is done.** S0–S7 are all built — every screen the web app has, the phone has,
+and the three blockers that could have killed the idea (locked-screen audio, Auth0 on device, a
+conversation id surviving WebRTC) were answered on real hardware. What remains is **release**, not
+migration: the store pipeline has still never run. The ladder and the open release tail are in
+[`docs/2026-08-12-expo-build-plan.md`](../../docs/2026-08-12-expo-build-plan.md); each stage has its
+own research file (`docs/2026-08-13-expo-s*.md`). Work since then is ordinary feature work —
+[design parity](../../docs/2026-08-15-web-design-parity-on-mobile.md) and
+[word autocomplete](../../docs/2026-08-15-word-autocomplete-suggestions.md).
 
 ## Stack
 
-| Thing        | Version              | Note                                                        |
-| ------------ | -------------------- | ----------------------------------------------------------- |
-| Expo SDK     | 57                   | RN 0.86, React 19.2.3, Node ≥ 22.13, iOS ≥ 16.4, Xcode 26.4 |
-| Navigation   | `expo-router`        | file-based, router root is **`src/app/`**                   |
-| UI           | `@expo/ui` (SwiftUI) | native components, not RN primitives — see below            |
-| Shared logic | `@tutor/shared`      | the same package the web app uses                           |
+| Thing        | Version                    | Note                                                            |
+| ------------ | -------------------------- | --------------------------------------------------------------- |
+| Expo SDK     | 57                         | RN 0.86, React 19.2.3, Node ≥ 22.13, iOS ≥ 16.4, Xcode 26.4     |
+| Navigation   | `expo-router`              | file-based, router root is **`src/app/`**                       |
+| UI           | `src/ui/`                  | own design system over RN primitives — see Conventions          |
+| Voice        | `@elevenlabs/react-native` | LiveKit/WebRTC under it; needs a dev client, not Expo Go        |
+| Auth         | `react-native-auth0`       | native SDK; the access token becomes the Bearer for `/api/v2/*` |
+| Local store  | `expo-sqlite/kv-store`     | theme choice + the session journal; no second storage dependency |
+| Shared logic | `@tutor/shared`            | the same package the web backend uses                           |
 
 ## Commands
 
@@ -32,7 +39,7 @@ repo root, prefix with `pnpm --filter mobile`.
 | Script            | Runs                                    | For                                              |
 | ----------------- | --------------------------------------- | ------------------------------------------------ |
 | `pnpm start`      | `expo start`                            | the dev server                                   |
-| `pnpm ios`        | `expo start --ios`                      | dev server + open the simulator                  |
+| `pnpm ios`        | `expo run:ios`                          | build and run the dev client on the simulator    |
 | `pnpm check`      | typecheck → lint → expo-doctor → bundle | **the one to run before pushing**                |
 | `pnpm typecheck`  | `tsc --noEmit`                          |                                                  |
 | `pnpm lint`       | `eslint .`                              |                                                  |
@@ -46,8 +53,8 @@ round trip, which is why `pnpm check` ends with it.
 
 ### Local native builds
 
-A dev client on a physically connected device. From S1 on this is the main loop, because Expo Go
-cannot load the ElevenLabs and Auth0 native modules.
+A dev client on a physically connected device. This is the main loop, because Expo Go cannot load the
+ElevenLabs and Auth0 native modules.
 
 | Script                | Runs                                            | For                                                                       |
 | --------------------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
@@ -58,6 +65,8 @@ cannot load the ElevenLabs and Auth0 native modules.
 These obey `.env`, so they install the **`-dev`** identity and never overwrite a TestFlight build.
 
 ### Cloud builds
+
+All of these call `eas-cli` through `npx` with `--platform ios`, elided below for width.
 
 | Script                 | Runs                                           | For                                        |
 | ---------------------- | ---------------------------------------------- | ------------------------------------------ |
@@ -138,6 +147,12 @@ its own callback registered.
 
 ```text
 src/app/          expo-router routes — this directory IS the navigation tree
+src/ui/           the design system: components + tokens. Screens import appearance from here only.
+src/lib/          data access + local state (lessons, items, suggestions, session journal, ids)
+src/hooks/        cross-screen hooks (event log, suspension probe)
+src/api.ts        the one way this app talks to /api/v2/* — token, base URL, Bearer, error envelope
+src/env.ts        the per-variant config from app.config.ts, required and never defaulted
+src/theme.ts      scheme choice + palette, over @tutor/shared/theme
 app.config.ts     dynamic config: the three variants above
 eas.json          build profiles; each sets APP_VARIANT
 eslint.config.js  eslint-config-expo, flat config
@@ -157,28 +172,21 @@ assets/           app icon + splash only
 - **There is no `metro.config.js`, and you should not create one.** SDK 52+ handles monorepos
   automatically; the `watchFolders` / `extraNodeModules` snippets in older answers cause the bugs
   they claim to fix. Package-exports resolution of `@tutor/shared` subpaths works untouched.
-- **Expo UI components take no style props.** `Text` has no `size`, `weight` or `color`; styling goes
-  through modifiers:
-
-  ```tsx
-  import { Host, Text } from "@expo/ui/swift-ui";
-  import { font, foregroundStyle } from "@expo/ui/swift-ui/modifiers";
-
-  <Host style={{ flex: 1 }}>
-    <Text modifiers={[font({ size: 20, weight: "medium" })]}>…</Text>
-  </Host>;
-  ```
-
-  A `Host` is the boundary between RN's Yoga layout and SwiftUI's. It behaves like a `View` and needs
-  explicit dimensions or `matchContents` — **but never `matchContents` on the same axis as a SwiftUI
-  scroll container** (`ScrollView`, `List`, `Form`, `LazyVStack`): it resolves to `.fixedSize` and
-  scrolling silently stops working.
-
+- **Appearance comes from `src/ui`, and from nowhere else.** Screens import components and tokens
+  from the `@/ui` barrel; a colour literal, a font size or a radius written inline in a screen is the
+  drift that directory exists to end. Colours come from `@tutor/shared/theme` via `useTheme()` —
+  that half is shared with the web byte for byte — while geometry is per-platform in `src/ui/tokens.ts`,
+  each value carrying the `rem` it was derived from. Need a number that isn't there? Add it there.
+  See [`docs/2026-08-15-web-design-parity-on-mobile.md`](../../docs/2026-08-15-web-design-parity-on-mobile.md).
+- **`@expo/ui` was removed, deliberately.** The SwiftUI components were the better native design, but
+  they take their type scale and colours from the system, which is exactly what made them impossible
+  to hold in parity with the shared palette. The trade is recorded in §10.1 of the parity doc; do not
+  reintroduce the dependency without reading it.
 - **React is pinned workspace-wide to the version React Native requires** (`overrides` in
   `pnpm-workspace.yaml`). Do not pin React in this package's `package.json` — the override wins and
   the declared version becomes decoration.
-- **Expo Go will not work** from S1 onward: `@elevenlabs/react-native` and `react-native-auth0` need
-  custom native code. The loop is `expo-dev-client` + `npx expo prebuild` + `npx expo run:ios`.
+- **Expo Go will not work**: `@elevenlabs/react-native` and `react-native-auth0` need custom native
+  code. The loop is `expo-dev-client` + `npx expo prebuild` + `npx expo run:ios`.
 - **Secrets never live here.** Only `EXPO_PUBLIC_*` values reach the app, and they are inlined into
   the bundle exactly like `NEXT_PUBLIC_*` — treat them as public. The ElevenLabs and Supabase
   service-role keys stay on the web server, which is why the token route exists.
@@ -186,7 +194,7 @@ assets/           app icon + splash only
 ## Gotchas
 
 - **EAS uploads via git.** Uncommitted and gitignored files do not reach a cloud build, `.env`
-  included. From S1 on, deliver environment values with `eas env`, not `.env`.
+  included. Deliver environment values to cloud builds with `eas env`, not `.env`.
 - **`unrs-resolver` must stay in `allowBuilds`** (`pnpm-workspace.yaml`). pnpm 10+ blocks its
   postinstall, and the failure is not a warning: the deps-status check exits non-zero, so
   `pnpm typecheck` here dies before `tsc` runs, with an error naming neither tool.
