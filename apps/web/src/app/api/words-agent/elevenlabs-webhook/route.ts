@@ -11,7 +11,11 @@ import {
 import { hasSupabaseEnv } from "../../../../lib/supabase/server";
 import { getLessonById, upsertLessonSession } from "../../../../lib/lessons";
 import { versionForAgentId } from "../../../../lib/agent-registry";
-import { KICKOFF_MESSAGE, sanitizeTranscript, type TranscriptLine } from "@tutor/shared/tutor";
+import {
+  HIDDEN_KICKOFF_MESSAGES,
+  sanitizeTranscript,
+  type TranscriptLine,
+} from "@tutor/shared/tutor";
 
 // Must run per-request (reads secrets, verifies a signature, calls out to LangSmith).
 export const dynamic = "force-dynamic";
@@ -120,13 +124,19 @@ async function persistLessonSession(data: PostCallData): Promise<void> {
   const lesson = await getLessonById(lessonId);
   if (!lesson) return;
 
-  // Two steps: the domain filter (drop empty turns and the hidden kickoff), then the SAME
+  // Two steps: the domain filter (drop empty turns and every hidden kickoff), then the SAME
   // `sanitizeTranscript` the browser paths use. This writer previously applied no bounds at all,
   // so a long conversation landed unbounded in the very row the other two writers cap — three
   // writers, one conversation_id row, and the content depended on which one wrote last.
   const transcript: TranscriptLine[] = sanitizeTranscript(
     (data.transcript ?? [])
-      .filter((t) => t.message && !(t.role === "user" && t.message === KICKOFF_MESSAGE))
+      // The whole ARRAY, never one constant: this filtered only KICKOFF_MESSAGE until 2026-08-16,
+      // so RESUME_MESSAGE landed in the stored history as a learner turn ("We got cut off…")
+      // whenever this writer happened to write last. Every hidden message must be listed in
+      // HIDDEN_KICKOFF_MESSAGES and filtered from here.
+      .filter(
+        (t) => t.message && !(t.role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(t.message)),
+      )
       .map((t) => ({
         role: t.role,
         text: t.message as string,

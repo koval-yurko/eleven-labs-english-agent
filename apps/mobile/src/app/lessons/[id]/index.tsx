@@ -18,7 +18,9 @@ import {
   formatResumeContext,
   HIDDEN_KICKOFF_MESSAGES,
   KICKOFF_MESSAGE,
+  PAUSE_RESUME_MESSAGE,
   RESUME_MESSAGE,
+  type ResumeCause,
   type TranscriptLine,
 } from "@tutor/shared/tutor";
 import { useLocalSearchParams } from "expo-router";
@@ -29,7 +31,14 @@ import { useAuth0 } from "react-native-auth0";
 import { apiFetch } from "@/api";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, postOp } from "@/lib/lessons";
-import { clearJournal, readJournal, writeJournal } from "@/lib/session-journal";
+import {
+  clearJournal,
+  clearPauseMarker,
+  readJournal,
+  readPauseMarker,
+  writeJournal,
+  writePauseMarker,
+} from "@/lib/session-journal";
 import { useTheme } from "@/theme";
 import {
   Body,
@@ -88,11 +97,20 @@ import {
  * be told what they just did. And there is no `"background"` — that failure cannot happen (S1).
  */
 type PauseReason =
+  | "paused" // the learner pressed Pause — the ONE entry here that is an intent, not an accident
   | "dropped" // reason: "error" — the connection failed (network, audio graph, LiveKit)
   | "ended" // reason: "agent" — the tutor or the server ended it (max_duration_seconds is 1800)
   | "recovered"; // a journal from a previous run was found at mount
 
 const PAUSE_COPY: Record<PauseReason, { title: string; body: string; cta: string }> = {
+  paused: {
+    // No apology and no explanation of what happened: the learner did this on purpose and knows it.
+    // What they cannot see is that the conversation was SAVED and the tutor will carry on, so that
+    // is the only thing this says.
+    title: "Paused",
+    body: "The tutor is waiting. Everything said so far is saved — pick up where you stopped whenever you're ready.",
+    cta: "Resume session",
+  },
   dropped: {
     title: "The session dropped",
     body: "The connection to the tutor failed. What you had already said was saved — pick up where you stopped whenever you're ready.",
@@ -290,7 +308,18 @@ export default function LessonScreen() {
   /** THE ROW KEY. Seeded from the token response before `startSession`, never by a callback (S3 D23). */
   const conversationIdRef = useRef<string | null>(null);
   const savedForRef = useRef<string | null>(null);
-  const resumeContextRef = useRef<TranscriptLine[] | null>(null);
+  /**
+   * What the next session will be handed, and WHY it is being handed it. One ref rather than a pair,
+   * because a cause that can drift out of sync with its lines is a cause that eventually describes
+   * the wrong conversation — and this value is spoken aloud by the tutor.
+   */
+  const resumeContextRef = useRef<{ lines: TranscriptLine[]; cause: ResumeCause } | null>(null);
+  /**
+   * Set by `pauseSession` and read once by `onDisconnect`. The SDK reports `reason: "user"` for
+   * BOTH buttons — End and Pause hang up identically — so intent cannot be inferred from the
+   * transport and has to be recorded here, on the way out.
+   */
+  const pauseIntentRef = useRef(false);
   const kickedOffRef = useRef(false);
   const statusRef = useRef<string>("disconnected");
 
@@ -381,13 +410,33 @@ export default function LessonScreen() {
     },
     onDisconnect: (details) => {
       kickedOffRef.current = false;
+      const intended = pauseIntentRef.current;
+      pauseIntentRef.current = false;
       void persistSession();
-      // The whole pause machine, in three lines: the SDK says why, so nothing is inferred.
-      if (details.reason === "error") setPause("dropped");
+      // The whole pause machine: the SDK says why, so nothing is inferred — except the one thing it
+      // cannot say, which is whether the learner meant to stop. A deliberate pause wins over the
+      // transport's own reason, so a connection that dies in the half-second after the tap still
+      // reads as "Paused" rather than "The session dropped".
+      if (intended) setPause("paused");
+      else if (details.reason === "error") setPause("dropped");
       else if (details.reason === "agent") setPause("ended");
-      // "user" — the learner pressed End and knows it. No card.
-      if (details.reason !== "user" && linesRef.current.length > 0) {
-        resumeContextRef.current = linesRef.current;
+      // "user" without intent — the learner pressed End and knows it. No card.
+      if ((intended || details.reason !== "user") && linesRef.current.length > 0) {
+        resumeContextRef.current = {
+          lines: linesRef.current,
+          cause: intended ? "paused" : "interrupted",
+        };
+        // Parked on the device so the pause outlives this screen and this process. Written for a
+        // PAUSE only: an accident is already covered by the journal, which is still on disk if the
+        // save above fails and is cleared if it succeeds.
+        if (intended) {
+          void writePauseMarker({
+            lessonId,
+            conversationId: conversationIdRef.current,
+            agentVersion: versionRef.current,
+            lines: linesRef.current,
+          });
+        }
       }
     },
     // The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so
@@ -414,9 +463,9 @@ export default function LessonScreen() {
     kickedOffRef.current = true;
     const resumeFrom = resumeContextRef.current;
     resumeContextRef.current = null;
-    if (resumeFrom && resumeFrom.length > 0) {
-      sendContextualUpdate(formatResumeContext(resumeFrom));
-      sendUserMessage(RESUME_MESSAGE);
+    if (resumeFrom && resumeFrom.lines.length > 0) {
+      sendContextualUpdate(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
+      sendUserMessage(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);
     } else {
       sendUserMessage(KICKOFF_MESSAGE);
     }
@@ -455,14 +504,32 @@ export default function LessonScreen() {
   );
 
   /**
-   * A journal left behind means the last session died without saving — a crash or a force-quit,
-   * since backgrounding is survivable here. Push it to the server, then offer to carry on.
+   * Two things can be waiting on disk at mount, and they are checked in this order:
+   *
+   *   1. **A journal** — the last session died without saving: a crash or a force-quit, since
+   *      backgrounding is survivable here. Push it to the server, then offer to carry on.
+   *   2. **A pause marker** — the learner pressed Pause and then left (or the app restarted). The
+   *      transcript was already saved on the way out, so there is nothing to push; the marker only
+   *      restores the card and the context.
+   *
+   * The journal wins when both exist, because both existing means the save at pause time FAILED —
+   * so the unsaved copy is the one that has to reach the server, and the marker would only put a
+   * second card on the same screen. Its copy ("ended unexpectedly") is then also the true one.
    */
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const journal = await readJournal(lessonId);
-      if (cancelled || !journal || journal.lines.length === 0) return;
+      if (cancelled) return;
+      if (!journal || journal.lines.length === 0) {
+        const marker = await readPauseMarker(lessonId);
+        if (cancelled || !marker || marker.lines.length === 0) return;
+        setCarried(marker.lines);
+        resumeContextRef.current = { lines: marker.lines, cause: "paused" };
+        setPause("paused");
+        return;
+      }
+      await clearPauseMarker(lessonId);
       if (journal.conversationId) {
         try {
           await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
@@ -482,7 +549,7 @@ export default function LessonScreen() {
       await clearJournal(lessonId);
       if (cancelled) return;
       setCarried(journal.lines);
-      resumeContextRef.current = journal.lines;
+      resumeContextRef.current = { lines: journal.lines, cause: "interrupted" };
       setPause("recovered");
     })();
     return () => {
@@ -506,13 +573,17 @@ export default function LessonScreen() {
         throw new Error("The server did not return a usable conversation token.");
       }
 
-      const resuming = (resumeContextRef.current?.length ?? 0) > 0;
+      const resuming = (resumeContextRef.current?.lines.length ?? 0) > 0;
       // Either way the next conversation starts with a transcript of its own; resuming moves what
       // was already said into the read-only carried block above it.
       setCarried(resuming ? (prev) => [...prev, ...linesRef.current] : []);
       setLines([]);
       linesRef.current = [];
       await clearJournal(lessonId);
+      // The pause is being spent — whether it is resumed or overridden by a fresh start, the parked
+      // copy must not outlive this call, or the next mount offers a resume into a conversation the
+      // learner has already moved past.
+      await clearPauseMarker(lessonId);
       savedForRef.current = null;
       kickedOffRef.current = false;
       setPause(null);
@@ -544,13 +615,39 @@ export default function LessonScreen() {
     }
   }
 
+  /**
+   * Pause = hang up with intent. There is no pause on the platform (a conversation is open or it is
+   * over, and an ended one cannot be reopened), so the tap ends the session and `onDisconnect` does
+   * the rest: save, arm the resume context, park the marker, show the card. Resuming is `start()`
+   * unchanged — the same path a dropped session already takes.
+   *
+   * Holding the line open instead (mute the mic and heartbeat `user_activity` so the tutor stays
+   * quiet) is the intended follow-up and would make a short pause resume instantly; it is not this
+   * change. See docs/2026-08-16-tutor-session-pause-resume.md §4.1.
+   */
+  function pauseSession() {
+    if (!connected) return;
+    pauseIntentRef.current = true;
+    endSession();
+  }
+
   function dismissPause() {
     resumeContextRef.current = null;
     setPause(null);
+    void clearPauseMarker(lessonId);
   }
 
   // ── render ─────────────────────────────────────────────────────────────────────────────────
   const transcript = useMemo(() => carried.concat(lines), [carried, lines]);
+  /**
+   * One line, three states. A paused session is `disconnected` at the transport, so reporting the
+   * raw status there would say "status: disconnected" to someone looking at a Resume button.
+   */
+  const statusLine = connected
+    ? "● listening — just talk to interrupt"
+    : pause === "paused"
+      ? "⏸ paused — resume when you're ready"
+      : `status: ${status}`;
   const versionOptions = useMemo(
     () => (versions?.versions ?? []).map((v) => ({ value: v.version, label: v.label })),
     [versions],
@@ -672,6 +769,9 @@ export default function LessonScreen() {
           </View>
         ) : null}
 
+        {/* Two slots, always in the same place: the session verb on the left, the pause verb on
+            the right. The right slot is empty when there is nothing to pause and nothing paused —
+            a disabled button there would advertise a control the learner cannot reach yet. */}
         <ButtonRow style={{ marginTop: space.row }}>
           {connected ? (
             <Button label="End session" onPress={() => endSession()} />
@@ -682,16 +782,29 @@ export default function LessonScreen() {
               onPress={() => void start()}
             />
           )}
-          <Muted>
-            {connected ? "● listening — just talk to interrupt" : `status: ${status}`}
-          </Muted>
+          {connected ? (
+            <Button variant="secondary" label="Pause" onPress={pauseSession} />
+          ) : pause === "paused" ? (
+            <Button
+              variant="secondary"
+              label="Resume"
+              disabled={busy}
+              onPress={() => void start()}
+            />
+          ) : null}
         </ButtonRow>
+
+        {/* Its own line, below the buttons. It used to sit beside them, where a two-button row
+            leaves it no width and it wraps under half a button anyway. */}
+        <Muted style={{ marginTop: space.row }}>{statusLine}</Muted>
 
         {error ? <ErrorText style={{ marginTop: space.row }}>{error}</ErrorText> : null}
       </Panel>
 
+      {/* `warn` for the three accidents, plain for the one intent: a bordered alert around "Paused"
+          would dress the learner's own decision up as something that went wrong. */}
       {pause && !connected ? (
-        <Panel tone="warn" title={PAUSE_COPY[pause].title}>
+        <Panel tone={pause === "paused" ? undefined : "warn"} title={PAUSE_COPY[pause].title}>
           <Muted>{PAUSE_COPY[pause].body}</Muted>
           <ButtonRow style={{ marginTop: space.row }}>
             <Button

@@ -112,19 +112,56 @@ export const KICKOFF_MESSAGE =
 export const RESUME_MESSAGE =
   "We got cut off. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
 
-/** Hidden kickoff messages, filtered out of the transcript UI and the saved history. */
-export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [KICKOFF_MESSAGE, RESUME_MESSAGE];
+/**
+ * Kickoff message for a session the learner PAUSED on purpose and has just resumed.
+ *
+ * Separate from RESUME_MESSAGE because the platform has no pause: a resumed lesson is a brand-new
+ * conversation either way (docs/2026-08-16-tutor-session-pause-resume.md §3.6), so the only thing
+ * that distinguishes "the phone locked" from "I stepped away" is what we tell the tutor. Saying
+ * "we got cut off" to someone who pressed Pause is a small lie the tutor would then speak aloud.
+ */
+export const PAUSE_RESUME_MESSAGE =
+  "I'm back. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
+
+/**
+ * Hidden kickoff messages, filtered out of the transcript UI and the saved history.
+ *
+ * Every writer that stores a transcript must filter on THIS ARRAY, not on a single constant — the
+ * post-call webhook filtered only `KICKOFF_MESSAGE` until 2026-08-16, so `RESUME_MESSAGE` reached
+ * the stored history as a learner turn whenever the webhook happened to write last.
+ */
+export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [
+  KICKOFF_MESSAGE,
+  RESUME_MESSAGE,
+  PAUSE_RESUME_MESSAGE,
+];
+
+/** Why a conversation is being picked up: something took it, or the learner put it down. */
+export type ResumeCause = "interrupted" | "paused";
 
 /** How many trailing turns of the interrupted conversation we replay as context. */
 const RESUME_CONTEXT_TURNS = 20;
 const RESUME_CONTEXT_LINE_CHARS = 400;
 
+const RESUME_PREAMBLE: Record<ResumeCause, string> = {
+  interrupted:
+    "This session was interrupted (the learner's phone locked or the app went to the background) and has just been reconnected.",
+  paused:
+    "The learner paused this session on purpose and has just come back. Do not remark on the gap — simply carry on.",
+};
+
 /**
- * Compact recap of an interrupted conversation, sent to the resumed session as a contextual update
- * (non-interrupting, goes to the agent's context — not spoken). Only the tail matters: enough for
- * the tutor to know which items were covered and where the learner struggled, not the whole call.
+ * Compact recap of the conversation being picked up, sent to the resumed session as a contextual
+ * update (non-interrupting, goes to the agent's context — not spoken). Only the tail matters: enough
+ * for the tutor to know which items were covered and where the learner struggled, not the whole call.
+ *
+ * `cause` defaults to `"interrupted"` so the browser's call site — which has no pause control and
+ * never will (the web UI is deprecated) — keeps its exact previous behaviour.
  */
-export function formatResumeContext(lines: TranscriptLine[]): string {
+export function formatResumeContext(
+  lines: TranscriptLine[],
+  cause: ResumeCause = "interrupted",
+): string {
   const tail = lines.slice(-RESUME_CONTEXT_TURNS);
   if (tail.length === 0) return "";
   const body = tail
@@ -133,5 +170,5 @@ export function formatResumeContext(lines: TranscriptLine[]): string {
         `${l.role === "agent" ? "Teacher" : "Learner"}: ${l.text.slice(0, RESUME_CONTEXT_LINE_CHARS)}`,
     )
     .join("\n");
-  return `This session was interrupted (the learner's phone locked or the app went to the background) and has just been reconnected. Here is how it ended:\n${body}`;
+  return `${RESUME_PREAMBLE[cause]} Here is how it ended:\n${body}`;
 }
