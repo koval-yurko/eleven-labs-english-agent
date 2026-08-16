@@ -88,7 +88,7 @@ export async function clearJournal(lessonId: string): Promise<void> {
  * restore then needs no network and no ordering assumption about which fetch lands first, and it
  * still works when the save that preceded the pause failed.
  *
- * See docs/2026-08-16-tutor-session-pause-resume.md §6.4.
+ * See docs/2026-08-16-tutor-session-pause-resume.md §4.3.
  */
 export interface PausedSessionEntry {
   lessonId: string;

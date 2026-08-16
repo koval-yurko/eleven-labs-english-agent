@@ -14,12 +14,15 @@ import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
 import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
 import {
+  formatHeldResumeContext,
   formatItemsList,
   formatResumeContext,
   HIDDEN_KICKOFF_MESSAGES,
   KICKOFF_MESSAGE,
+  PAUSE_CONTEXT,
   PAUSE_RESUME_MESSAGE,
   RESUME_MESSAGE,
+  SOFT_RESUME_MESSAGE,
   type ResumeCause,
   type TranscriptLine,
 } from "@tutor/shared/tutor";
@@ -128,6 +131,21 @@ const PAUSE_COPY: Record<PauseReason, { title: string; body: string; cta: string
     cta: "Continue that session",
   },
 };
+
+/**
+ * How often a held pause pings `user_activity`.
+ *
+ * `turn_timeout` — "maximum wait time for the user's reply **before re-engaging the user**" —
+ * defaults to **7 seconds**, and `user_activity` resets that timer. 3 s is three eighths of it, so a
+ * single lost ping still lands inside the window (6 s < 7 s) and two do not: two consecutive losses
+ * on a live data channel mean the line is in trouble, and the recovery for that is the drop path,
+ * not a faster ping.
+ *
+ * The ping itself can never report failure — `WebRTCConnection.sendMessage` warns and returns when
+ * the room is gone, and swallows publish errors — so liveness is read from `status`, never from
+ * this. See docs/2026-08-16-tutor-pause-hold-the-line.md §3 (F1, F3, F6) and §4.1.
+ */
+const HEARTBEAT_MS = 3_000;
 
 type ItemEvent = { at: string; kind: "added" | "removed"; text: string };
 
@@ -315,9 +333,15 @@ export default function LessonScreen() {
    */
   const resumeContextRef = useRef<{ lines: TranscriptLine[]; cause: ResumeCause } | null>(null);
   /**
-   * Set by `pauseSession` and read once by `onDisconnect`. The SDK reports `reason: "user"` for
-   * BOTH buttons — End and Pause hang up identically — so intent cannot be inferred from the
-   * transport and has to be recorded here, on the way out.
+   * "This session is being hung up while the learner considered it PAUSED" — read once by
+   * `onDisconnect`, which then parks it instead of treating it as an ordinary End.
+   *
+   * The Pause button no longer sets this: it holds the line open and never disconnects. What does
+   * set it is the unmount guard, because navigating away from a held pause has to end the call (a
+   * live, billed, listening session with nothing on screen saying so is the bug that guard exists to
+   * prevent) and the learner should still find their lesson waiting when they come back. The SDK
+   * reports `reason: "user"` for that teardown exactly as it does for End, so the intent cannot be
+   * read off the transport and is recorded here on the way out.
    */
   const pauseIntentRef = useRef(false);
   const kickedOffRef = useRef(false);
@@ -445,9 +469,89 @@ export default function LessonScreen() {
       setError(`${message} — if you haven't allowed the microphone yet, that looks like this too.`),
   });
 
-  const { status, startSession, endSession, sendUserMessage, sendContextualUpdate } = conversation;
+  const {
+    status,
+    startSession,
+    endSession,
+    sendUserMessage,
+    sendContextualUpdate,
+    sendUserActivity,
+    setMuted,
+    setVolume,
+    isSpeaking,
+  } = conversation;
   const connected = status === "connected";
   const busy = starting || status === "connecting";
+
+  // ── the held pause ─────────────────────────────────────────────────────────────────────────
+  /**
+   * Pause WITHOUT hanging up: mute the microphone, silence the output, and keep the turn timer from
+   * expiring with a `user_activity` heartbeat. The conversation stays open, so the tutor keeps its
+   * own context and there is nothing to hand over on the way back — which is the entire point. The
+   * shipped alternative (end the session, replay the tail into a new one) is structurally lossy: the
+   * system prompt comes back in full telling the agent to greet and teach item one, and it wins the
+   * argument against a truncated chat log delivered as background information. That is the
+   * repetition. See docs/2026-08-16-tutor-pause-hold-the-line.md §1.
+   *
+   * `endSession` is NOT part of this path. It stays behind the End button, and behind the unmount
+   * guard, where hanging up is what the learner actually asked for.
+   */
+  const [held, setHeld] = useState(false);
+  const heldRef = useRef(false);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heldSinceRef = useRef<number>(0);
+  /** Was the tutor mid-sentence when the pause landed? Then the learner owes a restatement. */
+  const unheardRef = useRef(false);
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatRef.current !== null) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+  }, []);
+
+  function holdSession() {
+    if (!connected || heldRef.current) return;
+    // Output first, then the microphone: both are instant, and between them they are the whole of
+    // what the learner can perceive. The agent may still be finishing a sentence into the void —
+    // its text arrives through `onMessage` regardless, so nothing is lost from the record.
+    setVolume({ volume: 0 });
+    setMuted(true);
+    unheardRef.current = isSpeaking;
+    heldSinceRef.current = Date.now();
+    sendContextualUpdate(PAUSE_CONTEXT);
+    heartbeatRef.current = setInterval(() => sendUserActivity(), HEARTBEAT_MS);
+    heldRef.current = true;
+    setHeld(true);
+  }
+
+  function releaseSession() {
+    if (!heldRef.current) return;
+    stopHeartbeat();
+    heldRef.current = false;
+    setHeld(false);
+    // The line died while the pause was held: `setMuted` THROWS with no active conversation, and
+    // the provider has already reset its own mute state on disconnect. The drop path owns this.
+    if (!connected) return;
+    setMuted(false);
+    setVolume({ volume: 1 });
+    sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
+    if (unheardRef.current) sendUserMessage(SOFT_RESUME_MESSAGE);
+    unheardRef.current = false;
+  }
+
+  /**
+   * A held pause cannot outlive its connection. Anything that takes the line — a network drop, the
+   * agent's own 30-minute cap, the End button — clears the hold here, so the screen can never show
+   * a Resume button for a conversation that no longer exists.
+   */
+  useEffect(() => {
+    if (status === "connected" || !heldRef.current) return;
+    stopHeartbeat();
+    heldRef.current = false;
+    setHeld(false);
+    unheardRef.current = false;
+  }, [status, stopHeartbeat]);
 
   /**
    * Proactive kickoff: `first_message` is empty, so the instant we connect we send a hidden user
@@ -489,13 +593,17 @@ export default function LessonScreen() {
    * changed identity, which is every time `load` does: the guard would end the lesson mid-sentence
    * instead of on unmount. "Runs once, reads the latest" is the whole requirement.
    */
-  const latest = useRef({ persistSession, endSession });
+  const latest = useRef({ persistSession, endSession, stopHeartbeat });
   useEffect(() => {
-    latest.current = { persistSession, endSession };
+    latest.current = { persistSession, endSession, stopHeartbeat };
   });
   useEffect(
     () => () => {
+      latest.current.stopHeartbeat();
       if (statusRef.current === "connected") {
+        // A held pause becomes a parked one rather than an End: the learner never pressed End, and
+        // `onDisconnect` reads this flag to leave the Paused card behind for their return.
+        if (heldRef.current) pauseIntentRef.current = true;
         void latest.current.persistSession();
         latest.current.endSession();
       }
@@ -615,22 +723,6 @@ export default function LessonScreen() {
     }
   }
 
-  /**
-   * Pause = hang up with intent. There is no pause on the platform (a conversation is open or it is
-   * over, and an ended one cannot be reopened), so the tap ends the session and `onDisconnect` does
-   * the rest: save, arm the resume context, park the marker, show the card. Resuming is `start()`
-   * unchanged — the same path a dropped session already takes.
-   *
-   * Holding the line open instead (mute the mic and heartbeat `user_activity` so the tutor stays
-   * quiet) is the intended follow-up and would make a short pause resume instantly; it is not this
-   * change. See docs/2026-08-16-tutor-session-pause-resume.md §4.1.
-   */
-  function pauseSession() {
-    if (!connected) return;
-    pauseIntentRef.current = true;
-    endSession();
-  }
-
   function dismissPause() {
     resumeContextRef.current = null;
     setPause(null);
@@ -643,11 +735,17 @@ export default function LessonScreen() {
    * One line, three states. A paused session is `disconnected` at the transport, so reporting the
    * raw status there would say "status: disconnected" to someone looking at a Resume button.
    */
-  const statusLine = connected
-    ? "● listening — just talk to interrupt"
-    : pause === "paused"
-      ? "⏸ paused — resume when you're ready"
-      : `status: ${status}`;
+  const statusLine = held
+    ? // "muted", never "off": muting reaches LiveKit's `track.mute()`, which releases the capture
+      // device only when the track was published with `stopMicTrackOnMute` — and the ElevenLabs SDK
+      // builds its Room without it. The microphone is silent but still open, and iOS says so with
+      // the indicator. See docs/2026-08-16-tutor-pause-hold-the-line.md §4.2.
+      "⏸ paused — microphone muted, the tutor is waiting"
+    : connected
+      ? "● listening — just talk to interrupt"
+      : pause === "paused"
+        ? "⏸ paused — resume when you're ready"
+        : `status: ${status}`;
   const versionOptions = useMemo(
     () => (versions?.versions ?? []).map((v) => ({ value: v.version, label: v.label })),
     [versions],
@@ -783,8 +881,15 @@ export default function LessonScreen() {
             />
           )}
           {connected ? (
-            <Button variant="secondary" label="Pause" onPress={pauseSession} />
+            <Button
+              variant="secondary"
+              label={held ? "Resume" : "Pause"}
+              onPress={held ? releaseSession : holdSession}
+            />
           ) : pause === "paused" ? (
+            // The parked pause — the line was taken while the learner was away. Resuming it is a
+            // NEW conversation handed the old one's tail, which is the lossy path; it exists as the
+            // floor under the held pause, not as the pause.
             <Button
               variant="secondary"
               label="Resume"

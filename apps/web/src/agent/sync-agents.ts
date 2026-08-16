@@ -87,6 +87,8 @@ function hashConfig(c: EffectiveAgentConfig): string {
     // Anything added to agentBody() MUST be added here too, or sync reports "unchanged" while the
     // live agent keeps the old value — the exact silent drift the lockfile exists to prevent.
     maxDurationSeconds: c.maxDurationSeconds,
+    turnTimeoutSeconds: c.turnTimeoutSeconds,
+    silenceEndCallTimeoutSeconds: c.silenceEndCallTimeoutSeconds,
   });
   return "sha256:" + createHash("sha256").update(canonical).digest("hex");
 }
@@ -111,6 +113,14 @@ function agentBody(c: EffectiveAgentConfig) {
       // ElevenLabs' default is 600s, which ends a lesson at ten minutes. Accepted range is
       // 60–7200 (undocumented; the API states it on rejection). See prompts/index.ts.
       conversation: { max_duration_seconds: c.maxDurationSeconds },
+      // Both are pinned at the platform's own defaults on purpose: the mobile client's held pause
+      // keeps a paused conversation quiet by resetting turn_timeout with a `user_activity`
+      // heartbeat, so the value must be one we control rather than one we inherit, and a silence
+      // timeout must never hang up a lesson the learner paused deliberately.
+      turn: {
+        turn_timeout: c.turnTimeoutSeconds,
+        silence_end_call_timeout: c.silenceEndCallTimeoutSeconds,
+      },
       ...(c.additionalLanguages.length > 0 ? { language_presets } : {}),
     },
   };

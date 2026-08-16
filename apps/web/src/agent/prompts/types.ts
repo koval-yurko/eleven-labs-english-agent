@@ -34,4 +34,24 @@ export interface PromptVersion {
    * limits a session someone walks away from without ending.
    */
   maxDurationSeconds?: number;
+  /**
+   * How long the agent waits for a reply before **re-engaging the learner**, in seconds
+   * (ElevenLabs range 1–30). Defaults to DEFAULT_TURN_TIMEOUT_SECONDS.
+   *
+   * Pinned rather than inherited because a held pause depends on it: the mobile client keeps a
+   * paused conversation quiet by resetting this timer with a `user_activity` heartbeat every 3 s,
+   * and a platform default that moved would put the tutor back to talking into an empty room. The
+   * pinned value is the platform's own current default — this is about determinism, not tuning.
+   * It also governs LIVE teaching cadence, so do not tune it for pauses.
+   */
+  turnTimeoutSeconds?: number;
+  /**
+   * How long a conversation may go without the learner speaking before the platform **terminates**
+   * it, in seconds; `-1` disables it. Defaults to DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS.
+   *
+   * A held pause is, by construction, a long silence. Left unset this is a platform default we have
+   * never read; pinned to -1 it cannot hang up a paused lesson. `maxDurationSeconds` remains the
+   * backstop that does.
+   */
+  silenceEndCallTimeoutSeconds?: number;
 }

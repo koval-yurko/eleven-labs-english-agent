@@ -22,6 +22,15 @@ export const DEFAULT_TTS_MODEL = "eleven_v3_conversational";
  * is also the cost backstop for a session nobody ended.
  */
 export const DEFAULT_MAX_DURATION_SECONDS = 1800;
+/**
+ * The platform's own current default (range 1–30), pinned so it stops being a value we inherit.
+ * The mobile client's held pause resets this timer every 3 s with `user_activity`; if the default
+ * ever moved below that, a paused lesson would start talking to itself.
+ * See docs/2026-08-16-tutor-pause-hold-the-line.md §4.1.
+ */
+export const DEFAULT_TURN_TIMEOUT_SECONDS = 7;
+/** -1 = disabled, the platform default. Pinned so nothing hangs up a deliberately silent lesson. */
+export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
 
 /**
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
@@ -40,6 +49,8 @@ export interface EffectiveAgentConfig {
   ttsModelId: string;
   additionalLanguages: string[];
   maxDurationSeconds: number;
+  turnTimeoutSeconds: number;
+  silenceEndCallTimeoutSeconds: number;
 }
 
 /** Resolve a version's full baked agent config, applying env/constant defaults (sync-time). */
@@ -56,6 +67,9 @@ export function effectiveConfig(
     ttsModelId: v.ttsModelId ?? env.LIVE_STORY_TTS_MODEL?.trim() ?? DEFAULT_TTS_MODEL,
     additionalLanguages: v.additionalLanguages ?? [],
     maxDurationSeconds: v.maxDurationSeconds ?? DEFAULT_MAX_DURATION_SECONDS,
+    turnTimeoutSeconds: v.turnTimeoutSeconds ?? DEFAULT_TURN_TIMEOUT_SECONDS,
+    silenceEndCallTimeoutSeconds:
+      v.silenceEndCallTimeoutSeconds ?? DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS,
   };
 }
 

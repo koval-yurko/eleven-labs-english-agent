@@ -116,12 +116,22 @@ export const RESUME_MESSAGE =
  * Kickoff message for a session the learner PAUSED on purpose and has just resumed.
  *
  * Separate from RESUME_MESSAGE because the platform has no pause: a resumed lesson is a brand-new
- * conversation either way (docs/2026-08-16-tutor-session-pause-resume.md §3.6), so the only thing
+ * conversation either way (docs/2026-08-16-tutor-session-pause-resume.md §3), so the only thing
  * that distinguishes "the phone locked" from "I stepped away" is what we tell the tutor. Saying
  * "we got cut off" to someone who pressed Pause is a small lie the tutor would then speak aloud.
  */
 export const PAUSE_RESUME_MESSAGE =
   "I'm back. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
+
+/**
+ * Hidden user turn sent when a HELD pause cut the tutor off mid-sentence.
+ *
+ * Only sent in that case. A pause taken while the tutor was already listening resumes in silence,
+ * because the learner was mid-thought and nothing was lost — making the tutor talk there would be
+ * the app interrupting the learner, which is the opposite of the whole lesson design.
+ */
+export const SOFT_RESUME_MESSAGE =
+  "I missed the end of that — say that last bit again, then carry on.";
 
 /**
  * Hidden kickoff messages, filtered out of the transcript UI and the saved history.
@@ -134,6 +144,7 @@ export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [
   KICKOFF_MESSAGE,
   RESUME_MESSAGE,
   PAUSE_RESUME_MESSAGE,
+  SOFT_RESUME_MESSAGE,
 ];
 
 /** Why a conversation is being picked up: something took it, or the learner put it down. */
@@ -171,4 +182,34 @@ export function formatResumeContext(
     )
     .join("\n");
   return `${RESUME_PREAMBLE[cause]} Here is how it ended:\n${body}`;
+}
+
+// ── holding the line open ────────────────────────────────────────────────────────────────────
+
+/**
+ * Contextual update sent the moment a HELD pause begins — the conversation stays open, the
+ * microphone is muted and a `user_activity` heartbeat keeps the turn timer from expiring.
+ *
+ * The heartbeat is what actually keeps the tutor quiet; this is the belt to its braces. If a turn
+ * ever does slip through (a missed ping, a timer the OS throttled), the tutor at least knows WHY
+ * nobody is answering, and asks nothing rather than starting an "are you still there?" spiral.
+ *
+ * See docs/2026-08-16-tutor-pause-hold-the-line.md §2.1.
+ */
+export const PAUSE_CONTEXT =
+  "The learner has paused the lesson and stepped away. Their microphone is muted and they cannot hear you. Say nothing at all until they come back — do not greet, do not prompt, do not ask if they are still there.";
+
+/**
+ * Contextual update sent when a held pause is released. Non-interrupting: it does NOT make the
+ * tutor speak, which is deliberate — after a short pause the learner is mid-thought and speaks
+ * first. The one case where the tutor should talk is handled by SOFT_RESUME_MESSAGE instead.
+ *
+ * The gap is stated because "carry on as if nothing happened" is right for forty seconds and wrong
+ * for six minutes — the tutor can pitch its own re-entry once it knows which it was.
+ */
+export function formatHeldResumeContext(pausedSeconds: number): string {
+  const secs = Math.max(0, Math.round(pausedSeconds));
+  const gap =
+    secs < 90 ? `${secs} seconds` : `about ${Math.round(secs / 60)} minutes`;
+  return `The learner is back — the lesson was paused for ${gap} and the conversation never ended. Continue exactly where you left off. Do not greet them again, do not re-introduce yourself, and do not repeat an item you have already taught unless they ask.`;
 }
