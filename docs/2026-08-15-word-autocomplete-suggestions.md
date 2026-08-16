@@ -702,9 +702,10 @@ Russian is good.
 | 3     | `apps/mobile`                  | `Autocomplete` in `@/ui`, wired into `AddWordForm`. Debounce, stale-response guard, `owned` badge, the five hazards in §7.1.                                                     | Medium — the only real client work |
 | 4     | _Optional_                     | Cached top-10k slice locally → instant first keystroke + offline                                                                                                                 | Medium                             |
 
-Phases 0–3 deliver the whole ask, are all approved (D1, D2), and are all built. Phase 4 is
-explicitly **not** approved — it is recorded as the additive move if offline suggestions are ever
-wanted, not as planned work. Nothing here touches the web UI.
+Phases 0–3 deliver the whole ask, are all approved (D1, D2), and are all built. Phase 4 was
+originally **not** approved and was later asked for; what it turned into is not what this table
+described — the measurement killed the local-slice design and replaced it with something smaller and
+exact (§16). Nothing here touches the web UI.
 
 **The gate between phases 1 and 2** was the eval: level the 8,301 rows CEFR-J already knows and
 measure agreement before trusting the model on the other 45k. **It ran, it passed on Opus 5 and
@@ -996,19 +997,41 @@ exist for it to use; nothing in `apps/mobile` calls the route yet.
 | 4   | Nested scrolling                 | Sidestepped: no `FlatList`. A plain `ScrollView` capped by `maxHeight`, `nestedScrollEnabled` for Android.                                                                                                                                                     |
 | 5   | Stale responses                  | 150 ms debounce plus a monotonic ticket; a reply that is not the newest is dropped.                                                                                                                                                                            |
 
-### Two departures from the §7 plan
+### The layout: in flow first, then an overlay
 
-**The list is in flow, not absolutely positioned.** §7 called for a positioned `View` over the page.
-An absolute overlay in React Native means fighting three things at once: Android clips children that
-escape their parent's bounds, `zIndex` needs a matching `elevation` there, and the popup would land
-over the filter panel that follows it. In flow, the panel simply grows downward — **the field itself
-does not move**, which is the only position the learner is looking at, and the entire class of
-clipping and stacking bugs cannot occur. The cost is that content below shifts, which is under the
-keyboard anyway.
+**Built in flow, changed to an overlay on request (2026-08-16).** The first version let the panel
+grow downward instead of covering anything — no `zIndex`, no measurement, no clipping risk, at the
+cost of shifting the content below. That content is under the keyboard, so the cost looked free.
 
-**No `FlatList`.** Eight rows do not need virtualisation, and a `FlatList` inside the screen's
-`ScrollView` is hazard 4 by construction. A `ScrollView` with `maxHeight: 260` has the same
-behaviour without it.
+It is now what §7 originally asked for: `position: "absolute"`, and **full window width less 5px a
+side** rather than the width of the content column the field sits in. Three things that costs, all
+absorbed by the component:
+
+1. **Escaping the content column.** The field is inside a `Panel` (20px inset) inside a 760px-max
+   column (20px inset), so full-bleed needs the field's window x — and only `measureInWindow`
+   reports that; `onLayout`'s own rect is parent-relative, which is the inset being escaped.
+   Horizontal position does not change while the page scrolls, so it is measured per layout, not
+   tracked.
+2. **Staying attached during scroll.** Free, and the reason this is an absolute child of the field
+   rather than a `Modal`: it is positioned against the field's own box, so it scrolls with it and
+   cannot drift.
+3. **Painting above what follows.** `zIndex` only orders siblings, so the popup's own `zIndex`
+   cannot lift it over the filter panel below — the PANEL containing the field has to outrank the
+   panels after it, which is one line at the call site. `elevation` is the Android half.
+
+Two smaller consequences worth recording. `overflow: "hidden"` had to go: on iOS it sets
+`clipsToBounds`, which clips the view's own shadow — and the shadow is what now separates the
+overlay from the text under it. Nothing needed clipping anyway, since the rows are inset by the
+popup's padding and carry a smaller radius. And the "not in the dictionary" line moved inside the
+same overlay box, so it appears where the list would have rather than nudging the page.
+
+**Still no `FlatList`.** Eight rows do not need virtualisation, and a `FlatList` inside the
+screen's `ScrollView` is hazard 4 by construction. A `ScrollView` with `maxHeight: 260` has the
+same behaviour without it.
+
+**The Android caveat is now real rather than avoided.** Android clips children that escape a
+parent's bounds, so the overlay is expected to be iOS-correct and Android-approximate until it is
+seen on a device. That was the trade the in-flow version bought out of, and it has been sold back.
 
 ### The state machine, and why it looks the way it does
 
@@ -1065,6 +1088,115 @@ itself was verified in §14 against real data through `suggestWords`, and its 40
 behaviour over HTTP; what remains untested end to end is the token exchange (shared with every other
 v2 route) and the three things only a real screen can show — that the popup clears the keyboard,
 that a tap on a row registers first time, and that the debounce feels right at 150 ms.
+
+---
+
+## §16 Phase 4, as built (2026-08-16) — the design changed
+
+Phase 4 was written as _"cache a top-N slice locally → instant first keystroke + offline"_, with
+zipf ≥ 4.0 (~10k rows) suggested in §5.3. **Two measurements killed that and produced a much smaller
+design.**
+
+### Measurement 1 — no partial slice is good enough
+
+For each candidate slice, how often does its top-8 equal the server's, over every 2/3/4-character
+prefix of the 2,000 most frequent single words (1,710 distinct prefixes)?
+
+| slice                          |   rows | payload | identical top-8 | first row same |
+| ------------------------------ | -----: | ------: | --------------: | -------------: |
+| zipf ≥ 4.0 (§5.3's suggestion) | 19,979 | 1.19 MB |       **39.7%** |           100% |
+| zipf ≥ 3.5                     | 30,587 | 1.82 MB |           57.4% |           100% |
+| zipf ≥ 3.0                     | 41,719 | 2.47 MB |           74.7% |           100% |
+| everything                     | 53,538 | 3.12 MB |            100% |           100% |
+
+The proposed slice would show the wrong list **60% of the time**, then visibly reshuffle when the
+server answered — worse than no cache. And there is no sweet spot: the gap between the biggest slice
+worth having and the whole corpus is 650 KB. A local corpus therefore means syncing all 3.1 MB,
+versioning it against the level job, and computing `owned` locally through
+`clientDedupeKey` — which §6 documents as deliberately weaker than `norm_key`.
+
+### Measurement 2 — the prefix is already the cache key
+
+Every row matching `ubiq` also matches `ub`, and the server's ORDER BY is total. So a client
+holding **every row for the learner's first two characters** can narrow that set itself for every
+character after them, and get the server's answer by construction. Over 10,122 prefixes of the 3,000
+most frequent words:
+
+| bucket size           | identical top-8 | payload per word |
+| --------------------- | --------------: | ---------------: |
+| 100 rows              |           55.5% |             2 KB |
+| 500 rows              |           92.1% |             6 KB |
+| 1,000 rows            |           98.7% |             7 KB |
+| **complete (≤1,920)** |      **100.0%** |         **7 KB** |
+
+**One request per word instead of one per keystroke, with no sync, no storage, no versioning, and
+`owned` still computed by the server.** Verified end to end against the live database by typing
+30 words out one character at a time and comparing every intermediate result to a direct server
+call: **212/212 identical, 88% fewer requests.**
+
+### What shipped
+
+| Artifact     | Where                                                                                                |
+| ------------ | ---------------------------------------------------------------------------------------------------- |
+| The fold     | `packages/shared/src/word-key.ts` — `lexiconPrefixFold`                                              |
+| The contract | `packages/shared/src/api.ts` — `SUGGEST_BUCKET_PREFIX`, `SUGGEST_BUCKET_LIMIT`, `WordSuggestion.key` |
+| The query    | `supabase/migrations/0013_suggest_words_bucket.sql` — returns `key`, ceiling 25 → 2,000              |
+| The paging   | `apps/web/src/lib/suggestions.ts`                                                                    |
+| The cache    | `apps/mobile/src/lib/suggestions.ts`                                                                 |
+
+### Three bugs the live test caught that the offline simulation did not
+
+**1. PostgREST silently truncates at 1,000 rows.** A bucket fetch asks for up to 2,000, and 3 of the
+416 two-character buckets are bigger (`co` 1,920, `in` 1,280, `re` 1,202 — 8.2% of the
+corpus, and three of the commonest word-starts in English). The response came back capped with no
+error, the client trusted it as complete, and every multiword row — which sorts last — disappeared:
+typing `company` lost `company car` and `company town`. `levels.ts` pages around the
+same cap for the same reason; now so does this. The alternative, dropping the ceiling to 1,000 and
+letting those three fall back, would have surrendered the optimisation for `co-`, `in-` and
+`re-` words.
+
+**2. The bucket head is not simply the first two characters.** `lesson_item_norm_key` trims edge
+punctuation, so the head of `o'clock` is `o'`, which the server folds to `o` — one
+character, below the floor, so the bucket came back empty and every `o'…` word showed nothing.
+The head now grows until it is fold-stable, which the client can decide precisely because its fold
+is exact.
+
+**3. `clientDedupeKey` is not usable for this.** It is `trim().toLowerCase()` and does not
+unaccent — and iOS smart punctuation is on by default, so a phone emits `don’t`, not
+`don't`. Narrowing on that key would have missed every accented or apostrophised word.
+`lexiconPrefixFold` reimplements migration 0004's pipeline instead, and is verified exact
+against **all 53,538 rows** and 11 of 12 adversarial inputs.
+
+### The fold is an exception to a rule, and it fails safe
+
+`word-key.ts` says the client may never compute the Postgres identity. This does not break that
+rule, it is scoped under it: the fold **narrows a list, it never decides what a word is** — every
+write still goes through `resolve_words`, and `owned` is still a server-side join. And where
+it is imperfect it is imperfect in the safe direction: the residue of Postgres's `unaccent`
+dictionary that JS decomposition cannot reproduce (`«word»` → `<<word>>`) always folds
+**less**, so a row is narrowed away rather than wrongly matched — and a local miss on non-ASCII input
+asks the server. That fallback is what makes an inexact fold a latency cost instead of a wrong
+answer, and it is not optional.
+
+### What phase 4 did NOT deliver, deliberately
+
+**Offline suggestions.** §5.3 called offline "the one thing given up", and it is still given up.
+Worth stating plainly: **it currently has no value to give.** `apps/mobile/src/lib/items.ts`
+records that add-word does not go through the outbox — it is a direct route — so offline the learner
+cannot add a word at all. Offline suggestions would be a dropdown attached to a dead button. When
+add-word gains an outbox path, offline suggestions become worth building, and the honest way to
+build them then is the full 3.1 MB corpus, not a slice (measurement 1).
+
+The cache is also **in memory only**. A bucket carries a per-learner `owned` flag;
+`clearSuggestionCache()` handles that within a session, but a bucket restored from disk would
+carry a stale flag with nothing to invalidate it, and persisting would need the lexicon versioned
+against the level job. Neither is worth it for a 7 KB refetch.
+
+### One refinement not taken
+
+Characters 3+ resolve from memory but still wait out the `Autocomplete` component's 150 ms
+debounce, which now protects nothing. Removing it for cache hits would need the generic `@/ui`
+component to know about the cache — a coupling not worth 150 ms. Noted rather than done.
 
 ---
 

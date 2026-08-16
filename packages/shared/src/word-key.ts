@@ -67,3 +67,71 @@ export function wordInputKey(raw: string): string {
 export function clientDedupeKey(raw: string): string {
   return wordInputKey(raw).toLowerCase();
 }
+
+/**
+ * The Postgres `lesson_item_norm_key` pipeline, reimplemented in JS — the ONE exception to the rule
+ * above, and it earns it by being an optimisation that fails safe rather than an identity.
+ *
+ * **What it is for.** The add-word suggestion cache fetches every lexicon row for the learner's
+ * first two characters in one request, then narrows that bucket locally as they keep typing (§16).
+ * Narrowing means comparing the typed prefix against `lexicon.key`, which is
+ * `lesson_item_norm_key(text)` — so the client has to produce the same string, or `café` and the
+ * iOS-smart-quoted `don’t` silently match nothing.
+ *
+ * **Why this does not contradict the header.** `clientDedupeKey` may merge LESS than Postgres and
+ * stay safe because merging less only leaves a duplicate for the server to skip. Here the
+ * asymmetry runs the other way — folding less means a row the server WOULD have returned is
+ * filtered out, which is visible. So this one tries to be exact, and the caller treats an empty
+ * local result as "ask the server" rather than as "no matches". That fallback is what makes an
+ * inexact fold a latency cost instead of a wrong answer, and it is not optional.
+ *
+ * Steps, in the order migration 0004 applies them: NFKC → smart punctuation → ASCII → unaccent →
+ * lower → collapse whitespace → trim edge punctuation. `unaccent` is Postgres's own table; NFD plus
+ * dropping combining marks is equivalent for the Latin script these headwords are written in.
+ *
+ * Verified against the live `lexicon` table over all 53,538 rows — see §16 of
+ * docs/2026-08-15-word-autocomplete-suggestions.md.
+ */
+const SMART_PUNCTUATION: Record<string, string> = {
+  "’": "'",
+  "‘": "'",
+  ʼ: "'",
+  "“": '"',
+  "”": '"',
+  "–": "-",
+  "—": "-",
+  "\u00A0": " ",
+  // Past migration 0004's translate table, these come from Postgres's `unaccent` dictionary,
+  // which the decomposition step below cannot reproduce — `ß` and the dash family have no
+  // combining-mark form. Only what a phone keyboard plausibly emits is here; `«»` and the rest
+  // of unaccent's table are left to the caller's server fallback, which is what it is for.
+  "‐": "-",
+  "‑": "-",
+  "‒": "-",
+  "−": "-",
+  ß: "ss",
+};
+
+/** `btrim(…, ' .,;:!?"''`()[]{}…-')` — edges only; internal apostrophes and hyphens survive. */
+const EDGE_PUNCTUATION = " .,;:!?\"'`()[]{}…-";
+
+export function lexiconPrefixFold(raw: string): string {
+  let s = raw.normalize("NFKC");
+  s = s.replace(
+    /[\u2019\u2018\u02BC\u201C\u201D\u2013\u2014\u00A0\u2010\u2011\u2012\u2212\u00DF]/g,
+    (ch) => SMART_PUNCTUATION[ch] ?? ch,
+  );
+  // unaccent: decompose, drop the combining marks, recompose. café → cafe, вездесу́щий → вездесущий.
+  s = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036F]/g, "")
+    .normalize("NFC");
+  s = s.toLowerCase();
+  s = s.replace(/\s+/g, " ");
+
+  let start = 0;
+  let end = s.length;
+  while (start < end && EDGE_PUNCTUATION.includes(s[start]!)) start++;
+  while (end > start && EDGE_PUNCTUATION.includes(s[end - 1]!)) end--;
+  return s.slice(start, end);
+}

@@ -1,5 +1,5 @@
 import type { SuggestResponse } from "@tutor/shared/api";
-import { SUGGEST_LIMIT } from "@tutor/shared/api";
+import { SUGGEST_BUCKET_LIMIT, SUGGEST_LIMIT } from "@tutor/shared/api";
 
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { json, preflight } from "../../../../../lib/http";
@@ -35,8 +35,16 @@ export const GET = withBearer(async (req, ownerId) => {
 
   // A bad `limit` is clamped rather than rejected, and clamped AGAIN in the RPC — this is a
   // hostile-input surface reachable with a bearer token, and `Number("1e9")` is a finite number.
+  //
+  // The ceiling is `SUGGEST_BUCKET_LIMIT` (2,000), not a screenful, because a client fetches an
+  // entire two-character bucket in one call and narrows it locally for every character after that
+  // — one request per word instead of one per keystroke (§16). The worst case a token can pull
+  // this way is the largest bucket, ~110 KB, which is less than the collection route already
+  // returns.
   const raw = Number(params.get("limit"));
-  const limit = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 25) : SUGGEST_LIMIT;
+  const limit = Number.isFinite(raw)
+    ? Math.min(Math.max(Math.trunc(raw), 1), SUGGEST_BUCKET_LIMIT)
+    : SUGGEST_LIMIT;
 
   const body: SuggestResponse = { suggestions: await suggestWords(ownerId, prefix, limit) };
   return json(body);

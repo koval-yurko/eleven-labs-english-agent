@@ -119,6 +119,29 @@ export const SUGGEST_MIN_PREFIX = 2;
 export const SUGGEST_LIMIT = 8;
 
 /**
+ * The prefix length that defines a CACHE BUCKET, and the reason this route is called once per word
+ * rather than once per keystroke.
+ *
+ * A client asks for every row matching the learner's first two characters, then narrows that set
+ * itself as they keep typing. Measured over 10,122 prefixes of the 3,000 most frequent single
+ * words, narrowing a complete 2-character bucket reproduces the server's top-8 **100.0% of the
+ * time** — it cannot do otherwise, since every row matching `ubiq` also matches `ub` and
+ * the sort is total. The average bucket is ~7 KB and the largest (`co`) is 1,920 rows.
+ *
+ * This is what phase 4 turned out to be, and it is not what the design doc proposed. A partial
+ * local slice — zipf ≥ 4.0, ~10k rows — reproduces the top-8 for only 39.7% of prefixes, so the
+ * list would visibly reshuffle when the server answered. See §16 of the doc.
+ */
+export const SUGGEST_BUCKET_PREFIX = 2;
+
+/**
+ * The cap on a bucket fetch. Above the largest real bucket (1,920) with room for the corpus to
+ * grow; a client that receives exactly this many rows must treat the bucket as TRUNCATED and stop
+ * trusting its own narrowing, because the rows past the cap are the ones it cannot see.
+ */
+export const SUGGEST_BUCKET_LIMIT = 2000;
+
+/**
  * `GET /api/v2/lexicon/suggest?q=…&limit=…` — prefix suggestions for the add-word field.
  *
  * The prefix is sent RAW. Normalizing it is Postgres's job (`lesson_item_norm_key`, the same
@@ -496,6 +519,14 @@ export interface FavoriteResponse {
  * collection's row type would mean four fields that are structurally meaningless here.
  */
 export interface WordSuggestion {
+  /**
+   * `lesson_item_norm_key(text)` — the row's search key, and the only field a client may match
+   * a typed prefix against. Present so a cached bucket can be narrowed locally
+   * (`SUGGEST_BUCKET_PREFIX`); `lexiconPrefixFold` in `word-key.ts` is the matching
+   * fold, and its caller must treat an empty local result on non-ASCII input as "ask the server"
+   * rather than as "no matches".
+   */
+  key: string;
   /** The spelling that goes into the input on select — Wiktionary's headword, capitals intact. */
   text: string;
   /**

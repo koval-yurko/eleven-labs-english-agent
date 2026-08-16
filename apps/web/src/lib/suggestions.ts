@@ -19,6 +19,7 @@ import { SUGGEST_LIMIT, SUGGEST_MIN_PREFIX, type WordSuggestion } from "@tutor/s
 import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/word-types";
 
 type SuggestRow = {
+  key: string;
   text: string;
   level: string | null;
   ru: string[] | null;
@@ -26,6 +27,9 @@ type SuggestRow = {
 };
 
 const LEVELS = new Set<string>(LEXICON_LEVELS);
+
+/** PostgREST's default `max-rows`. Not ours to raise from here, so it is ours to page around. */
+const PAGE_SIZE = 1000;
 
 /**
  * Prefix-match the lexicon for one learner.
@@ -44,14 +48,31 @@ export async function suggestWords(
   // the RPC keeps its own check rather than trusting this one.
   if (prefix.trim().length < SUGGEST_MIN_PREFIX) return [];
 
-  const { data, error } = await getServiceSupabase().rpc("suggest_words", {
-    p_owner_id: ownerId,
-    p_prefix: prefix,
-    p_limit: limit,
-  });
-  if (error) throw new Error(`suggestWords: ${error.message}`);
+  const db = getServiceSupabase();
+  const rows: SuggestRow[] = [];
 
-  return ((data as SuggestRow[] | null) ?? []).map((row) => ({
+  // PAGED, because PostgREST caps any response at the project's max-rows — 1,000 by default — and
+  // does so SILENTLY. A bucket fetch asks for up to 2,000 (§16), and 3 of the 416 two-character
+  // buckets are bigger than that cap (`co` 1,920, `in` 1,280, `re` 1,202). Unpaged, those
+  // three come back quietly truncated, the client trusts them as complete, and every multiword row
+  // — which sorts last — vanishes from suggestions for three of the commonest word-starts in
+  // English. Measured before this loop existed: typing "company" lost `company car` and
+  // `company town`. `levels.ts` pages around the same cap for the same reason.
+  //
+  // The inner ORDER BY is total (it ends in `key`), so page N+1 continues page N exactly.
+  for (let from = 0; from < limit; from += PAGE_SIZE) {
+    const to = Math.min(from + PAGE_SIZE, limit) - 1;
+    const { data, error } = await db
+      .rpc("suggest_words", { p_owner_id: ownerId, p_prefix: prefix, p_limit: limit })
+      .range(from, to);
+    if (error) throw new Error(`suggestWords: ${error.message}`);
+    const page = (data as SuggestRow[] | null) ?? [];
+    rows.push(...page);
+    if (page.length < to - from + 1) break; // a short page is the end of the result set
+  }
+
+  return rows.map((row) => ({
+    key: row.key,
     text: row.text,
     // `cefr_level` is an enum in Postgres and a union in TypeScript, and the RPC returns it as
     // text. Narrowing rather than casting: a level added to the enum but not to LEXICON_LEVELS

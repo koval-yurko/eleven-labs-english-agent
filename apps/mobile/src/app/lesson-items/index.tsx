@@ -22,7 +22,7 @@ import { useAuth0 } from "react-native-auth0";
 
 import { newId } from "@/lib/ids";
 import { addWord, fetchItems, setFavorite } from "@/lib/items";
-import { fetchSuggestions } from "@/lib/suggestions";
+import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { postOp } from "@/lib/lessons";
 import { useTheme } from "@/theme";
 import {
@@ -473,6 +473,11 @@ function AddWordForm({
     try {
       const result = await addWord(getToken, value);
       if (result.status === "added") {
+        // The suggestion buckets carry an `owned` flag per row, and one of those rows just became
+        // owned. Dropping the cache is cheaper than patching it and cannot be subtly wrong — the
+        // next word the learner types refetches ~7 KB. `already-present` needs no clear: the flag
+        // was already true.
+        clearSuggestionCache();
         setFeedback({ tone: "ok", message: `Added “${result.text}”.` });
         setText("");
       } else if (result.status === "already-present") {
@@ -493,7 +498,11 @@ function AddWordForm({
   }
 
   return (
-    <Panel title="Add a word">
+    // The suggestion popup is an absolute overlay that hangs out of this panel's bottom edge, and
+    // `zIndex` only orders SIBLINGS — so the panel itself has to outrank the filter panel and the
+    // item list that follow it, or the overlay renders behind them. Setting it on the popup alone
+    // does nothing across this boundary.
+    <Panel title="Add a word" style={{ zIndex: 10 }}>
       <View style={styles.addRow}>
         <Autocomplete
           value={text}

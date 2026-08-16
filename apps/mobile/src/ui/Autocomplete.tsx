@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
@@ -22,15 +23,24 @@ import { radius, space, type } from "./tokens";
  * fill, hairline border, 10px radius, 6px rows). Its one caller today is the add-word field on
  * `/lesson-items` — see docs/2026-08-15-word-autocomplete-suggestions.md §7.
  *
- * ── Two deliberate departures from that document's plan ─────────────────────────────────────
+ * ── The popup is an OVERLAY, and full window width ──────────────────────────────────────────
  *
- * **The list is IN FLOW, not absolutely positioned.** §7 called for a positioned `View` over the
- * page. An absolute overlay in React Native means fighting three things at once — Android clips
- * children that escape their parent's bounds, `zIndex` needs a matching `elevation` there, and the
- * popup would land over the filter panel that follows. In flow, the panel simply grows downward:
- * the field itself does not move, which is the only position the learner is looking at, and the
- * whole class of clipping and stacking bugs cannot happen. The cost is that content below shifts,
- * which is invisible under the keyboard anyway.
+ * It is `position: "absolute"`, so it covers the content below instead of pushing it down, and it
+ * spans the whole window less `EDGE_GAP` a side rather than the content column the field sits in.
+ * Three things that costs, all handled here rather than by the caller:
+ *
+ *  1. **Escaping the content column.** The field lives inside a `Panel` (20px inset) inside a
+ *     760px-max column (20px inset). Full-bleed therefore needs the field's window x, which only
+ *     `measureInWindow` can give — hence the `onLayout` below. Horizontal position does not change
+ *     while the page scrolls, so it is measured once and not tracked.
+ *  2. **Staying attached during scroll.** Free, and the reason this is an absolute child of the
+ *     field rather than a `Modal`: it is positioned against the field's own box, so it scrolls with
+ *     it and cannot drift.
+ *  3. **Painting above what follows.** `zIndex` only orders siblings, so the panel CONTAINING the
+ *     field must also outrank the panels after it — the caller passes that (see `AddWordForm`).
+ *     `elevation` is the Android half of the same statement, and Android additionally clips
+ *     children that escape a parent's bounds, so the overlay is expected to be iOS-correct and
+ *     Android-approximate until it is seen on a device.
  *
  * **It does not use a `FlatList`.** §7 assumed one. Eight rows do not need virtualisation, and a
  * `FlatList` inside the screen's `ScrollView` is the classic RN gesture conflict; a plain
@@ -85,6 +95,8 @@ export function Autocomplete({
 }) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  // Reactive, so the overlay re-widens on rotation rather than staying phone-width on an iPad.
+  const { width: windowWidth } = useWindowDimensions();
 
   /**
    * The results AND the query they belong to, as one value.
@@ -119,6 +131,18 @@ export function Autocomplete({
 
   /** Whether the field has focus, read inside async callbacks — see the `.then` below. */
   const focused = useRef(false);
+
+  /**
+   * Where the field sits, so the overlay can be full window width instead of column width.
+   *
+   * `x` is the field's offset from the window's left edge and `height` is its own box; the popup
+   * is then placed at `left: EDGE_GAP - x` (i.e. `EDGE_GAP` from the window edge, expressed in
+   * the field's coordinate space) and `top: height`. Only `measureInWindow` can supply `x` —
+   * `onLayout` reports a position relative to the parent, which is exactly the inset being
+   * escaped. Scrolling changes `y` and never `x`, so one measurement per layout is enough.
+   */
+  const fieldBox = useRef<View>(null);
+  const [box, setBox] = useState({ x: 0, height: 0 });
 
   const query = value.trim();
   const tooShort = query.length < minChars;
@@ -180,8 +204,27 @@ export function Autocomplete({
   const showList = open && fresh !== null && fresh.length > 0;
   const showEmpty = open && fresh !== null && fresh.length === 0 && Boolean(emptyLabel);
 
+  // Where the overlay actually goes. Recomputed per render, which is free, and keyed on values
+  // that only change on rotation or layout.
+  const popupPosition: ViewStyle = {
+    position: "absolute",
+    top: box.height + 4,
+    left: EDGE_GAP - box.x,
+    width: windowWidth - EDGE_GAP * 2,
+  };
+
   return (
-    <View style={style}>
+    <View
+      ref={fieldBox}
+      // Above the "Add" button beside it. The panel this sits in needs its own zIndex to clear the
+      // panels BELOW it — zIndex only orders siblings — and that is the caller's to pass.
+      style={[style, styles.anchor]}
+      onLayout={() => {
+        // measureInWindow, not the layout event's own rect: that one is parent-relative, and the
+        // parent's inset is precisely what the overlay is escaping.
+        fieldBox.current?.measureInWindow((x, _y, _w, height) => setBox({ x, height }));
+      }}
+    >
       <TextField
         {...field}
         value={value}
@@ -210,7 +253,7 @@ export function Autocomplete({
       />
 
       {showList && fresh ? (
-        <View style={styles.popup}>
+        <View style={[styles.popup, popupPosition]}>
           <ScrollView
             style={{ maxHeight }}
             keyboardShouldPersistTaps="handled"
@@ -268,22 +311,50 @@ export function Autocomplete({
         </View>
       ) : null}
 
-      {showEmpty ? <Text style={styles.empty}>{emptyLabel}</Text> : null}
+      {/* The same overlay box, so "no matches" appears where the list would have and pushes the
+          page around no more than the list does. */}
+      {showEmpty ? (
+        <View style={[styles.popup, popupPosition]}>
+          <Text style={styles.empty}>{emptyLabel}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
+/** The gap left between the overlay and each edge of the window. The X in "full width minus 2X". */
+const EDGE_GAP = 15;
+
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
-    /** `.select-popup`, in flow rather than anchored — see the docblock. */
+    /**
+     * The field's box, which the overlay is positioned against.
+     *
+     * The zIndex is what puts the popup over the "Add" button standing beside it. It does NOT get
+     * the popup over the panels further down the page — zIndex only orders siblings, so the panel
+     * containing this field has to outrank them itself.
+     */
+    anchor: { position: "relative", zIndex: 1 },
+    /** `.select-popup` — an overlay, spanning the window rather than the content column. */
     popup: {
-      marginTop: 4,
       backgroundColor: t.panel,
       borderWidth: 1,
       borderColor: t.border,
       borderRadius: radius.popup,
       padding: 4,
-      overflow: "hidden",
+      // No `overflow: "hidden"`, though the in-flow version had it: on iOS that sets
+      // `clipsToBounds`, which clips the view's OWN shadow — and the shadow is what separates an
+      // overlay from the text it now covers. Nothing needs clipping anyway; the rows are inset by
+      // this padding and carry a smaller radius, so they cannot reach the popup's corners.
+      //
+      // Both of the next two, deliberately: zIndex orders siblings on iOS, elevation does it on
+      // Android and is also what draws a shadow there.
+      zIndex: 1000,
+      elevation: 12,
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
     },
     row: {
       paddingVertical: 0.45 * 16,
@@ -305,5 +376,10 @@ const makeStyles = (t: Palette) =>
     badgeText: { ...type.tiny, color: t.muted, fontWeight: type.weightMedium },
     detail: { ...type.small, color: t.muted },
     marked: { ...type.tiny, color: t.accent },
-    empty: { ...type.small, color: t.faint, marginTop: space.row },
+    empty: {
+      ...type.small,
+      color: t.faint,
+      paddingVertical: 0.45 * 16,
+      paddingHorizontal: 0.6 * 16,
+    },
   });
