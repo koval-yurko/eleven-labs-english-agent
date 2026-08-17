@@ -9,6 +9,7 @@ import words10 from "./words-1.0";
 import words11 from "./words-1.1";
 import words12 from "./words-1.2";
 import words13 from "./words-1.3";
+import words14 from "./words-1.4";
 
 export type { PromptVersion } from "./types";
 
@@ -36,7 +37,7 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
  * drives the version picker; it is the canonical ordering (the lockfile is an unordered map).
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13, words14];
 
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {
@@ -48,6 +49,8 @@ export interface EffectiveAgentConfig {
   voiceId: string | undefined;
   ttsModelId: string;
   additionalLanguages: string[];
+  /** Undefined = omit from the agent body, i.e. the platform's own -1 (unlimited). */
+  maxTokens: number | undefined;
   maxDurationSeconds: number;
   turnTimeoutSeconds: number;
   silenceEndCallTimeoutSeconds: number;
@@ -66,6 +69,9 @@ export function effectiveConfig(
     voiceId: v.voiceId ?? env.ELEVENLABS_TEACHER_VOICE_ID?.trim() ?? undefined,
     ttsModelId: v.ttsModelId ?? env.LIVE_STORY_TTS_MODEL?.trim() ?? DEFAULT_TTS_MODEL,
     additionalLanguages: v.additionalLanguages ?? [],
+    // No default on purpose: an unset maxTokens must leave the older versions' agents exactly as
+    // they were pinned. See types.ts.
+    maxTokens: v.maxTokens,
     maxDurationSeconds: v.maxDurationSeconds ?? DEFAULT_MAX_DURATION_SECONDS,
     turnTimeoutSeconds: v.turnTimeoutSeconds ?? DEFAULT_TURN_TIMEOUT_SECONDS,
     silenceEndCallTimeoutSeconds:

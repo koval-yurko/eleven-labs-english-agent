@@ -46,6 +46,20 @@ export interface PromptVersion {
    */
   turnTimeoutSeconds?: number;
   /**
+   * Hard ceiling on ONE agent turn, in LLM output tokens. Omitted from the agent body when unset,
+   * which leaves the platform default of `-1` — unlimited, and what every version before words-1.4
+   * ran with.
+   *
+   * Deliberately per-version rather than a shared default: an older version's baked agent must keep
+   * behaving the way it did when it was pinned, and giving this a repo-wide default would re-PATCH
+   * words-1.0 … 1.3 with a limiter they were never written against.
+   *
+   * This is a BACKSTOP for a prompt-level turn budget, never the budget itself — the model is cut
+   * off mid-sentence when it hits this, and TTS speaks the fragment. Set it comfortably above what
+   * the prompt asks for. See docs/2026-08-17-short-turns-and-chunked-pause.md §3 L2.
+   */
+  maxTokens?: number;
+  /**
    * How long a conversation may go without the learner speaking before the platform **terminates**
    * it, in seconds; `-1` disables it. Defaults to DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS.
    *

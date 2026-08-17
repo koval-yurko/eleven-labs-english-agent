@@ -84,6 +84,10 @@ function hashConfig(c: EffectiveAgentConfig): string {
     voiceId: c.voiceId ?? null,
     ttsModelId: c.ttsModelId,
     additionalLanguages: c.additionalLanguages,
+    // Mirrors agentBody(): OMITTED when unset, so the four versions pinned before max_tokens
+    // existed keep the hashes already in the lockfile and sync doesn't PATCH them to send an
+    // identical body.
+    ...(c.maxTokens === undefined ? {} : { maxTokens: c.maxTokens }),
     // Anything added to agentBody() MUST be added here too, or sync reports "unchanged" while the
     // live agent keeps the old value — the exact silent drift the lockfile exists to prevent.
     maxDurationSeconds: c.maxDurationSeconds,
@@ -102,7 +106,13 @@ function agentBody(c: EffectiveAgentConfig) {
     name: c.name,
     conversation_config: {
       agent: {
-        prompt: { prompt: c.prompt, llm: c.llm },
+        // max_tokens is omitted rather than sent as -1 when a version doesn't set it, so a version
+        // pinned before this field existed keeps a byte-identical body. See prompts/types.ts.
+        prompt: {
+          prompt: c.prompt,
+          llm: c.llm,
+          ...(c.maxTokens === undefined ? {} : { max_tokens: c.maxTokens }),
+        },
         first_message: "", // teaching begins on the kickoff contextual update, not a greeting
         language: "en",
         dynamic_variables: {

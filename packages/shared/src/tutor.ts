@@ -124,19 +124,53 @@ export const PAUSE_RESUME_MESSAGE =
   "I'm back. Pick up exactly where we stopped — one short sentence to re-orient me, then continue.";
 
 /**
- * Hidden user turn sent when a HELD pause swallowed something the tutor said.
+ * Hidden user turn sent the instant a held pause lands ON A TUTOR THAT IS SPEAKING — the barge-in
+ * that ends the turn.
  *
- * That happens whenever the agent had a turn in flight when Pause landed — the platform has no way
- * to abort a turn the agent has started, so it plays out to a silenced speaker — and again for any
- * turn that slips past the `user_activity` heartbeat. Sent ONLY when at least one agent turn
- * actually arrived while the line was held: a pause taken while the tutor was already listening
- * resumes in silence, because nothing was lost and making the tutor talk there would be the app
- * interrupting the learner, which is the opposite of the whole lesson design.
+ * The platform has no abort: the client→server protocol carries exactly `pong`, `feedback`,
+ * `contextual_update`, `user_message`, `user_activity`, `client_tool_result`,
+ * `mcp_tool_approval_result` and `user_audio_chunk`, and none of them says "stop". `interruption`
+ * exists in the other direction only — it REPORTS an interruption, it cannot request one. So the
+ * two ways to end a turn early are real speech (unavailable: a pause mutes the microphone) and
+ * `user_message`, which the docs define as *"processed as user input … Triggers the same response
+ * flow as spoken user input"* — i.e. it barges in exactly like speech.
  *
- * Worded for both cases — the tail of one sentence and a whole explanation.
+ * Two things follow, and the second is the reason this is worth a hidden turn:
+ *   1. The learner stops paying for a monologue nobody hears. Before this, Pause silenced the
+ *      speaker locally and the tutor kept teaching into the void for as long as its turn ran.
+ *   2. `agent_response_correction` fires on barge-in, so the STORED TRANSCRIPT is truncated to what
+ *      was actually delivered. The record and the learner's ears finally agree, which is what makes
+ *      a bounded resume (below) honest rather than a guess.
+ *
+ * Worded as an instruction not to answer, because a barge-in normally invites a reply. The
+ * heartbeat is what ultimately keeps the tutor quiet; this only has to stop the sentence.
+ * See docs/2026-08-17-short-turns-and-chunked-pause.md §3 L5.
  */
-export const SOFT_RESUME_MESSAGE =
-  "I'm back — I didn't hear what you said while I was away. Recap that briefly, then carry on.";
+export const PAUSE_STOP_MESSAGE =
+  "[The learner just paused the lesson and can no longer hear you.] Stop speaking immediately. Do not answer this, do not summarise, say nothing at all.";
+
+/**
+ * Hidden user turn sent on resume when the pause CUT THE TUTOR OFF mid-sentence (PAUSE_STOP_MESSAGE
+ * landed on a speaking tutor).
+ *
+ * Bounded on purpose: the tutor's own context now ends where the learner stopped hearing it, so the
+ * only thing owed is the tail of one thought. Its predecessor asked for a recap of everything
+ * "said while I was away" with no bound on what that was — and while one turn was a whole item's
+ * worth of teaching, that meant re-delivering the item. That is the repetition the learner reported.
+ */
+export const ABORTED_RESUME_MESSAGE =
+  "I'm back — you were cut off mid-sentence. Finish just that thought in a sentence or two, then carry on. Do not start the item over.";
+
+/**
+ * Hidden user turn sent on resume when a whole tutor turn played into a silenced speaker — the turn
+ * that slipped past the `user_activity` heartbeat, or one the abort could not reach.
+ *
+ * Also bounded, and bounded by the same unit: with words-1.4 a turn is one thread of one item, so
+ * "your last point" is a few sentences, not a chapter. The bound is stated as a sentence count
+ * rather than as "briefly", because an adverb is a wish and a number is a budget.
+ */
+export const UNHEARD_RESUME_MESSAGE =
+  "I'm back — I didn't hear your last point. Repeat just that one, in two or three sentences, then carry on. Do not repeat anything before it.";
 
 /**
  * Hidden kickoff messages, filtered out of the transcript UI and the saved history.
@@ -149,7 +183,13 @@ export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [
   KICKOFF_MESSAGE,
   RESUME_MESSAGE,
   PAUSE_RESUME_MESSAGE,
-  SOFT_RESUME_MESSAGE,
+  PAUSE_STOP_MESSAGE,
+  ABORTED_RESUME_MESSAGE,
+  UNHEARD_RESUME_MESSAGE,
+  // The single unbounded resume message these three replaced on 2026-08-17. Kept as a literal so a
+  // post-call webhook still in flight for a conversation that used it cannot write it into a stored
+  // transcript as a learner turn.
+  "I'm back — I didn't hear what you said while I was away. Recap that briefly, then carry on.",
 ];
 
 /** Why a conversation is being picked up: something took it, or the learner put it down. */

@@ -14,6 +14,7 @@ import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
 import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
 import {
+  ABORTED_RESUME_MESSAGE,
   formatHeldResumeContext,
   formatItemsList,
   formatResumeContext,
@@ -21,8 +22,9 @@ import {
   KICKOFF_MESSAGE,
   PAUSE_CONTEXT,
   PAUSE_RESUME_MESSAGE,
+  PAUSE_STOP_MESSAGE,
   RESUME_MESSAGE,
-  SOFT_RESUME_MESSAGE,
+  UNHEARD_RESUME_MESSAGE,
   type ResumeCause,
   type TranscriptLine,
 } from "@tutor/shared/tutor";
@@ -492,6 +494,7 @@ export default function LessonScreen() {
   const {
     status,
     isMuted,
+    isSpeaking,
     startSession,
     endSession,
     sendUserMessage,
@@ -526,15 +529,35 @@ export default function LessonScreen() {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heldSinceRef = useRef<number>(0);
   /**
-   * Where the transcript stood when the hold began, so a resume can tell whether the tutor said
-   * anything the learner did not hear.
+   * Where the transcript stood when the hold began, so a resume can tell whether a WHOLE turn
+   * played into the void while the line was held — one that slipped past the heartbeat.
    *
-   * A mark rather than a boolean captured from `isSpeaking`, because two different things produce an
-   * unheard turn and only one of them is visible at the moment of the tap: the turn already in
-   * flight (the platform cannot abort it — it plays out to a silenced speaker) and any later turn
-   * that slipped past the heartbeat. Counting agent lines added since the mark catches both.
+   * It no longer has to catch the turn that was in flight at the tap: `abortedRef` below owns that
+   * case, and owns it more accurately. The mark alone was timing-dependent — `agent_response`
+   * carries the full text as soon as the LLM finishes, typically well BEFORE the audio has finished
+   * playing, so the line of a turn the learner was cut off in has usually already landed and does
+   * not count as "added since the mark". Two cases, two signals.
    */
   const heldAtLineRef = useRef(0);
+  /**
+   * Was the tutor mid-sentence when Pause landed — i.e. did we barge in to stop it?
+   *
+   * This is what decides which resume message is owed, and the two are different requests: a turn
+   * we cut off owes the learner the TAIL of one thought (the tutor's own context now ends where
+   * the learner stopped hearing it, because `agent_response_correction` truncated it); a turn that
+   * played out unheard owes them THAT POINT restated. Both are bounded — which is the whole fix.
+   * The single unbounded "recap what I missed" they replace is what re-delivered a whole item.
+   * See docs/2026-08-17-short-turns-and-chunked-pause.md §4.3.
+   */
+  const abortedRef = useRef(false);
+  /**
+   * `isSpeaking`, readable from outside a render — the hold path runs from a lock-screen intent
+   * drain as well as from a button, and both need the value as it is NOW. Same idiom as `mutedRef`.
+   */
+  const speakingRef = useRef(false);
+  useEffect(() => {
+    speakingRef.current = isSpeaking;
+  });
   /** Did we actually manage to silence the agent's audio? `false` is shown, never hidden. */
   const [silenced, setSilenced] = useState(true);
   /**
@@ -585,9 +608,7 @@ export default function LessonScreen() {
   function holdSession() {
     if (!connected || heldRef.current) return;
     // Output first, then the microphone: both are instant, and between them they are the whole of
-    // what the learner can perceive. The agent may still be finishing a sentence into the void —
-    // its text arrives through `onMessage` regardless, so the record keeps it and the resume asks
-    // for it back.
+    // what the learner can perceive.
     //
     // Through LiveKit, NOT through `conversation.setVolume()`, which is a silent no-op on React
     // Native and left the tutor audible through the whole of the first held pause. The return value
@@ -601,6 +622,14 @@ export default function LessonScreen() {
     mutedRef.current = true;
     heldAtLineRef.current = linesRef.current.length;
     heldSinceRef.current = Date.now();
+    // The barge-in. Silencing the speaker is local — the platform has no idea, so without this the
+    // tutor keeps teaching to nobody for the rest of its turn, is billed for it, and comes back
+    // convinced the learner heard it. `user_message` is the only client event that ends a turn
+    // ("triggers the same response flow as spoken user input"); there is no abort in the protocol.
+    // Guarded on `isSpeaking` because a pause taken while the tutor is LISTENING has nothing to
+    // interrupt, and barging into silence would only provoke a turn.
+    abortedRef.current = speakingRef.current;
+    if (abortedRef.current) sendUserMessage(PAUSE_STOP_MESSAGE);
     sendContextualUpdate(PAUSE_CONTEXT);
     heartbeatRef.current = setInterval(() => sendUserActivity(), HEARTBEAT_MS);
     heldRef.current = true;
@@ -622,10 +651,23 @@ export default function LessonScreen() {
     setAgentAudioVolume(rawConversation, 1);
     setSilenced(true);
     sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
+    // What the learner is owed, in exactly three cases — and each of the two that speak is bounded
+    // to ONE turn, which with words-1.4 is one thread of one item. The tutor was:
+    //   listening → nothing was lost; say nothing and let the learner speak first
+    //   cut off   → the tail of one thought
+    //   unheard   → one whole turn, restated
+    // The order matters: an aborted turn is also a turn that landed after the mark on some timings,
+    // and asking for the tail is the smaller, more accurate request of the two.
+    const aborted = abortedRef.current;
+    abortedRef.current = false;
+    if (aborted) {
+      sendUserMessage(ABORTED_RESUME_MESSAGE);
+      return;
+    }
     const unheard = linesRef.current
       .slice(heldAtLineRef.current)
       .some((line) => line.role === "agent");
-    if (unheard) sendUserMessage(SOFT_RESUME_MESSAGE);
+    if (unheard) sendUserMessage(UNHEARD_RESUME_MESSAGE);
   }
 
   /**
@@ -654,6 +696,10 @@ export default function LessonScreen() {
     // false, and the effect above mirrors that into `mutedRef` on the next render. Only the
     // remembered pre-pause mute is ours to clear, because it belongs to a session that is over.
     wasMutedRef.current = false;
+    // Belongs to a conversation that no longer exists: the turn it describes cannot be finished by
+    // the agent that comes back, so a stale `true` would make the next resume ask a fresh session
+    // to finish a sentence it never started.
+    abortedRef.current = false;
     if (!heldRef.current) return;
     stopHeartbeat();
     heldRef.current = false;

@@ -111,6 +111,14 @@ tap Resume
     else                                → send nothing; the learner speaks first
 ```
 
+> **Superseded 2026-08-17 (steps 4 of §2.1 and 5 here).** Pause now also sends `PAUSE_STOP_MESSAGE`
+> — a hidden `user_message`, which is the one client event that ends a turn — when the tutor is
+> speaking, so the monologue stops instead of playing out to a silenced speaker. And the single
+> unbounded `SOFT_RESUME_MESSAGE` became two bounded ones: `ABORTED_RESUME_MESSAGE` (finish the tail
+> of the thought we cut off) and `UNHEARD_RESUME_MESSAGE` (restate one turn that slipped past the
+> heartbeat). The mechanism in this document — mute, silence, heartbeat, never `endSession` — is
+> unchanged. See `docs/2026-08-17-short-turns-and-chunked-pause.md`.
+
 Step 5 is the only place a held resume produces speech, and it is the correct place: the learner
 missed the end of a sentence and needs it back (§5). A pause taken while the tutor was already
 listening resumes into silence, which is exactly right — the learner is mid-thought, not mid-lesson.
