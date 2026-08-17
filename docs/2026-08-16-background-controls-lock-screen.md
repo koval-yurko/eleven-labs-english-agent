@@ -6,7 +6,14 @@ local **Expo module** for the bridge, and a **controls reducer** inside the less
 (`apps/mobile/src/app/lessons/[id]/index.tsx`). Reaches `packages/shared/src/tutor.ts` only if the
 current-word signal in §5.3 is built. No web work. **iOS only** — Android has no equivalent surface
 (§8.1).
-**Status:** **designed, not built.** Rests on the held pause shipped in `9811d28` plus the
+**Status:** **P0–P2 built 2026-08-17, unmeasured.** The target, the shared Swift, the bridge module,
+the state machine and the three buttons all exist and pass `pnpm --filter mobile check` (20/20
+expo-doctor) plus `swiftc -typecheck` against the iOS 16.4 SDK. **Nothing has run on a device**, so
+every number in §5.4 is still arithmetic and every probe in §11 is still open. P3 (Dynamic Island)
+is stubbed rather than designed. Two claims below were corrected by building them — §9's credential
+restructuring turned out to be unnecessary, and the App Group is derived rather than configured;
+both are marked `[built]`.
+Originally: Rests on the held pause shipped in `9811d28` plus the
 uncommitted `setAgentAudioVolume` refinement in the working tree (`apps/mobile/src/lib/agent-audio.ts`)
 — see `docs/2026-08-16-tutor-pause-hold-the-line.md`. That dependency is not incidental; it is the
 reason this document exists at all (§0). The lesson screen was under active edit while this was
@@ -146,25 +153,22 @@ may still be audible"* `[code]`. §7.6 is that sentence's lock-screen obligation
 
 ### 3.3 A latent bug this exposes in the shipped code `[code]`
 
-`releaseSession` currently does:
+`releaseSession` unmuted unconditionally. That was correct **while pause was the only writer of the
+mute bit**; the moment a standalone Mute button existed it silently unmuted a learner who had muted
+on purpose and then paused. Fixed `[built]` — the pre-pause value is captured into `wasMutedRef` on
+the way in and restored on the way out.
 
-```ts
-setMuted(false);
-setVolume({ volume: 1 });
-```
+**A second one, found only by building it `[built]`.** The first implementation kept `muted` in a
+`useState` beside the SDK's. It should not have: `useConversation` already returns **`isMuted`**, and
+the provider owns that bit — `ConversationInputProvider` holds it in its own state, its `setMuted`
+throws when there is no conversation, and its `onDisconnect` resets it to `false` `[source]`. A local
+mirror is a second home for one value, and the two drift on any path that changes the mute without
+going through this screen. The mirror is gone; `isMuted` is read directly, and a ref tracks it only
+for the two readers that sit outside a render (the hold path and the intent drain). Deleting it also
+deleted the disconnect-reset effect it had needed.
 
-Unconditionally. That is correct **today**, because nothing else in the app can mute — pause is the
-only writer of the mute bit. The moment a standalone Mute button exists, this line silently unmutes a
-learner who muted on purpose and then paused. The fix belongs in this feature's first commit, not
-later:
-
-```ts
-setMuted(wasMutedRef.current);   // restore, don't assume
-setVolume({ volume: 1 });
-```
-
-This is the kind of coupling that argues for the reducer in §4.2 rather than more booleans: mute and
-hold are one state, and one place should compute it.
+Both bugs are the same shape, which is §4.2's single-writer rule stated in the small: **mute and hold
+are one state and one place should own it.** The correction is that the one place is the SDK.
 
 ### 3.4 What standalone Mute actually does to the tutor `[docs]`
 
@@ -271,12 +275,44 @@ and on every foreground transition, so a tap is never merely lost.
 Note that in the terminated case the *session* is dead too, so draining the inbox means "show the
 Paused card", not "resume a conversation". Which is the existing parked-pause path — see §7.2.
 
-### 4.4 The shared Swift file
+### 4.4 The shared Swift files — the one thing that actually broke `[built]`
 
-`LessonActivityAttributes` and the two intent types must compile into **both** targets: the extension
-references them to build the view, the app references them to start/update the activity and to run
-`perform()`. `@bacons/apple-targets` scaffolds the target directory but the shared-source membership
-is the fiddliest part of the wiring `[unverified]` — see the P0 probe in §10.
+`LessonActivityAttributes` and the intent types must compile into **both** binaries: the extension
+references them to build the view, the app runs `Activity.request` and executes `perform()`. This was
+flagged as "the fiddliest part of the wiring"; it was worse than fiddly.
+
+Xcode expresses one-file-two-targets with shared target membership. **Neither build system here can**,
+and they fail in opposite directions:
+
+| | how it takes sources | what it does with an outside path |
+|---|---|---|
+| `@bacons/apple-targets` | a `PBXFileSystemSynchronizedRootGroup` over `targets/controls/` — every `.swift` in the folder, minus an exception set for `Info.plist` and the config | nothing; there is no option to add sources from elsewhere |
+| CocoaPods | `source_files` globs resolved against the pod root | **silently drops them** |
+
+The first attempt pointed the podspec at `"../../../targets/controls/*.swift"`. That path is
+*correct* — and CocoaPods matched zero files, warned about nothing, and installed happily. The
+symptom appeared only on EAS, minutes into a cloud build, as eleven copies of `cannot find type
+'LessonActivityAttributes' in scope` — from the app target only, because the extension had the files
+all along.
+
+**The fix**: the podspec mirrors the two shared files into its own root at `pod install` time, from
+the single copy in `targets/controls/`. `shared/` is gitignored, which is load-bearing rather than
+tidy — a fresh checkout (every EAS build) has none, so a skipped or cached `pod install` fails on
+missing files instead of quietly compiling a stale copy of a contract that has since changed. The
+podspec also deletes mirrored files that no longer exist upstream.
+
+Verified after a clean `prebuild --clean` + `pod install`: all three sources appear in the app
+target's `Sources` phase, and `LessonActivityModule` is registered in the generated
+`ExpoModulesProvider.swift`.
+
+**A second thing the same investigation fixed.** The tap signal was an in-process
+`NotificationCenter` post, which is correct *if* `LiveActivityIntent.perform()` really does always run
+in the containing app's process. That is documented, but betting the feature on it has a silent
+failure mode — the tap lands in the inbox and nothing wakes to read it — and it interacts with a
+second uncertainty: AppIntents metadata is extracted per target, and the app gets these types through
+a static pod rather than its own source list. So the signal is now a **Darwin notification**, which
+crosses process boundaries. Whichever process runs the intent, the App Group inbox is shared and the
+app is told to drain it. The uncertainty is no longer load-bearing.
 
 ---
 
@@ -425,12 +461,40 @@ the existing functions rather than new ones.
 An app extension is a **second bundle identifier per variant**
 (`work.kovalchuk.yurii.english-tutor{suffix}.controls`), and that has knock-on effects:
 
-- **A second provisioning profile per variant.** `apps/mobile/credentials.json` is in EAS *local*
-  credentials mode with a single profile path `[code]`. Multi-target local credentials use the
-  per-target keyed form `{"ios": {"<target>": {...}}}` `[docs, unverified]` — this must be
-  restructured and new profiles generated, for development, preview *and* production.
-- **The App Group must be registered on the Apple Developer portal** and added as an entitlement to
-  **both** targets, or the shared `UserDefaults` silently returns `nil` — a failure with no error.
+- ~~**A second provisioning profile per variant**, restructuring `credentials.json` into the
+  per-target keyed form.~~ **Wrong `[built]`.** `@bacons/apple-targets` calls `withEASTargets`,
+  which registers the extension under `extra.eas.build.experimental.ios.appExtensions` with its
+  bundle id *and its entitlements*, so EAS provisions the second identity itself. Verified in the
+  resolved config:
+
+  ```json
+  { "bundleIdentifier": "work.kovalchuk.yurii.english-tutor-dev.controls",
+    "targetName": "controls",
+    "entitlements": { "com.apple.security.application-groups": ["group.work.…-dev"] } }
+  ```
+
+  **But it is conditional, and the condition is a trap.** The mirroring of the app's App Group into
+  the target sits inside `if (entitlementsJson)` — where `entitlementsJson` starts as the *target
+  config's own* `entitlements`. A target config with no `entitlements` key gets nothing mirrored and
+  is registered with EAS carrying none, so the profile omits the App Group. Nothing errors: the
+  build succeeds, the card renders, and every intent the buttons write is read back as nothing.
+  The fix is one empty object — `entitlements: {}` in `expo-target.config.js` — which reads as a
+  no-op and is load-bearing. It is commented as such at the site.
+- **`ios.appleTeamId` is required**, not optional: without it the plugin warns and emits an
+  extension Xcode cannot sign `[built]`.
+- **The App Group must be registered on the Apple Developer portal.** This is the one step in §9
+  that no amount of config can do, and it is still outstanding. Both entitlements files are
+  generated correctly and agree (`ios/EnglishTutorDev/EnglishTutorDev.entitlements` and
+  `ios/.targets/controls/generated.entitlements`, both `group.work.kovalchuk.yurii.english-tutor-dev`)
+  `[built]` — but a group that exists in the entitlements and not on the portal fails the same
+  silent way.
+- **The group name is *derived*, not configured `[built]`.** The original plan passed it through an
+  Info.plist key. That cannot work: the extension's `Bundle.main` is its own bundle, so a key set on
+  the app is simply absent there, and `@bacons/apple-targets` exposes no `infoPlist` field on a
+  target — while the value is per-variant, so a hand-authored static plist cannot carry it either.
+  `ControlChannel.appGroup` therefore strips a trailing `.controls` from the running binary's own
+  bundle id and prefixes `group.`. One rule, compiled into both binaries, cannot disagree with
+  itself — which is a better property than the plist ever had.
 - **`NSSupportsLiveActivities: true`** in the app's `infoPlist`, alongside the existing
   `UIBackgroundModes` `[code]`.
 - **A new dev-client build.** None of this is reachable from the existing binary, and none of it is
@@ -459,6 +523,12 @@ with the target scaffolded by `npx create-target widget` `[docs]`.
 
 ## §10 Phases
 
+> **Built 2026-08-17.** P0–P2 exist in the tree; their *exit criteria* are all device criteria and
+> none has been met. The build gate that has been met is `pnpm --filter mobile check` plus
+> `xcrun swiftc -typecheck` against the iOS 16.4 SDK, which is compilation, not behaviour. One
+> deviation from the plan below: End was built with P2 rather than after it, because the confirm
+> state has to exist in `ContentState` for the card to render at all.
+
 **P0 — the target compiles and ships.** A hardcoded Live Activity, no data, no buttons, started by a
 debug button. *Exit:* it appears on a locked device from an **EAS preview build** — not just a local
 prebuild. This phase exists solely to retire the §9 credential and shared-source risk before any
@@ -473,7 +543,9 @@ paused-state copy from §7.4. *Exit:* pause and mute from the lock screen behave
 on-screen buttons, including the resume restatement.
 
 **P3 — Dynamic Island.** The three extra layouts. Separable from P2 and genuinely optional for a
-first release.
+first release. **Currently a stub that compiles**: `ActivityConfiguration` requires all three
+presentations, so they exist — the compact and minimal forms are a phase glyph and a word count, and
+the expanded form reuses `WordGrid` and `ControlRow` at four words. Nobody has looked at them.
 
 Deferred, not phased: §5.3 option C.
 
@@ -498,3 +570,18 @@ Everything below is `[unverified]` and none of it is answerable from a simulator
    §7.4's copy is written against what the learner actually sees.
 7. Confirm `setAgentAudioVolume` still reaches ≥1 track on a locked device mid-lesson — the hatch is
    feature-detected and untested under lock, and §7.6 is the failure it produces.
+8. **Can the bridge module be compiled at all on a dev machine?** Not today `[built]`: the installed
+   Xcode ships Swift 6.0.3, the prebuilt `ExpoModulesCore` was built with 6.3.1, and a transitive SPM
+   package wants tools 6.2. `pod install` succeeds and the module autolinks, but `xcodebuild` cannot
+   run. `targets/controls/` is verified — `swiftc -typecheck` against the iOS 16.4 SDK at Swift 5
+   language mode, matching the `SWIFT_VERSION` the generated project uses, and it works because those
+   files import nothing from Expo. `modules/lesson-activity/ios` is **parse-checked only**, with its
+   CoreFoundation half typechecked separately against a stub. **This is the single highest-value
+   thing to fix**: §4.4 cost a full cloud build to discover, and every remaining Swift mistake costs
+   another. Upgrading Xcode to a toolchain matching the prebuilt Expo frameworks is the fix.
+9. Does the §3.5 confirm window survive the round trip? The first End tap must re-render the card
+   with the relabelled button fast enough that the learner sees the state change before deciding to
+   tap again — if that takes longer than ~500 ms the two-tap confirm reads as a dead button, and an
+   optimistic write inside `perform()` becomes mandatory rather than an optimisation.
+10. Three 44 pt tap targets in a row: confirm the lock screen does not swallow or mis-route taps near
+    the card's edges, and that End is not the button a thumb reaches by accident.

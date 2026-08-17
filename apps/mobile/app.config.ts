@@ -78,6 +78,22 @@ if (!(key in VARIANTS)) {
 }
 const variant = VARIANTS[key];
 
+const bundleIdentifier = `work.kovalchuk.yurii.english-tutor${variant.suffix}`;
+// ── The App Group ────────────────────────────────────────────────────────────────────────────
+// The one channel between the app and its lock-screen extension, and therefore named in exactly
+// one place. It is per-variant because the bundle identifier is: a dev build sharing a container
+// with a preview build would let one write intents the other drains.
+//
+// This value must ALSO exist on the Apple Developer portal and be attached to both bundle ids.
+// A group that is declared here but not registered there does not error — `UserDefaults(suiteName:)`
+// returns a private store and every cross-process read comes back nil, forever.
+// The `group.${bundleIdentifier}` SHAPE is load-bearing, not cosmetic: `ControlChannel.appGroup`
+// in targets/controls/ControlIntents.swift re-derives this name from each binary's own bundle id
+// rather than reading it from a plist, because the extension's Info.plist is its own and cannot
+// carry a per-variant value. Change the shape here and the Swift derivation must change with it.
+// See docs/2026-08-16-background-controls-lock-screen.md §9.
+const appGroup = `group.${bundleIdentifier}`;
+
 const config: ExpoConfig = {
   name: variant.name,
   slug: "english-tutor", // one EAS project — never varies
@@ -87,8 +103,18 @@ const config: ExpoConfig = {
   scheme: variant.scheme, // deep links; separate from Auth0's callback scheme (S2 D14)
   userInterfaceStyle: "automatic",
   ios: {
-    bundleIdentifier: `work.kovalchuk.yurii.english-tutor${variant.suffix}`,
+    bundleIdentifier,
     icon: "./assets/expo.icon",
+    // Required by @bacons/apple-targets, which warns without it and produces a controls extension
+    // Xcode cannot sign. Identity, not a secret: the same team id eas.json already commits under
+    // submit.production, and readable from any shipped .ipa.
+    appleTeamId: "4FWU8YBV4X",
+    // Mirrored automatically into the controls target by @bacons/apple-targets, which is why the
+    // target's own config does not repeat it. `targets/controls/expo-target.config.js` explains why
+    // repeating it would be worse than not.
+    entitlements: {
+      "com.apple.security.application-groups": [appGroup],
+    },
     infoPlist: {
       // Export compliance: nothing beyond standard HTTPS. Without it every upload lands in App
       // Store Connect as "Missing Compliance". A legal declaration — see the S0 doc §5.
@@ -99,6 +125,9 @@ const config: ExpoConfig = {
       // The whole point of S1 — see docs/2026-08-13-expo-s1-background-audio.md. Without this iOS
       // suspends the app seconds after the screen locks and the conversation dies mid-sentence.
       UIBackgroundModes: ["audio"],
+      // The lock-screen controls (docs/2026-08-16-background-controls-lock-screen.md). Without this
+      // key `Activity.request` throws at runtime with no build-time warning.
+      NSSupportsLiveActivities: true,
     },
     // S7 (D69). Expo does NOT generate PrivacyInfo.xcprivacy — this key is the only way to get one,
     // and a build without the required reason codes is rejected by an automated email minutes after
@@ -157,6 +186,11 @@ const config: ExpoConfig = {
     // On iOS the domain is only written into the Android manifest by this plugin, so an unset value
     // does not affect the iOS callback scheme — which is derived from the bundle identifier.
     ["react-native-auth0", { domain: process.env.EXPO_PUBLIC_AUTH0_DOMAIN ?? "" }],
+    // S8. Generates the `controls` widget extension from targets/controls/ at prebuild, and — the
+    // part that is easy to miss — registers it under
+    // `extra.eas.build.experimental.ios.appExtensions` so EAS signs the second bundle id without
+    // the credentials file having to be restructured by hand.
+    "@bacons/apple-targets",
   ],
   experiments: { typedRoutes: true, reactCompiler: true },
   extra: {

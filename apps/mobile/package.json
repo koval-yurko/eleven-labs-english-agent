@@ -38,10 +38,12 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.17.0",
     "eslint-config-expo": "~57.0.1",
     "expo-doctor": "^1.20.1",
+    "tsx": "^4.22.4",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -50,8 +52,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:expo": "expo-doctor",
+    "check:logic": "tsx check.ts",
     "bundle": "expo export --platform ios",
-    "check": "pnpm typecheck && pnpm lint && pnpm check:expo && pnpm bundle",
+    "check": "pnpm typecheck && pnpm lint && pnpm check:logic && pnpm check:expo && pnpm bundle",
     "native": "expo prebuild --clean --platform ios",
     "device": "expo run:ios --device",
     "device:release": "expo run:ios --device --configuration Release",

@@ -26,13 +26,32 @@ import {
   type ResumeCause,
   type TranscriptLine,
 } from "@tutor/shared/tutor";
+import * as Linking from "expo-linking";
 import { useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
+
+import {
+  addControlIntentListener,
+  drainControlIntents,
+  endActivity,
+  isActivityAvailable,
+  startActivity,
+  updateActivity,
+  type ActivityState,
+} from "@/modules/lesson-activity";
 
 import { apiFetch } from "@/api";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
+import {
+  buildActivityState,
+  END_CONFIRM_MS,
+  nextArmedAt,
+  OVER_CARD_LINGER_MS,
+  resolveIntents,
+  sameActivityState,
+} from "@/lib/lesson-activity-state";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, postOp } from "@/lib/lessons";
 import {
@@ -472,6 +491,7 @@ export default function LessonScreen() {
 
   const {
     status,
+    isMuted,
     startSession,
     endSession,
     sendUserMessage,
@@ -517,6 +537,43 @@ export default function LessonScreen() {
   const heldAtLineRef = useRef(0);
   /** Did we actually manage to silence the agent's audio? `false` is shown, never hidden. */
   const [silenced, setSilenced] = useState(true);
+  /**
+   * Standalone mute — "keep teaching, I just need to not be recorded for a moment".
+   *
+   * NOT the same control as Pause, even though Pause mutes: a pause silences BOTH directions and
+   * runs the heartbeat that keeps `turn_timeout` from firing, so the tutor waits. A mute silences
+   * only the microphone and has no heartbeat, deliberately — so a mute held past ~7 s gets a tutor
+   * asking whether the learner is still there, which is the correct behaviour for "I can hear you,
+   * carry on". See docs/2026-08-16-background-controls-lock-screen.md §3.4.
+   *
+   * The mute bit itself is NOT stored here. `useConversation` already owns it — `isMuted` is the
+   * provider's own state, and its `onDisconnect` resets it to `false` `[source]`. Mirroring it in a
+   * `useState` gave the same bit two homes and one of them would eventually be wrong; the ref below
+   * exists only because two readers are outside a render (the hold path and the lock-screen intent
+   * drain, which resolves a tap against the state as it is *now*).
+   */
+  const mutedRef = useRef(false);
+  useEffect(() => {
+    mutedRef.current = isMuted;
+  });
+  /**
+   * The learner's OWN mute, remembered across a pause.
+   *
+   * Pause mutes as part of holding the line, so without this a resume would unmute someone who had
+   * muted on purpose before pausing. `releaseSession` restores this rather than assuming `false` —
+   * which was safe only while Pause was the sole writer of the mute bit. §3.3 of the same document.
+   */
+  const wasMutedRef = useRef(false);
+  /**
+   * The armed End confirm, as a timestamp.
+   *
+   * A lock screen has no alerts, sheets or modals, so the strongest confirmation End can express is
+   * relabelling itself and waiting for a second tap. This is the only non-idempotent control on the
+   * card, and the only one that does not fire on first press. See
+   * docs/2026-08-16-background-controls-lock-screen.md §3.5.
+   */
+  const endArmedAtRef = useRef<number | null>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current !== null) {
@@ -537,7 +594,11 @@ export default function LessonScreen() {
     // is how many agent tracks were actually reached; 0 means the escape hatch is closed, and the
     // status line says so rather than claiming a silence we did not deliver (`@/lib/agent-audio`).
     setSilenced(setAgentAudioVolume(rawConversation, 0) > 0);
+    // Remembered before the pause takes the microphone, so a resume gives the learner back the
+    // mute they chose rather than the one the pause imposed. §3.3.
+    wasMutedRef.current = mutedRef.current;
     setMuted(true);
+    mutedRef.current = true;
     heldAtLineRef.current = linesRef.current.length;
     heldSinceRef.current = Date.now();
     sendContextualUpdate(PAUSE_CONTEXT);
@@ -554,7 +615,10 @@ export default function LessonScreen() {
     // The line died while the pause was held: `setMuted` THROWS with no active conversation, and
     // the provider has already reset its own mute state on disconnect. The drop path owns this.
     if (!connected) return;
-    setMuted(false);
+    // Restore, do NOT assume: the learner may have muted themselves before pausing, and a pause is
+    // not a request to be unmuted. See §3.3 of the background-controls document.
+    setMuted(wasMutedRef.current);
+    mutedRef.current = wasMutedRef.current;
     setAgentAudioVolume(rawConversation, 1);
     setSilenced(true);
     sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
@@ -565,17 +629,227 @@ export default function LessonScreen() {
   }
 
   /**
+   * Mute on its own. Not reachable while held: the pause owns the microphone for as long as it
+   * lasts, and a Mute button that appeared to do something inside a pause would be lying — the mic
+   * is already muted. The button is hidden there rather than disabled, because "unmute" during a
+   * pause is a request the app would have to refuse.
+   */
+  function toggleMute() {
+    if (!connected || heldRef.current) return;
+    const next = !mutedRef.current;
+    setMuted(next);
+    mutedRef.current = next;
+    // The learner's own choice, which a pause must restore rather than override. §3.3.
+    wasMutedRef.current = next;
+  }
+
+  /**
    * A held pause cannot outlive its connection. Anything that takes the line — a network drop, the
    * agent's own 30-minute cap, the End button — clears the hold here, so the screen can never show
    * a Resume button for a conversation that no longer exists.
    */
   useEffect(() => {
-    if (status === "connected" || !heldRef.current) return;
+    if (status === "connected") return;
+    // Nothing here resets the mute bit: the provider's own `onDisconnect` sets `isMuted` back to
+    // false, and the effect above mirrors that into `mutedRef` on the next render. Only the
+    // remembered pre-pause mute is ours to clear, because it belongs to a session that is over.
+    wasMutedRef.current = false;
+    if (!heldRef.current) return;
     stopHeartbeat();
     heldRef.current = false;
     setHeld(false);
     setSilenced(true);
   }, [status, stopHeartbeat]);
+
+  /**
+   * End, the way the lock screen must do it: persist, THEN hang up.
+   *
+   * `endSession` reaches `persistSession` through `onDisconnect`, but a card tap can arrive with the
+   * app in the background and nothing on screen, which is exactly when a callback is least likely to
+   * survive long enough to finish a network call. The unmount guard already orders it this way for
+   * the same reason; the per-conversation guard makes the second attempt a no-op.
+   */
+  const endWithPersist = useCallback(async () => {
+    if (statusRef.current !== "connected") return;
+    await persistSession();
+    endSession();
+  }, [persistSession, endSession]);
+
+  /**
+   * The three controls, reachable from a callback that must not re-subscribe when they change
+   * identity. Same idiom as the unmount guard below: runs whenever, reads the latest.
+   */
+  const latestControls = useRef({
+    togglePause: () => {},
+    toggleMute: () => {},
+    endWithPersist: async () => {},
+  });
+
+  // ── the lock-screen card ───────────────────────────────────────────────────────────────────
+  /**
+   * The Live Activity: the lesson's words and its three controls, on a locked phone.
+   *
+   * The rule that shapes everything here is that **Swift decides nothing**. The card is a
+   * projection of this screen's state, and its buttons only record that they were pressed — what a
+   * tap means is resolved below, against the state as it is when the tap is drained. Reimplementing
+   * any of it natively would fork the tutor wire contract `packages/shared` exists to keep
+   * singular, and would have to duplicate a mute that throws off-connection, a transcript mark that
+   * decides whether a resume owes a restatement, and a feature-detected reach that silences the
+   * tutor. See docs/2026-08-16-background-controls-lock-screen.md §4.2.
+   */
+  const activityWords = useMemo(() => active.map((item) => item.text), [active]);
+  const activityState = useMemo(
+    () =>
+      buildActivityState({
+        words: activityWords,
+        connected,
+        held,
+        muted: isMuted,
+        silenced,
+        confirmingEnd,
+      }),
+    [activityWords, connected, held, isMuted, silenced, confirmingEnd],
+  );
+
+  /** The last state actually pushed, so an unchanged render does not reach iOS at all (§7.5). */
+  const pushedRef = useRef<ActivityState | null>(null);
+  /**
+   * Whether a card exists — three states, not a boolean, because `start` is asynchronous and the
+   * window in between is real. Without `"starting"` a second state change arriving before the first
+   * `start` resolves would see "no card" and request another one.
+   */
+  const cardRef = useRef<"none" | "starting" | "live">("none");
+
+  useEffect(() => {
+    if (!isActivityAvailable()) return;
+    if (cardRef.current === "starting") return;
+    if (sameActivityState(pushedRef.current, activityState)) return;
+    const state = activityState;
+    pushedRef.current = state;
+
+    // Only a live session opens a card. `phase: "over"` with no card is not a lesson that ended —
+    // it is a lesson that has not begun, and there is nothing to show.
+    if (cardRef.current === "none" && state.phase === "over") return;
+
+    void (async () => {
+      if (cardRef.current === "none") {
+        cardRef.current = "starting";
+        const id = await startActivity(
+          detail?.lesson.title ?? "Lesson",
+          // Built here, not in Swift: the scheme is per-variant (englishtutordev / …preview / …)
+          // and expo-linking already knows which one this build is. §3.6.
+          Linking.createURL(`lessons/${lessonId}`),
+          state,
+        );
+        // Keyed off the RESULT, never off having made the call. iOS can refuse — activities are
+        // switchable off per app and the system caps how many are live — and a refusal recorded as
+        // success means pushing updates at nothing for the rest of the lesson.
+        cardRef.current = id === null ? "none" : "live";
+        if (id === null) pushedRef.current = null;
+        return;
+      }
+      const reached = await updateActivity(state);
+      if (!reached) {
+        // The card is gone and we were not told: the system ended it, or the learner swiped it
+        // away. Forget it, so the next state change starts a fresh one rather than shouting into
+        // a dismissed card for the rest of the lesson.
+        cardRef.current = "none";
+        pushedRef.current = null;
+      }
+    })();
+  }, [activityState, detail?.lesson.title, lessonId]);
+
+  /**
+   * Taps, resolved.
+   *
+   * The inbox — App Group `UserDefaults`, written by the intents — is the ONLY source of truth for
+   * a press. The native event is a nudge to drain it, never a second delivery path: the inbox is
+   * what survives the app having been terminated when the button was pressed, so making it the sole
+   * channel means one path to get right instead of two that can disagree (§4.3).
+   *
+   * Draining also happens on every foreground transition, for exactly that case.
+   */
+  const drainIntents = useCallback(() => {
+    const intents = drainControlIntents();
+    if (intents.length === 0) return;
+    const now = Date.now();
+    const resolved = resolveIntents(intents, endArmedAtRef.current, now);
+    endArmedAtRef.current = nextArmedAt(intents, resolved);
+    setConfirmingEnd(resolved.armEndConfirm);
+
+    const act = latestControls.current;
+    if (resolved.end) {
+      void act.endWithPersist();
+      return;
+    }
+    if (resolved.togglePause) act.togglePause();
+    if (resolved.toggleMute) act.toggleMute();
+  }, []);
+
+  useEffect(() => {
+    latestControls.current = {
+      togglePause: () => (heldRef.current ? releaseSession() : holdSession()),
+      toggleMute,
+      endWithPersist,
+    };
+  });
+
+  /**
+   * Tearing the card down, which is deliberately NOT what happens when the session ends.
+   *
+   * The card outlives its session because that is where `Start` lives (§3.6) — so the safety comes
+   * from the state, not from the teardown: `phase: "over"` renders every control disabled and the
+   * third button as a deep link, so a tap on a stale card can only open the app. It cannot mute a
+   * conversation that is gone or hang one up twice.
+   *
+   * The card is then dismissed when the learner comes back to the app, or after a window if they
+   * never do. The ordering matters and is the one thing here that must not be swapped: the state
+   * push always lands before the dismissal, because a card torn down without it leaves a snapshot
+   * with live-looking buttons on screen for the length of the system's animation. §7.1.
+   */
+  const dismissActivity = useCallback(() => {
+    if (cardRef.current === "none") return;
+    cardRef.current = "none";
+    pushedRef.current = null;
+    void endActivity();
+  }, []);
+
+  useEffect(() => {
+    if (activityState.phase !== "over" || cardRef.current === "none") return;
+    const timer = setTimeout(dismissActivity, OVER_CARD_LINGER_MS);
+    return () => clearTimeout(timer);
+  }, [activityState.phase, dismissActivity]);
+
+  useEffect(() => {
+    const subscription = addControlIntentListener(drainIntents);
+    const appStateSub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      drainIntents();
+      // They are back in the app: the lock-screen card has no job left, and the only reason it was
+      // still up was to offer a way in.
+      if (statusRef.current !== "connected") dismissActivity();
+    });
+    // A tap that landed while this screen was mounting has already been recorded; draining once at
+    // mount is what makes the inbox a queue rather than a stream nobody was listening to.
+    drainIntents();
+    return () => {
+      subscription.remove();
+      appStateSub.remove();
+    };
+  }, [drainIntents, dismissActivity]);
+
+  /**
+   * An armed confirm has to lapse on its own, or a lock-screen card left showing "End lesson?" is a
+   * one-tap teardown waiting for a pocket. The timer only ever DISARMS — it can never end anything.
+   */
+  useEffect(() => {
+    if (!confirmingEnd) return;
+    const timer = setTimeout(() => {
+      endArmedAtRef.current = null;
+      setConfirmingEnd(false);
+    }, END_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [confirmingEnd]);
 
   /**
    * Proactive kickoff: `first_message` is empty, so the instant we connect we send a hidden user
@@ -624,6 +898,8 @@ export default function LessonScreen() {
   useEffect(
     () => () => {
       latest.current.stopHeartbeat();
+      // A card for a screen that no longer exists has nothing behind its buttons.
+      void endActivity();
       if (statusRef.current === "connected") {
         // A held pause becomes a parked one rather than an End: the learner never pressed End, and
         // `onDisconnect` reads this flag to leave the Paused card behind for their return.
@@ -756,8 +1032,12 @@ export default function LessonScreen() {
   // ── render ─────────────────────────────────────────────────────────────────────────────────
   const transcript = useMemo(() => carried.concat(lines), [carried, lines]);
   /**
-   * One line, three states. A paused session is `disconnected` at the transport, so reporting the
+   * One line, four states. A paused session is `disconnected` at the transport, so reporting the
    * raw status there would say "status: disconnected" to someone looking at a Resume button.
+   *
+   * Pause and mute get DIFFERENT sentences on purpose. They look alike from outside — both stop the
+   * learner being heard — and the thing that separates them is invisible: only a pause runs the
+   * heartbeat that stops the tutor re-engaging. So the line has to carry it. §3.4.
    */
   const statusLine = held
     ? // "muted", never "off": muting reaches LiveKit's `track.mute()`, which releases the capture
@@ -772,7 +1052,12 @@ export default function LessonScreen() {
       ? "⏸ paused — microphone muted, the tutor is waiting"
       : "⏸ paused — microphone muted, but the tutor may still be audible"
     : connected
-      ? "● listening — just talk to interrupt"
+      ? isMuted
+        ? // The tutor is NOT waiting — it has no heartbeat holding it off, so it will re-engage
+          // into the silence after `turn_timeout`. Saying "the tutor can still hear itself out" is
+          // the honest version of that, and it is the difference from a pause. §3.4.
+          "🎤 muted — the tutor keeps going; unmute to answer"
+        : "● listening — just talk to interrupt"
       : pause === "paused"
         ? "⏸ paused — resume when you're ready"
         : `status: ${status}`;
@@ -897,12 +1182,21 @@ export default function LessonScreen() {
           </View>
         ) : null}
 
-        {/* Two slots, always in the same place: the session verb on the left, the pause verb on
-            the right. The right slot is empty when there is nothing to pause and nothing paused —
-            a disabled button there would advertise a control the learner cannot reach yet. */}
+        {/* Three slots, always in the same order, so a control never moves under the thumb that is
+            reaching for it: the session verb, the pause verb, the microphone. The layout is the one
+            the lock-screen card will mirror — see docs/2026-08-16-background-controls-lock-screen.md
+            §5.4 — and building it here first is deliberate: this row is where the state machine
+            behind those three buttons gets to be wrong somewhere visible.
+
+            Slots two and three empty out rather than disable when there is nothing to control. A
+            disabled Pause on a lesson that has not started advertises a control the learner cannot
+            reach; an absent one says the same thing without inviting the tap. */}
         <ButtonRow style={{ marginTop: space.row }}>
           {connected ? (
-            <Button label="End session" onPress={() => endSession()} />
+            // The same path the lock-screen End takes: persist, then hang up. On screen there is
+            // no confirm — the learner can see what they are ending, which is exactly the thing a
+            // locked device cannot offer (§3.5).
+            <Button label="End session" onPress={() => void endWithPersist()} />
           ) : (
             <Button
               label={busy ? "Connecting…" : "Start conversation"}
@@ -925,6 +1219,15 @@ export default function LessonScreen() {
               label="Resume"
               disabled={busy}
               onPress={() => void start()}
+            />
+          ) : null}
+          {/* Hidden during a hold, not disabled: the pause already owns the microphone, so the only
+              thing this button could offer there is an unmute the app would have to refuse. */}
+          {connected && !held ? (
+            <Button
+              variant="secondary"
+              label={isMuted ? "Unmute" : "Mute"}
+              onPress={toggleMute}
             />
           ) : null}
         </ButtonRow>
