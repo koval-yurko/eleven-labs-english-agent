@@ -7,13 +7,15 @@ import {
 } from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { router } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 
 import { newId } from "@/lib/ids";
-import { fetchLessons, postOp } from "@/lib/lessons";
+import { fetchLessons, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import { useTheme } from "@/theme";
 import {
+  Body,
   Button,
   ButtonRow,
   ConfirmDialog,
@@ -201,38 +203,50 @@ export default function LessonsScreen() {
         ) : lessons.length === 0 ? (
           <Muted>No lessons yet — create your first one above.</Muted>
         ) : (
-          lessons.map((lesson) => (
-            <View key={lesson.id} style={styles.row}>
-              <View style={styles.rowHead}>
-                <Link
-                  href={`/lessons/${lesson.id}`}
-                  variant="plain"
-                  style={styles.rowTitle}
-                  numberOfLines={1}
-                >
-                  {lesson.title}
-                </Link>
-                <Button
-                  variant="icon"
-                  tone="danger"
-                  disabled={busy}
-                  onPress={() => setConfirmTarget({ id: lesson.id, title: lesson.title })}
-                  accessibilityLabel={`Delete ${lesson.title}`}
-                >
-                  <TrashIcon size={18} color={theme.error} />
-                </Button>
-              </View>
-              <Muted>
-                {lesson.items.length} {lesson.items.length === 1 ? "item" : "items"} ·{" "}
-                {lesson.sessionCount}{" "}
-                {lesson.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
-                {new Date(lesson.created_at).toLocaleDateString()}
-              </Muted>
-              {lesson.items.length > 0 ? (
-                <Faint numberOfLines={1}>{lesson.items.join(" · ")}</Faint>
-              ) : null}
-            </View>
-          ))
+          lessons.map((lesson) => {
+            const title = lessonTitleOrFallback(lesson.title);
+            return (
+              <Pressable
+                key={lesson.id}
+                onPress={() => router.push(`/lessons/${lesson.id}`)}
+                accessibilityRole="link"
+                accessibilityLabel={`${title}, ${lesson.items.length} ${
+                  lesson.items.length === 1 ? "item" : "items"
+                }`}
+                style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+              >
+                <View style={styles.rowHead}>
+                  {/* Not a `Link` any more: the whole row navigates, and two nested routes to the
+                      same place is one too many. It was already `variant="plain"`, i.e. it never
+                      looked like a link — so this is a change of mechanism, not of appearance. */}
+                  <Body style={styles.rowTitle} numberOfLines={1}>
+                    {title}
+                  </Body>
+                  <Button
+                    variant="icon"
+                    tone="danger"
+                    disabled={busy}
+                    // The bin is 32pt inside a ~70pt target that navigates: without slop a near-miss
+                    // opens the lesson the learner was trying to delete.
+                    hitSlop={8}
+                    onPress={() => setConfirmTarget({ id: lesson.id, title })}
+                    accessibilityLabel={`Delete ${title}`}
+                  >
+                    <TrashIcon size={18} color={theme.error} />
+                  </Button>
+                </View>
+                <Muted>
+                  {lesson.items.length} {lesson.items.length === 1 ? "item" : "items"} ·{" "}
+                  {lesson.sessionCount}{" "}
+                  {lesson.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
+                  {new Date(lesson.created_at).toLocaleDateString()}
+                </Muted>
+                {lesson.items.length > 0 ? (
+                  <Faint numberOfLines={1}>{lesson.items.join(" · ")}</Faint>
+                ) : null}
+              </Pressable>
+            );
+          })
         )}
       </Panel>
 
@@ -325,6 +339,12 @@ function NewLessonForm({
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
     row: { paddingVertical: 0.6 * 16, borderBottomWidth: 1, borderBottomColor: t.border },
+    /**
+     * The row is a control now and owes the finger what `Button` already gives it. A background
+     * flash rather than `Button`'s opacity nudge: a whole row dimming reads as the list going away,
+     * where a tint reads as the row being picked.
+     */
+    rowPressed: { backgroundColor: t.sunken },
     rowHead: {
       flexDirection: "row",
       justifyContent: "space-between",

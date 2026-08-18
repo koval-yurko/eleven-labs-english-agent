@@ -7,6 +7,8 @@ import {
   itemsPath,
   type AddWordRequest,
   type AddWordResponse,
+  type DeleteWordRequest,
+  type DeleteWordResponse,
   type FavoriteRequest,
   type FavoriteResponse,
   type ItemDetailResponse,
@@ -86,4 +88,26 @@ export async function setFavorite(
     body: JSON.stringify({ normKey, isFavorite } satisfies FavoriteRequest),
   });
   if (!body.ok) throw new Error("That word could not be updated.");
+}
+
+/**
+ * Delete one word for good.
+ *
+ * Keyed by **id**, unlike `setFavorite` above — the one place in this module where reading the
+ * neighbouring function and copying its key would be wrong. `ItemRow` carries both, so the mistake
+ * is silent: a `norm_key` sent here matches no row and comes back `ok: false`.
+ *
+ * ⚠️ This is not the lesson’s `removeItem`. That detaches a word and keeps everything;
+ * this destroys the word, its membership in every lesson, and the practice statistics derived from
+ * those links. The caller must have confirmed it — see
+ * docs/2026-08-18-collection-and-lessons-list-fixes.md §4.
+ */
+export async function deleteWord(getToken: TokenSource, id: string): Promise<void> {
+  const body = await apiFetch<DeleteWordResponse>(API_V2_ROUTES.itemDelete, getToken, {
+    method: "POST",
+    body: JSON.stringify({ id } satisfies DeleteWordRequest),
+  });
+  // `ok: false` means no row matched — someone else’s id, or one already deleted. Surfaced
+  // rather than swallowed: the row is still on screen, so a silent success would be a lie.
+  if (!body.ok) throw new Error("That word could not be deleted.");
 }

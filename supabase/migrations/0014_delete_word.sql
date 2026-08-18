@@ -1,0 +1,51 @@
+-- 0014_delete_word.sql — the learner may delete a word outright.
+--
+-- See docs/2026-08-18-collection-and-lessons-list-fixes.md §4.
+--
+-- Almost nothing to do, because 0007 already built for it. `lesson_items.word_id` was declared
+-- `references words(id) on delete cascade` with the comment "deleting a word (nothing does yet)
+-- unlinks it from every lesson" — this is the migration where something finally does.
+--
+-- ---------------------------------------------------------------------------------------------
+-- Why a HARD delete, unlike a lesson
+-- ---------------------------------------------------------------------------------------------
+-- 0008 made lesson deletion SOFT so the learner's words and their practice credit survive it
+-- (docs/2026-07-17-delete-lesson-keep-words.md). That reasoning does not transfer: deleting a word
+-- is a request to lose exactly the things soft delete exists to preserve. What goes:
+--
+--   * the `words` row — text, norm_key, level, is_favorite, categories, and the enrichment payload
+--   * every `lesson_items` row referencing it, by the cascade — INCLUDING soft-removed ones, so the
+--     word's membership history in each lesson goes with it
+--   * its practice statistics: `owner_item_practice` is a view over those links, so practice_count
+--     and last_practiced_at are derived and disappear with them
+--
+-- What survives: `lesson_sessions` — transcripts, summaries and durations are keyed on lesson_id
+-- and never on a word, so no conversation is lost. And `lexicon`, which is shared reference data
+-- rather than the learner's rows.
+--
+-- A soft delete would ALSO have to change `resolve_words`, and that is the argument that settles it.
+-- `words` is `unique (owner_id, norm_key)` and `resolve_words` upserts on that constraint, so a
+-- soft-deleted row would still win the conflict: re-adding the word would `do update set text = …`
+-- on the dead row, leave `deleted_at` set, report `already-present`, and show the learner nothing.
+-- Making that correct means touching the one RPC the entire identity model rests on, plus a
+-- `deleted_at is null` filter in owner_items, owner_items_pending_level, owner_words_pending_details
+-- and owner_item_facets. Four views and the RPC, to buy an undo nothing asks for.
+--
+-- Consequence worth stating: re-adding the same text afterwards produces a NEW row, unlevelled and
+-- un-enriched, which the level and details jobs pick up on the write path like any new word.
+
+-- ---------------------------------------------------------------------------------------------
+-- The policy
+-- ---------------------------------------------------------------------------------------------
+-- Inert today, exactly like the `lessons owner update` policy 0007 added: every write goes through
+-- the service-role client, which bypasses RLS, and ownership is enforced in code (`deleteWord`
+-- filters on owner_id — that filter IS the gate). It exists so that the day the token-scoped client
+-- (src/lib/supabase/user-client.ts) is wired up, a missing DELETE policy looks like the deliberate
+-- omission it would be rather than a mystery bug.
+--
+-- No matching policy is needed on `lesson_items` for the cascade: a foreign-key cascade is executed
+-- by the constraint, not by the deleting role's query, and is not filtered by the referencing
+-- table's RLS.
+create policy "words owner delete"
+  on words for delete
+  using (owner_id = auth.jwt() ->> 'sub');

@@ -54,6 +54,16 @@ export const API_V2_ROUTES = {
   items: `${API_V2}/lesson-items`,
   /** Mark/unmark one word as a favorite. */
   itemFavorite: `${API_V2}/lesson-items/favorite`,
+  /**
+   * Delete one word outright — it leaves every lesson and loses its practice statistics.
+   *
+   * `POST` to a literal path rather than `DELETE /lesson-items/:id`, for one specific reason:
+   * `access-control-allow-methods` on this namespace is `GET,POST,OPTIONS` (`lib/http.ts`), so a
+   * DELETE verb would work on the phone (a React Native fetch sends no `Origin` and preflights
+   * nothing) and fail the preflight under `expo start --web` — a surface that exists, and the very
+   * one the CORS block was written for. It also puts this beside the write it most resembles.
+   */
+  itemDelete: `${API_V2}/lesson-items/delete`,
   /** Prefix suggestions for the add-word field. Shared reference data, not owner-scoped. */
   suggest: `${API_V2}/lexicon/suggest`,
 } as const;
@@ -508,6 +518,24 @@ export interface FavoriteRequest {
 /** `POST /api/v2/lesson-items/favorite` — 200. */
 export interface FavoriteResponse {
   /** False when no row matched — a key that is not the caller's. */
+  ok: boolean;
+}
+
+/**
+ * `POST /api/v2/lesson-items/delete` — the REQUEST body.
+ *
+ * Keyed by the word **id**, unlike its `favorite` sibling, which is keyed by `norm_key`. That
+ * asymmetry is deliberate rather than inherited: `setItemFavorite`'s signature predates the `words`
+ * table, while a delete has a real row to name, and naming it by id means a stale spelling in the
+ * client cannot resolve to a different word than the one the learner ticked.
+ */
+export interface DeleteWordRequest {
+  id: string;
+}
+
+/** `POST /api/v2/lesson-items/delete` — 200. */
+export interface DeleteWordResponse {
+  /** False when no row matched — an id that is not the caller's, or one already deleted. */
   ok: boolean;
 }
 

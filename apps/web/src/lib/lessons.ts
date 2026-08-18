@@ -6,6 +6,7 @@
 import { getServiceSupabase } from "./supabase/server";
 import { resolveWords } from "./words";
 import { wordInputKey } from "@tutor/shared/word-key";
+import { nextLessonTitle, normalizeLessonTitle } from "@tutor/shared/sync-ops";
 import type { TranscriptLine, TutorItem } from "@tutor/shared/tutor";
 import type { WordDetails } from "@tutor/shared/word-types";
 import type {
@@ -112,6 +113,39 @@ export async function getLessonById(
 }
 
 /**
+ * The title to store, defaulting a blank one to today's date — the last line of defence against a
+ * lesson nobody can name.
+ *
+ * `lessons.title` is `not null` but has no non-empty check, so `''` is a legal row that renders as
+ * an empty heading and an empty list row. A client is supposed to apply `nextLessonTitle` itself
+ * (both web paths do, via `defaultLessonTitle`, and both mobile paths do since
+ * docs/2026-08-18-collection-and-lessons-list-fixes.md §1) — but "the client already did it" is not
+ * a property a server may assume about a value it stores permanently, which is the same reasoning
+ * that puts the owner gate in code rather than in the caller.
+ *
+ * The query runs on the BLANK BRANCH ONLY, so the normal path is unchanged. It reads active titles
+ * only: a soft-deleted lesson is invisible, so reusing its title collides with nothing the learner
+ * can see.
+ *
+ * ⚠️ A create op queued offline and replayed days later gets a default stamped with the REPLAY
+ * date. That is why this is the net and not the fix.
+ */
+async function lessonTitleOrDefault(ownerId: string, title: string): Promise<string> {
+  const clean = normalizeLessonTitle(title);
+  if (clean) return clean;
+
+  const { data, error } = await getServiceSupabase()
+    .from("lessons")
+    .select("title")
+    .eq("owner_id", ownerId)
+    .is("deleted_at", null);
+  if (error) throw new Error(`lessonTitleOrDefault: ${error.message}`);
+
+  const taken = new Set(((data as { title: string }[] | null) ?? []).map((row) => row.title));
+  return nextLessonTitle(taken, new Date());
+}
+
+/**
  * Create a lesson with its initial items (one row each) and return its id. Ids are
  * client-supplied and the write is an **idempotent upsert-by-id** (INSERT … ON CONFLICT (id)
  * DO NOTHING): re-running a create — e.g. an offline-queued op replayed on reconnect — is a
@@ -122,7 +156,7 @@ export async function createLesson(ownerId: string, lesson: NewLesson): Promise<
   const { error } = await getServiceSupabase()
     .from("lessons")
     .upsert(
-      { id: lesson.id, owner_id: ownerId, title: lesson.title },
+      { id: lesson.id, owner_id: ownerId, title: await lessonTitleOrDefault(ownerId, lesson.title) },
       { onConflict: "id", ignoreDuplicates: true },
     );
   if (error) throw new Error(`createLesson: ${error.message}`);

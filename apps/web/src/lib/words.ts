@@ -72,3 +72,32 @@ export async function addWord(ownerId: string, rawText: string): Promise<AddWord
 
   return { status: word.created ? "added" : "already-present", id: word.id, text };
 }
+
+/**
+ * Delete one word outright — the only destructive write in the collection.
+ *
+ * The `owner_id` filter IS the ownership gate, as everywhere else in this layer: an id that is not
+ * the caller's matches zero rows and reports `false`. So does a second delete of the same id, which
+ * makes this idempotent — the same "I did nothing" answer, reported rather than thrown.
+ *
+ * ⚠️ **This destroys the word's practice history**, and that is not a side effect to be tidied away
+ * later. The `lesson_items` rows go with it by the FK cascade `0007` declared for exactly this
+ * purpose — including the soft-removed ones — and `owner_item_practice` is a view over those links,
+ * so `practice_count` and `last_practiced_at` are derived and vanish with them. `lesson_sessions`
+ * (the transcripts) are keyed on `lesson_id` and survive untouched. The UI is obliged to say so
+ * before it calls this; see docs/2026-08-18-collection-and-lessons-list-fixes.md §4.2.
+ *
+ * Hard, not soft, unlike `deleteLesson`. The reasoning is in `0014_delete_word.sql`, and the short
+ * version is that a soft-deleted row would still win `unique (owner_id, norm_key)` in
+ * `resolve_words` — so re-adding the word would silently do nothing.
+ */
+export async function deleteWord(ownerId: string, wordId: string): Promise<boolean> {
+  const { data, error } = await getServiceSupabase()
+    .from("words")
+    .delete()
+    .eq("owner_id", ownerId)
+    .eq("id", wordId)
+    .select("id");
+  if (error) throw new Error(`deleteWord: ${error.message}`);
+  return ((data as { id: string }[] | null) ?? []).length > 0;
+}

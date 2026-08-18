@@ -56,7 +56,7 @@ import {
   sameActivityState,
 } from "@/lib/lesson-activity-state";
 import { newId } from "@/lib/ids";
-import { fetchLessonItems, postOp } from "@/lib/lessons";
+import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import {
   clearJournal,
   clearPauseMarker,
@@ -1140,7 +1140,7 @@ export default function LessonScreen() {
 
   return (
     <Screen>
-      <H1>{detail.lesson.title}</H1>
+      <H1>{lessonTitleOrFallback(detail.lesson.title)}</H1>
       <Muted>
         Created {new Date(detail.lesson.created_at).toLocaleDateString()} ·{" "}
         <Link href="/lessons">← all lessons</Link>

@@ -33,6 +33,7 @@ export function Button({
   children,
   label,
   style,
+  hitSlop,
   accessibilityLabel,
 }: {
   /**
@@ -58,6 +59,14 @@ export function Button({
   /** For a glyph, or a glyph *and* a label: `.btn` is a flex row with a 0.4rem gap. */
   children?: ReactNode;
   style?: ViewStyle;
+  /**
+   * Extra touch area outside the box, in points. Not decoration: `icon` is 32pt square and
+   * `inline` has no box at all, both under the 44pt minimum — and an icon button nested inside a
+   * pressable ROW (the lessons list since
+   * docs/2026-08-18-collection-and-lessons-list-fixes.md §2) turns a near-miss into a navigation
+   * rather than into nothing, which is the worse failure.
+   */
+  hitSlop?: number;
   accessibilityLabel?: string;
 }) {
   const theme = useTheme();
@@ -81,6 +90,7 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      hitSlop={hitSlop}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: !!disabled }}

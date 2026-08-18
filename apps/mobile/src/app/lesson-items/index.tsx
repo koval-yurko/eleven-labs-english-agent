@@ -6,7 +6,12 @@ import {
   type ItemsQuery,
   type SortKey,
 } from "@tutor/shared/items-query";
-import { buildCreateLessonOp, MAX_ITEMS, MAX_LESSON_TITLE } from "@tutor/shared/sync-ops";
+import {
+  buildCreateLessonOp,
+  MAX_ITEMS,
+  MAX_LESSON_TITLE,
+  nextLessonTitle,
+} from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
 import {
   CEFR_LEVELS,
@@ -21,9 +26,9 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
 
 import { newId } from "@/lib/ids";
-import { addWord, fetchItems, setFavorite } from "@/lib/items";
+import { addWord, deleteWord, fetchItems, setFavorite } from "@/lib/items";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
-import { postOp } from "@/lib/lessons";
+import { fetchLessons, postOp } from "@/lib/lessons";
 import { useTheme } from "@/theme";
 import {
   Autocomplete,
@@ -33,18 +38,21 @@ import {
   Checkbox,
   Chip,
   ChipRow,
+  ConfirmDialog,
   ErrorText,
   H1,
   H2,
   Link,
   Muted,
   Panel,
+  PromptDialog,
   RefreshButton,
   Screen,
   Select,
   SortArrowIcon,
   StarIcon,
   TextField,
+  TrashIcon,
   radius,
   space,
   type,
@@ -133,7 +141,18 @@ export default function CollectionScreen() {
    * which is the order the words end up in the new lesson.
    */
   const [selected, setSelected] = useState<Map<string, string>>(new Map());
-  const [lessonTitle, setLessonTitle] = useState("");
+
+  /**
+   * Whether the "name this lesson" prompt is up.
+   *
+   * The title used to be a `TextField` living in the selection panel. It cannot stay there now that
+   * the panel is a bar pinned above the keyboard — so **Create lesson** opens a dialog and the
+   * value never lives on this screen at all. See §3.3 of the doc.
+   */
+  const [titlePromptOpen, setTitlePromptOpen] = useState(false);
+
+  /** Which row's delete is awaiting an answer — one dialog for the whole list, not one per row. */
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; text: string } | null>(null);
 
   useLoadingIndicator(data === null || busy);
 
@@ -179,7 +198,6 @@ export default function CollectionScreen() {
 
   function clearSelection() {
     setSelected(new Map());
-    setLessonTitle("");
   }
 
   /** Optimistic favorite: flip locally, revert if the write is refused. Keyed on `norm_key` (D66). */
@@ -205,15 +223,64 @@ export default function CollectionScreen() {
   }
 
   /**
+   * Delete a word for good — optimistic like the favorite above it, with two obligations that
+   * favouriting does not have.
+   *
+   * **The selection is pruned.** `selected` is deliberately not pruned when the FILTER changes (see
+   * its declaration), because a word scrolling out of a query is still selected. A word that no
+   * longer exists is a different case: left in the map it would be sent to `createFromSelection` as
+   * a text with no row behind it, and the new lesson would quietly resurrect it as a fresh word.
+   *
+   * **The optimistic drop is the whole feedback.** There is no server round trip to wait for and
+   * nothing else on the row changes, so a failure has to put the row back where it was — hence the
+   * snapshot rather than a refetch, which needs a network the failure suggests is missing.
+   */
+  async function removeWord(item: { id: string; text: string }) {
+    const snapshot = data;
+    setWriteError(null);
+    setData((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== item.id) } : prev));
+    setSelected((prev) => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Map(prev);
+      next.delete(item.id);
+      return next;
+    });
+    try {
+      await deleteWord(accessToken, item.id);
+    } catch (e) {
+      setData(snapshot);
+      setWriteError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
    * Create a lesson from the ticked words — the one place this screen writes a lesson, and it goes
    * through S5's proven path (`buildCreateLessonOp` + `postOp`) rather than growing a second one.
+   *
+   * ⚠️ The **title fallback is not optional**, and its absence here was a real bug: a blank box
+   * produced `title: ""`, which nothing downstream repairs (`applyOp` only trims and caps,
+   * `lessons.title` is `not null` but has no non-empty check) — so the lesson was written with a
+   * permanently invisible title. The lessons screen has always applied it; this screen could not
+   * copy the line because it has no lesson list to take `taken` from, so it fetches one — on the
+   * blank branch only, which is the only branch that needs it.
    */
-  async function createFromSelection() {
+  async function createFromSelection(rawTitle: string) {
     const texts = [...selected.values()].slice(0, MAX_ITEMS);
     if (texts.length === 0 || busy) return;
     setBusy(true);
     setWriteError(null);
-    const op = buildCreateLessonOp(newId(), lessonTitle, texts, newId);
+
+    let title = rawTitle.trim();
+    if (!title) {
+      // A failed fetch degrades to the bare date rather than to no title at all: a same-day
+      // duplicate is a cosmetic problem, an empty title is an unreachable lesson.
+      const taken = await fetchLessons(accessToken)
+        .then((lessons) => new Set(lessons.map((l) => l.title)))
+        .catch(() => new Set<string>());
+      title = nextLessonTitle(taken, new Date());
+    }
+
+    const op = buildCreateLessonOp(newId(), title, texts, newId);
     try {
       await postOp(accessToken, op);
       clearSelection();
@@ -235,6 +302,32 @@ export default function CollectionScreen() {
         setRefreshing(true);
         void load(query).finally(() => setRefreshing(false));
       }}
+      /*
+        The actions live outside the scroll container now — the whole point of the change. They
+        used to be a panel at the END of the page, which meant ticking a row at the top of a
+        70-row list and then scrolling past all of it to act on the tick.
+
+        One row, and it has to stay one row: it sits above the keyboard and it truncates the list
+        it acts on. That is what pushed the lesson-title field out into a dialog (§3.3), and it is
+        the constraint any further bulk action — deleting the selection, say — has to fit inside.
+      */
+      footer={
+        selected.size > 0 ? (
+          <View style={styles.selectionBar}>
+            <Body style={styles.selectionCount}>
+              {selected.size} selected
+              {selected.size > MAX_ITEMS ? ` (first ${MAX_ITEMS})` : ""}
+            </Body>
+            <Button
+              size="sm"
+              label={busy ? "Creating…" : "Create lesson"}
+              disabled={busy}
+              onPress={() => setTitlePromptOpen(true)}
+            />
+            <Chip label="Clear" onPress={clearSelection} />
+          </View>
+        ) : null
+      }
     >
       <H1>Words &amp; sentences</H1>
       <Muted>
@@ -390,35 +483,51 @@ export default function CollectionScreen() {
               selected={selected.has(item.id)}
               onToggle={() => toggleSelect(item.id, item.text)}
               onToggleFavorite={() => void toggleFavorite(item)}
+              onDelete={() => setConfirmTarget({ id: item.id, text: item.text })}
             />
           ))
         )}
       </Panel>
 
-      {selected.size > 0 ? (
-        <Panel style={styles.selection}>
-          <Body style={styles.selectionCount}>
-            {selected.size} selected
-            {selected.size > MAX_ITEMS ? ` (first ${MAX_ITEMS} used)` : ""}
-          </Body>
-          <TextField
-            value={lessonTitle}
-            onChangeText={setLessonTitle}
-            placeholder="Lesson title (optional)"
-            maxLength={MAX_LESSON_TITLE}
-            accessibilityLabel="New lesson title"
-            style={{ marginTop: space.row }}
-          />
-          <ButtonRow style={{ marginTop: space.row }}>
-            <Button
-              label={busy ? "Creating…" : "Create lesson"}
-              disabled={busy}
-              onPress={() => void createFromSelection()}
-            />
-            <Chip label="Clear" onPress={clearSelection} />
-          </ButtonRow>
-        </Panel>
-      ) : null}
+      {/*
+        Naming the lesson. `initialValue=""` on purpose rather than today's date pre-filled: an
+        empty box means "use the default", and `createFromSelection` is the one place that decides
+        what the default IS (it needs the taken titles to number a same-day duplicate, which this
+        dialog has no business fetching).
+      */}
+      <PromptDialog
+        open={titlePromptOpen}
+        onOpenChange={setTitlePromptOpen}
+        title={`New lesson from ${selected.size} ${selected.size === 1 ? "word" : "words"}`}
+        description="Leave it empty and it gets today's date."
+        label="New lesson title"
+        placeholder="Lesson title (optional)"
+        maxLength={MAX_LESSON_TITLE}
+        submitLabel="Create lesson"
+        onSubmit={(title) => void createFromSelection(title)}
+      />
+
+      {/*
+        One dialog for the whole list, driven by which row is pending.
+
+        The copy is NOT the lessons list's copy, and the difference is the point. That dialog
+        reassures — "Your words and their practice history stay in your collection" — because
+        deleting a lesson keeps both. This one has to warn, because deleting a word takes its
+        membership in every lesson and the practice statistics derived from those links with it.
+        The transcripts survive; the word's credit in them does not.
+      */}
+      <ConfirmDialog
+        open={confirmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTarget(null);
+        }}
+        title={confirmTarget ? `Delete “${confirmTarget.text}”?` : ""}
+        description="It leaves every lesson and loses its practice history and translation. This can’t be undone."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (confirmTarget) void removeWord(confirmTarget);
+        }}
+      />
     </Screen>
   );
 }
@@ -543,11 +652,13 @@ function ItemLine({
   selected,
   onToggle,
   onToggleFavorite,
+  onDelete,
 }: {
   item: ItemRow;
   selected: boolean;
   onToggle: () => void;
   onToggleFavorite: () => void;
+  onDelete: () => void;
 }) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -577,6 +688,7 @@ function ItemLine({
 
       <Button
         variant="icon"
+        hitSlop={4}
         onPress={onToggleFavorite}
         accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
       >
@@ -585,6 +697,19 @@ function ItemLine({
           state={item.is_favorite ? "filled" : "empty"}
           color={item.is_favorite ? theme.warn : theme.faint}
         />
+      </Button>
+
+      {/* Last in the row, as it is in the lessons list — the destructive control is the one the
+          thumb should have to travel to. `hitSlop` is small on purpose here: its neighbour is the
+          favourite star, so generous slop would trade a missed delete for an accidental one. */}
+      <Button
+        variant="icon"
+        tone="danger"
+        hitSlop={4}
+        onPress={onDelete}
+        accessibilityLabel={`Delete ${item.text}`}
+      >
+        <TrashIcon size={18} color={theme.error} />
       </Button>
     </View>
   );
@@ -621,12 +746,19 @@ const makeStyles = (t: Palette) =>
     },
 
     /**
-     * The web's selection bar is `position: sticky; bottom: 1rem` with a drop shadow. RN has no
-     * sticky, and a floating bar would have to live outside the scroll container — i.e. outside
-     * `Screen`. It stays a panel at the end of the page instead: the selection is visible in the
-     * rows above it either way, and a bar pinned over the list would cover the very rows being
-     * ticked on a phone-height screen.
+     * The pinned selection bar. `Screen`'s `footer` slot is what finally made this possible — see
+     * its docblock for why a flex sibling beats the absolute overlay the web's `position: sticky`
+     * suggests.
+     *
+     * `flexWrap` is the honest answer to a long count on a narrow phone: the bar grows to two rows
+     * rather than squeezing the buttons, and because it is a sibling of the scroll view rather than
+     * an overlay, growing costs the list height instead of covering it.
      */
-    selection: { borderColor: t.accent },
-    selectionCount: { fontWeight: type.weightBold },
+    selectionBar: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: space.row,
+    },
+    selectionCount: { flex: 1, minWidth: 0, fontWeight: type.weightBold },
   });

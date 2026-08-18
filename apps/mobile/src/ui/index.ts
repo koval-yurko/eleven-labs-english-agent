@@ -24,6 +24,7 @@ export { NavProgressBar } from "./NavProgressBar";
 export { beginNavigation, useLoadingIndicator, useNavigationPending } from "./nav-progress";
 export { ActionRow, RefreshButton } from "./RefreshButton";
 export { Panel } from "./Panel";
+export { PromptDialog } from "./PromptDialog";
 export { Screen } from "./Screen";
 export { Select, type SelectOption } from "./Select";
 export { Body, ErrorText, Faint, H1, H2, Muted, WarnText } from "./Text";

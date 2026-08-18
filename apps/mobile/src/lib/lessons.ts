@@ -19,6 +19,22 @@ import { newId } from "@/lib/ids";
  * each rebuild "post an op, read `applied`, decide whether that counted".
  */
 
+/**
+ * What to render for a lesson whose stored title is empty.
+ *
+ * Not a cosmetic nicety: `lessons.title` is `not null` but has no non-empty check, so `''` is a
+ * legal row — and a create path that forgot the `nextLessonTitle` fallback wrote a number of them
+ * (see docs/2026-08-18-collection-and-lessons-list-fixes.md §1). An empty title renders as an empty
+ * heading and an empty list row, i.e. a lesson the learner can see the metadata of but cannot name
+ * or find. The write path is fixed; this is what keeps the rows that predate the fix reachable.
+ *
+ * Deliberately NOT written back to the database: the row genuinely has no title, and inventing one
+ * on read is honest where inventing one on a background write would be a silent edit.
+ */
+export function lessonTitleOrFallback(title: string): string {
+  return title.trim() || "Untitled lesson";
+}
+
 export async function fetchLessons(getToken: TokenSource): Promise<LessonListItem[]> {
   const body = await apiFetch<unknown>(API_V2_ROUTES.lessons, getToken);
   if (!isLessonListResponse(body)) throw new Error("Malformed lessons response.");

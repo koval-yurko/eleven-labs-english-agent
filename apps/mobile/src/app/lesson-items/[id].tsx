@@ -1,17 +1,18 @@
 import { type Palette } from "@tutor/shared/theme";
 import type { ItemDetail, WordDetails } from "@tutor/shared/word-types";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
 
-import { fetchItem, setFavorite } from "@/lib/items";
+import { deleteWord, fetchItem, setFavorite } from "@/lib/items";
 import { useTheme } from "@/theme";
 import {
   ActionRow,
   Body,
   Button,
   ButtonRow,
+  ConfirmDialog,
   ErrorText,
   H1,
   Link,
@@ -20,6 +21,7 @@ import {
   RefreshButton,
   Screen,
   StarIcon,
+  TrashIcon,
   radius,
   space,
   type,
@@ -51,6 +53,8 @@ export default function WordDetailScreen() {
 
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
 
   useLoadingIndicator(item === null && loadError === null);
 
@@ -78,6 +82,25 @@ export default function WordDetailScreen() {
       await setFavorite(accessToken, item.norm_key, next);
     } catch {
       setItem((prev) => (prev ? { ...prev, is_favorite: !next } : prev));
+    }
+  }
+
+  /**
+   * Delete this word, then leave — the screen is about a row that no longer exists.
+   *
+   * NOT optimistic, unlike the collection list's copy of this: there is nothing to be optimistic
+   * about on a page whose only content is the word itself, and `router.back()` on a failed write
+   * would drop the learner on the list with the word still in it and no error anywhere.
+   */
+  async function remove() {
+    if (!item) return;
+    setWriteError(null);
+    try {
+      await deleteWord(accessToken, item.id);
+      // The collection refetches on mount, so the row is gone by the time it is looked at.
+      router.back();
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -145,6 +168,17 @@ export default function WordDetailScreen() {
             job is the only thing that ever writes it. */}
         {item.level ? <Muted style={styles.pill}>{item.level}</Muted> : null}
         <Muted>{item.kind}</Muted>
+        {/* Last in the row, as it is in every list row: the destructive control is the one the
+            thumb should have to travel to, and here it also keeps the level pill and the kind
+            beside the word they describe. */}
+        <Button
+          variant="icon"
+          tone="danger"
+          onPress={() => setConfirmOpen(true)}
+          accessibilityLabel={`Delete ${item.text}`}
+        >
+          <TrashIcon size={20} color={theme.error} />
+        </Button>
       </View>
 
       <Muted>{stats.join(" · ")}</Muted>
@@ -176,6 +210,22 @@ export default function WordDetailScreen() {
           <Muted>In no lesson right now.</Muted>
         )}
       </Panel>
+
+      {writeError ? (
+        <Panel tone="error">
+          <ErrorText>{writeError}</ErrorText>
+        </Panel>
+      ) : null}
+
+      {/* The same warning the collection list gives, because it is the same write. */}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`Delete “${item.text}”?`}
+        description="It leaves every lesson and loses its practice history and translation. This can’t be undone."
+        confirmLabel="Delete"
+        onConfirm={() => void remove()}
+      />
     </Screen>
   );
 }
