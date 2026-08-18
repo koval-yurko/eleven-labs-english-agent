@@ -4,12 +4,15 @@
  * below. Remove a version: delete its module + drop it from the array, then run `pnpm sync:agents`
  * (it will retire the corresponding ElevenLabs agent). See ../sync-agents.ts and ../agents.lock.json.
  */
+import { MIN_TURN_TIMEOUT_SECONDS } from "@tutor/shared/tutor";
+
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
 import words11 from "./words-1.1";
 import words12 from "./words-1.2";
 import words13 from "./words-1.3";
 import words14 from "./words-1.4";
+import words15 from "./words-1.5";
 
 export type { PromptVersion } from "./types";
 
@@ -37,7 +40,7 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
  * drives the version picker; it is the canonical ordering (the lockfile is an unordered map).
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13, words14];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13, words14, words15];
 
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {
@@ -51,6 +54,8 @@ export interface EffectiveAgentConfig {
   additionalLanguages: string[];
   /** Undefined = omit from the agent body, i.e. the platform's own -1 (unlimited). */
   maxTokens: number | undefined;
+  /** Undefined = omit from the agent body, i.e. the platform's own `normal`. */
+  turnEagerness: "patient" | "normal" | "eager" | undefined;
   maxDurationSeconds: number;
   turnTimeoutSeconds: number;
   silenceEndCallTimeoutSeconds: number;
@@ -61,6 +66,8 @@ export function effectiveConfig(
   v: PromptVersion,
   env: NodeJS.ProcessEnv = process.env,
 ): EffectiveAgentConfig {
+  const turnTimeoutSeconds = v.turnTimeoutSeconds ?? DEFAULT_TURN_TIMEOUT_SECONDS;
+  assertTurnTimeoutFloor(v.version, turnTimeoutSeconds);
   return {
     version: v.version,
     name: `english-words-tutor (${v.version})`,
@@ -72,11 +79,30 @@ export function effectiveConfig(
     // No default on purpose: an unset maxTokens must leave the older versions' agents exactly as
     // they were pinned. See types.ts.
     maxTokens: v.maxTokens,
+    turnEagerness: v.turnEagerness,
     maxDurationSeconds: v.maxDurationSeconds ?? DEFAULT_MAX_DURATION_SECONDS,
-    turnTimeoutSeconds: v.turnTimeoutSeconds ?? DEFAULT_TURN_TIMEOUT_SECONDS,
+    turnTimeoutSeconds,
     silenceEndCallTimeoutSeconds:
       v.silenceEndCallTimeoutSeconds ?? DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS,
   };
+}
+
+/**
+ * The floor a baked `turn_timeout` may not go under, checked here because `effectiveConfig` is the
+ * one place every sync path funnels through.
+ *
+ * A version that pins a timeout at or below the mobile heartbeat produces a held pause that no
+ * longer holds: the tutor re-engages between pings and teaches into a speaker the learner has
+ * silenced. That failure is invisible from the server, so it has to be impossible to deploy.
+ * See docs/2026-08-18-podcast-mode-tutor.md §3.
+ */
+function assertTurnTimeoutFloor(version: string, seconds: number): void {
+  if (seconds >= MIN_TURN_TIMEOUT_SECONDS) return;
+  throw new Error(
+    `${version}: turnTimeoutSeconds is ${seconds}s, below the ${MIN_TURN_TIMEOUT_SECONDS}s floor ` +
+      `that keeps the mobile held pause quiet (@tutor/shared/tutor). Raise it, or lower ` +
+      `TUTOR_HEARTBEAT_MS first and re-reason about the margin.`,
+  );
 }
 
 export function findVersion(version: string): PromptVersion | undefined {

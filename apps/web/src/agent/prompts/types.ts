@@ -39,10 +39,15 @@ export interface PromptVersion {
    * (ElevenLabs range 1–30). Defaults to DEFAULT_TURN_TIMEOUT_SECONDS.
    *
    * Pinned rather than inherited because a held pause depends on it: the mobile client keeps a
-   * paused conversation quiet by resetting this timer with a `user_activity` heartbeat every 3 s,
-   * and a platform default that moved would put the tutor back to talking into an empty room. The
-   * pinned value is the platform's own current default — this is about determinism, not tuning.
-   * It also governs LIVE teaching cadence, so do not tune it for pauses.
+   * paused conversation quiet by resetting this timer with a `user_activity` heartbeat every
+   * `TUTOR_HEARTBEAT_MS`, and a platform default that moved would put the tutor back to talking
+   * into an empty room. Pinning it is about determinism first — the value is ours, not inherited.
+   * It also governs LIVE teaching cadence, so do not tune it for pauses alone.
+   *
+   * It is ALSO the podcast pacing knob — words-1.5 pins 3 s so the tutor continues on its own after
+   * a short gap instead of appearing to wait — and lowering it is what makes the coupling above
+   * dangerous rather than theoretical. `MIN_TURN_TIMEOUT_SECONDS` (`@tutor/shared/tutor`) is the
+   * floor, enforced in `effectiveConfig`. See docs/2026-08-18-podcast-mode-tutor.md §3.
    */
   turnTimeoutSeconds?: number;
   /**
@@ -59,6 +64,17 @@ export interface PromptVersion {
    * the prompt asks for. See docs/2026-08-17-short-turns-and-chunked-pause.md §3 L2.
    */
   maxTokens?: number;
+  /**
+   * How readily the agent takes its turn once the learner stops speaking: `patient` waits longer,
+   * `eager` jumps in at the earliest opportunity. Omitted from the agent body when unset, leaving
+   * the platform default (`normal`) — which is what every version before words-1.5 runs.
+   *
+   * Distinct from `turnTimeoutSeconds`, and the two are set together in podcast mode: the timeout
+   * decides how fast the tutor resumes into SILENCE, this decides how easily it talks over a
+   * learner who is mid-sentence. A short timeout without `patient` is a tutor that interrupts.
+   * See docs/2026-08-18-podcast-mode-tutor.md §4.1.
+   */
+  turnEagerness?: "patient" | "normal" | "eager";
   /**
    * How long a conversation may go without the learner speaking before the platform **terminates**
    * it, in seconds; `-1` disables it. Defaults to DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS.

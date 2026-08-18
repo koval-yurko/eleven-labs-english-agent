@@ -24,6 +24,7 @@ import {
   PAUSE_RESUME_MESSAGE,
   PAUSE_STOP_MESSAGE,
   RESUME_MESSAGE,
+  TUTOR_HEARTBEAT_MS,
   UNHEARD_RESUME_MESSAGE,
   type ResumeCause,
   type TranscriptLine,
@@ -155,19 +156,17 @@ const PAUSE_COPY: Record<PauseReason, { title: string; body: string; cta: string
 };
 
 /**
- * How often a held pause pings `user_activity`.
+ * How often a held pause pings `user_activity` — see `TUTOR_HEARTBEAT_MS` for the reasoning.
  *
- * `turn_timeout` — "maximum wait time for the user's reply **before re-engaging the user**" —
- * defaults to **7 seconds**, and `user_activity` resets that timer. 3 s is three eighths of it, so a
- * single lost ping still lands inside the window (6 s < 7 s) and two do not: two consecutive losses
- * on a live data channel mean the line is in trouble, and the recovery for that is the drop path,
- * not a faster ping.
+ * It moved into `packages/shared` when words-1.5 took `turn_timeout` to 3 s for podcast pacing:
+ * the ping interval and the baked timeout are one mechanism, and a local constant reasoning about
+ * a 7-second window went stale the moment the window changed on the server.
  *
  * The ping itself can never report failure — `WebRTCConnection.sendMessage` warns and returns when
  * the room is gone, and swallows publish errors — so liveness is read from `status`, never from
- * this. See docs/2026-08-16-tutor-pause-hold-the-line.md §3 (F1, F3, F6) and §4.1.
+ * this. See docs/2026-08-18-podcast-mode-tutor.md §3.
  */
-const HEARTBEAT_MS = 3_000;
+const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
 
 type ItemEvent = { at: string; kind: "added" | "removed"; text: string };
 

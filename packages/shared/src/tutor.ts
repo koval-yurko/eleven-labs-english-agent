@@ -258,3 +258,39 @@ export function formatHeldResumeContext(pausedSeconds: number): string {
     secs < 90 ? `${secs} seconds` : `about ${Math.round(secs / 60)} minutes`;
   return `The learner is back — the lesson was paused for ${gap} and the conversation never ended. Continue exactly where you left off. Do not greet them again, do not re-introduce yourself, and do not repeat an item you have already taught unless they ask.`;
 }
+// ── the heartbeat contract ───────────────────────────────────────────────────────────────────
+
+/**
+ * How often a held pause pings `user_activity`, in milliseconds.
+ *
+ * A held pause keeps the tutor quiet by resetting `turn_timeout` — *"maximum wait time for the
+ * user's reply before re-engaging the user"* — before it can fire. So this interval and the
+ * `turnTimeoutSeconds` baked into the agent are ONE mechanism split across two deployments: the
+ * ping runs on the phone, the timeout lives inside an ElevenLabs agent, and if the ping is ever
+ * slower than the timeout a paused lesson starts teaching into a silenced speaker.
+ *
+ * It lived on the mobile screen as a comment reasoning about a 7-second timeout ("3 s is three
+ * eighths of it") until words-1.5 took the timeout to 3 s for podcast pacing and turned that margin
+ * into a race. It is here now because it is exactly the kind of agreement `packages/shared` exists
+ * to hold: no deploy of either side alone can fix a mismatch.
+ *
+ * 1 s against the `MIN_TURN_TIMEOUT_SECONDS` floor of 3 s means a single lost ping still lands
+ * inside the window (2 s < 3 s). Two consecutive losses on a live data channel mean the line is in
+ * trouble, and the recovery for that is the drop path, not a faster ping.
+ *
+ * See docs/2026-08-18-podcast-mode-tutor.md §3.
+ */
+export const TUTOR_HEARTBEAT_MS = 1_000;
+
+/**
+ * The lowest `turn_timeout` any baked prompt version may pin, in seconds.
+ *
+ * Enforced at sync time (`effectiveConfig` throws), because the alternative is a held pause that
+ * quietly stops holding — a failure nobody sees until a learner comes back from a pause to a tutor
+ * that has been talking to an empty room. ElevenLabs' own accepted range starts at 1; ours starts
+ * at THREE times `TUTOR_HEARTBEAT_MS`, and for a different reason: the ping has to survive losing
+ * one. At twice the heartbeat a single dropped ping is already a race, which is a margin only on
+ * paper — so the floor is the value words-1.5 actually pins, and going below it means lowering the
+ * heartbeat first and re-doing this arithmetic, not editing this number.
+ */
+export const MIN_TURN_TIMEOUT_SECONDS = 3;

@@ -88,6 +88,7 @@ function hashConfig(c: EffectiveAgentConfig): string {
     // existed keep the hashes already in the lockfile and sync doesn't PATCH them to send an
     // identical body.
     ...(c.maxTokens === undefined ? {} : { maxTokens: c.maxTokens }),
+    ...(c.turnEagerness === undefined ? {} : { turnEagerness: c.turnEagerness }),
     // Anything added to agentBody() MUST be added here too, or sync reports "unchanged" while the
     // live agent keeps the old value — the exact silent drift the lockfile exists to prevent.
     maxDurationSeconds: c.maxDurationSeconds,
@@ -130,6 +131,7 @@ function agentBody(c: EffectiveAgentConfig) {
       turn: {
         turn_timeout: c.turnTimeoutSeconds,
         silence_end_call_timeout: c.silenceEndCallTimeoutSeconds,
+        ...(c.turnEagerness === undefined ? {} : { turn_eagerness: c.turnEagerness }),
       },
       ...(c.additionalLanguages.length > 0 ? { language_presets } : {}),
     },
