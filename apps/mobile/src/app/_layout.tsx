@@ -10,6 +10,7 @@ import { Appearance } from "react-native";
 import { Auth0Provider } from "react-native-auth0";
 
 import { env } from "@/env";
+import { reconcileAtLaunch } from "@/lib/lesson-card";
 import { useScheme, useTheme } from "@/theme";
 import { NavProgressBar } from "@/ui";
 
@@ -49,6 +50,27 @@ export default function RootLayout() {
   useEffect(() => {
     Appearance.setColorScheme(scheme);
   }, [scheme]);
+
+  /**
+   * End any lock-screen card left behind by a previous run of the app.
+   *
+   * Apple asks for exactly this and the app never did it: "when the app launches the next time,
+   * check if any activities are still active … and end any Live Activity that's no longer
+   * relevant". At launch every card of ours qualifies — a tutor session lives in the process, so a
+   * new process means the session behind any surviving card is gone.
+   *
+   * Here rather than in the lesson screen, because this is the one component that mounts once per
+   * process and the lesson screen is the one that mounts once per lesson. That distinction is the
+   * whole of complaint 2 in
+   * docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md — §2.1 and §2.7.
+   *
+   * Empty dependency array, and it must stay that way: this is "once per process", not "whenever
+   * something changes". `reconcileAtLaunch` shares a queue with the card's other callers, so a
+   * lesson screen mounting immediately afterwards is ordered behind it rather than racing it.
+   */
+  useEffect(() => {
+    void reconcileAtLaunch();
+  }, []);
 
   return (
     <Auth0Provider

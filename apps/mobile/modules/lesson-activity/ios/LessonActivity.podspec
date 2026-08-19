@@ -57,7 +57,11 @@ Pod::Spec.new do |s|
   # The app target compiles the shared files too, so it needs what they import. Swift autolinks
   # these from `import`, but naming them is free and removes a class of link failure that would
   # otherwise only ever appear on EAS.
-  s.frameworks = 'ActivityKit', 'AppIntents'
+  # WidgetKit is for `ControlCenter.shared.reloadControls(ofKind:)` — the app has to tell the
+  # Control Center to redraw when the lesson phase changes, because a control's state is pulled
+  # rather than pushed. See docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md 1.6.
+  # MediaPlayer is the Now Playing surface — MPNowPlayingInfoCenter and MPRemoteCommandCenter.
+  s.frameworks = 'ActivityKit', 'AppIntents', 'WidgetKit', 'MediaPlayer'
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',

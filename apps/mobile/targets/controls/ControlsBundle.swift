@@ -8,6 +8,15 @@ struct ControlsBundle: WidgetBundle {
     if #available(iOS 16.2, *) {
       LessonActivityWidget()
     }
+    // The controls, iOS 18+. `WidgetBundleBuilder.buildLimitedAvailability` has an overload taking
+    // `some ControlWidget`, which is what makes an availability-gated control legal in a bundle
+    // whose deployment target is 16.4.
+    if #available(iOS 18.0, *) {
+      LessonPauseControl()
+    }
+    if #available(iOS 18.0, *) {
+      LessonMuteControl()
+    }
   }
 }
 
@@ -31,21 +40,18 @@ struct LessonActivityWidget: Widget {
           // layout budget said the header had to go. Nothing is lost — this is a better home
           // for it anyway. §5.4.
           if context.state.phase != .over {
-            Text(context.attributes.title)
+            Text(context.state.title)
               .font(.caption)
               .foregroundStyle(.secondary)
               .lineLimit(1)
           }
         }
         DynamicIslandExpandedRegion(.bottom) {
-          VStack(alignment: .leading, spacing: 8) {
-            WordGrid(
-              words: Array(context.state.words.prefix(4)),
-              overflow: context.state.overflow + max(0, context.state.words.count - 4),
-              focusIndex: context.state.focusIndex
-            )
-            ControlRow(context: context)
-          }
+          WordGrid(
+            words: Array(context.state.words.prefix(4)),
+            overflow: context.state.overflow + max(0, context.state.words.count - 4),
+            focusIndex: context.state.focusIndex
+          )
         }
       } compactLeading: {
         Image(systemName: icon(for: context.state.phase))

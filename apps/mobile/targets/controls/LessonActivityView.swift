@@ -1,14 +1,21 @@
 import ActivityKit
-import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// The lock-screen card.
+/// The lock-screen card — **read-only, deliberately.**
 ///
-/// Laid out against a ~160 pt cap, which six words and three buttons do not fit at full size. The
-/// compressions, in the order docs/2026-08-16-background-controls-lock-screen.md §5.4 chose them:
-/// no header, a two-column word grid, and icon-only buttons except where a label is load-bearing.
-/// Measured budget: ~32 (status) + ~51 (grid) + 44 (buttons) + padding.
+/// It used to carry three `Button(intent:)`s. They are gone, and not because they misbehaved:
+/// Apple gates buttons and toggles in every widget and Live Activity behind device unlock, at the
+/// widget host, before the intent runs. A button that needs the phone unlocked to pause a lesson is
+/// worse than no button, because it looks like it works. The actions moved to two Controls
+/// (`LessonControls.swift`), which are gated by the intent's own authentication policy instead.
+/// See docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md §1.1, §1.4.
+///
+/// What is left is what only a Live Activity could ever do and what needed no unlock in the first
+/// place: **reading**. The words of the lesson and one sentence saying what the session is doing.
+///
+/// Laid out against a ~160 pt cap. Without the button row there is room for the header the original
+/// budget had to drop (§5.4).
 struct LessonActivityView: View {
   let context: ActivityViewContext<LessonActivityAttributes>
 
@@ -16,6 +23,13 @@ struct LessonActivityView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(state.title)
+          .font(.footnote.weight(.medium))
+          .lineLimit(1)
+        Spacer(minLength: 8)
+      }
+
       Text(statusLine)
         .font(.footnote)
         .foregroundStyle(.secondary)
@@ -26,7 +40,7 @@ struct LessonActivityView: View {
 
       WordGrid(words: state.words, overflow: state.overflow, focusIndex: state.focusIndex)
 
-      ControlRow(context: context)
+      FooterRow(state: state, deepLink: state.deepLink)
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
@@ -91,64 +105,38 @@ struct WordGrid: View {
   }
 }
 
-/// Three controls, always in the same order so a control never moves under a thumb already reaching
-/// for it: the session verb, the pause verb, the microphone.
-struct ControlRow: View {
-  let context: ActivityViewContext<LessonActivityAttributes>
+/// The one row that is still interactive, and it is a `Link` rather than a `Button` in both of its
+/// states — links open the app, which is a thing a locked device is perfectly willing to do after
+/// an unlock, and neither of these actions can happen without a foreground process anyway.
+struct FooterRow: View {
+  let state: LessonActivityAttributes.ContentState
+  let deepLink: String
 
-  private var state: LessonActivityAttributes.ContentState { context.state }
-  private var isOver: Bool { state.phase == .over }
-  private var isHeld: Bool { state.phase == .held }
-  private var isMuted: Bool { state.phase == .muted }
+  private var url: URL { URL(string: deepLink) ?? URL(string: "about:blank")! }
 
   var body: some View {
-    HStack(spacing: 10) {
-      if isOver {
-        // Start is not End's inverse and cannot be an action: starting needs a conversation token,
-        // the microphone, and a foreground process, none of which a locked screen has. So it opens
-        // the app and the learner presses the real Start there. A Link, never a Button. §3.6.
-        Link(destination: URL(string: context.attributes.deepLink) ?? URL(string: "about:blank")!) {
-          Label("Start", systemImage: "arrow.up.forward.app.fill")
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity, minHeight: 40)
-        }
-        .buttonStyle(.bordered)
-      } else if #available(iOS 17.0, *) {
-        // End keeps its label through both states. It is the one button whose meaning a glyph
-        // cannot carry — a bare ◼ next to a live confirm window is how a lesson gets ended by
-        // accident — and the confirm state needs words by definition.
-        Button(intent: EndIntent()) {
-          Text(state.confirmingEnd ? "End lesson?" : "End")
-            .font(.subheadline.weight(state.confirmingEnd ? .semibold : .regular))
-            .frame(maxWidth: .infinity, minHeight: 40)
-        }
-        .buttonStyle(.bordered)
-        .tint(state.confirmingEnd ? .red : nil)
-
-        Button(intent: PauseIntent()) {
-          Image(systemName: isHeld ? "play.fill" : "pause.fill")
-            .frame(maxWidth: .infinity, minHeight: 40)
-        }
-        .buttonStyle(.bordered)
-
-        // Hidden during a hold, not disabled: the pause already owns the microphone, so the only
-        // thing this button could offer there is an unmute the app would have to refuse.
-        if !isHeld {
-          Button(intent: MuteIntent()) {
-            Image(systemName: isMuted ? "mic.slash.fill" : "mic.fill")
-              .frame(maxWidth: .infinity, minHeight: 40)
-          }
-          .buttonStyle(.bordered)
-          .tint(isMuted ? .orange : nil)
-        }
-      } else {
-        // iOS 16.4–16.x: `Button(intent:)` does not exist, so the card is a read-only display
-        // rather than nothing at all. Saying where the controls are beats showing dead buttons.
-        Text("Open the app to pause or mute")
-          .font(.caption)
-          .foregroundStyle(.tertiary)
-          .frame(maxWidth: .infinity, minHeight: 40)
+    if state.phase == .over {
+      // Start is not End's inverse and cannot be an action: starting needs a conversation token,
+      // the microphone, and a foreground process, none of which a locked screen has. So it opens
+      // the app and the learner presses the real Start there. §3.6.
+      Link(destination: url) {
+        Label("Start", systemImage: "arrow.up.forward.app.fill")
+          .font(.subheadline.weight(.medium))
+          .frame(maxWidth: .infinity, minHeight: 36)
       }
+      .buttonStyle(.bordered)
+    } else {
+      // The pointer at the Controls. It is here because Apple gives an app no way to install its
+      // own control, so the only lever left is telling the learner the controls exist and where —
+      // and this card is the one surface guaranteed to be in front of them mid-lesson.
+      //
+      // Honest about being a mitigation rather than a fix: if adoption is the problem §1.5 warns it
+      // might be, this line is not what will save it. The Now Playing fallback (§1.7) is.
+      Text("Add the Pause and Mute controls to your Lock Screen to use them without unlocking")
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 }

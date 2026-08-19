@@ -1,10 +1,10 @@
 /**
- * Checks for the pure half of the lock-screen controls (`src/lib/lesson-activity-state.ts`).
+ * Checks for the pure half of the lock-screen surfaces (`src/lib/lesson-activity-state.ts`).
  *
  * These exist because the intent resolver is the one piece of this feature whose bugs are invisible
- * on a device: a tap stream that resolves wrongly looks exactly like a tap that did not land. The
- * cases below are the ones the design argues about — a batch replayed after a background relaunch,
- * a confirm that must lapse, a reach for a different control mid-confirm.
+ * on a device: a press stream that resolves wrongly looks exactly like a press that did not land.
+ * The cases below are the ones the design argues about — a batch replayed after a background
+ * relaunch, and the state diff that decides whether a push reaches iOS at all.
  *
  * Run: `pnpm --filter mobile check:logic`
  *
@@ -12,8 +12,7 @@
  */
 import {
   buildActivityState,
-  END_CONFIRM_MS,
-  nextArmedAt,
+  nowPlayingSubtitle,
   phaseOf,
   resolveIntents,
   sameActivityState,
@@ -48,158 +47,101 @@ check(
 );
 
 // ── the diff that stops update storms ───────────────────────────────────────────────────────
-const base = buildActivityState({
+type StateInput = Parameters<typeof buildActivityState>[0];
+const baseInput: StateInput = {
+  title: "Phrasal verbs",
+  deepLink: "englishtutordev://lessons/abc",
   words: ["a", "b"],
   connected: true,
   held: false,
   muted: false,
   silenced: true,
-  confirmingEnd: false,
-});
+};
+const state = (overrides: Partial<StateInput> = {}) =>
+  buildActivityState({ ...baseInput, ...overrides });
+
+const base = state();
 check("null never matches", !sameActivityState(null, base));
-check(
-  "an identical rebuild matches",
-  sameActivityState(
-    base,
-    buildActivityState({
-      words: ["a", "b"],
-      connected: true,
-      held: false,
-      muted: false,
-      silenced: true,
-      confirmingEnd: false,
-    }),
-  ),
-);
-check(
-  "a changed word is a change",
-  !sameActivityState(
-    base,
-    buildActivityState({
-      words: ["a", "c"],
-      connected: true,
-      held: false,
-      muted: false,
-      silenced: true,
-      confirmingEnd: false,
-    }),
-  ),
-);
+check("an identical rebuild matches", sameActivityState(base, state()));
+check("a changed word is a change", !sameActivityState(base, state({ words: ["a", "c"] })));
 check(
   "losing the silence is a change — it rewrites the card's copy",
-  !sameActivityState(
-    base,
-    buildActivityState({
-      words: ["a", "b"],
-      connected: true,
-      held: false,
-      muted: false,
-      silenced: false,
-      confirmingEnd: false,
-    }),
-  ),
+  !sameActivityState(base, state({ silenced: false })),
+);
+
+// The two fields that used to be immutable attributes. They are the whole of why one activity can
+// serve every lesson (§2.3), which only works if a change to them is actually pushed.
+check(
+  "a different lesson title is a change",
+  !sameActivityState(base, state({ title: "Conditionals" })),
+);
+check(
+  "a different deep link is a change",
+  !sameActivityState(base, state({ deepLink: "englishtutordev://lessons/xyz" })),
+);
+check("the title reaches the pushed state", base.title === "Phrasal verbs");
+check("the deep link reaches the pushed state", base.deepLink === "englishtutordev://lessons/abc");
+
+// ── the Now Playing subtitle ────────────────────────────────────────────────────────────────
+// The one thing worth pinning: a pause that could NOT silence the tutor must say so here too. That
+// disclosure is the whole of §7.6, and a surface that quietly drops it is a surface claiming a
+// silence the app did not deliver.
+check(
+  "a silenced pause says the tutor is waiting",
+  nowPlayingSubtitle(state({ held: true, silenced: true })).includes("waiting"),
+);
+check(
+  "an unsilenced pause admits the tutor may still be audible",
+  nowPlayingSubtitle(state({ held: true, silenced: false })).includes("audible"),
+);
+check("a live session is not called paused", nowPlayingSubtitle(state()) === "Listening");
+check(
+  "an ended session never claims to be playing",
+  nowPlayingSubtitle(state({ connected: false })) === "Lesson ended",
 );
 
 // ── the intent resolver ─────────────────────────────────────────────────────────────────────
 const t = 1_000_000;
 
-const single = resolveIntents([{ action: "pause", at: t }], null, t);
-check("one pause tap toggles", single.togglePause && !single.end);
+const single = resolveIntents([{ action: "pause", at: t }]);
+check("one pause press toggles", single.togglePause);
 
-const twice = resolveIntents(
-  [
-    { action: "pause", at: t },
-    { action: "pause", at: t + 100 },
-  ],
-  null,
-  t + 200,
-);
-check("two pause taps cancel out", !twice.togglePause);
+const twice = resolveIntents([
+  { action: "pause", at: t },
+  { action: "pause", at: t + 100 },
+]);
+check("two pause presses cancel out", !twice.togglePause);
 
-const thrice = resolveIntents(
-  [
-    { action: "pause", at: t },
-    { action: "pause", at: t + 100 },
-    { action: "pause", at: t + 200 },
-  ],
-  null,
-  t + 300,
-);
-check("three pause taps are one flip", thrice.togglePause);
+const thrice = resolveIntents([
+  { action: "pause", at: t },
+  { action: "pause", at: t + 100 },
+  { action: "pause", at: t + 200 },
+]);
+check("three pause presses are one flip", thrice.togglePause);
 
-const armed = resolveIntents([{ action: "end", at: t }], null, t);
-check("a lone End arms, never ends", !armed.end && armed.armEndConfirm);
-check("the armed timestamp is remembered", nextArmedAt([{ action: "end", at: t }], armed) === t);
-
-const confirmed = resolveIntents([{ action: "end", at: t + 1000 }], t, t + 1000);
-check("a second End inside the window ends", confirmed.end);
-check("...and disarms", !confirmed.armEndConfirm);
-check("...and is not remembered", nextArmedAt([{ action: "end", at: t + 1000 }], confirmed) === null);
-
-const lapsed = resolveIntents(
-  [{ action: "end", at: t + END_CONFIRM_MS + 1 }],
-  t,
-  t + END_CONFIRM_MS + 1,
-);
-check("a second End after the window re-arms rather than ending", !lapsed.end && lapsed.armEndConfirm);
+const nothing = resolveIntents([]);
+check("an empty batch changes nothing", !nothing.togglePause && !nothing.toggleMute);
 
 // The batch that arrives together after a background relaunch — the case the design is built for.
-const batch = resolveIntents(
-  [
-    { action: "end", at: t },
-    { action: "end", at: t + 500 },
-  ],
-  null,
-  t + 600,
-);
-check("two End taps replayed together collapse to ONE end", batch.end);
+const mixed = resolveIntents([
+  { action: "pause", at: t },
+  { action: "mute", at: t + 100 },
+  { action: "pause", at: t + 200 },
+]);
+check("a mixed batch folds each control independently", !mixed.togglePause && mixed.toggleMute);
 
-const batchWide = resolveIntents(
-  [
-    { action: "end", at: t },
-    { action: "end", at: t + END_CONFIRM_MS + 1 },
-  ],
-  null,
-  t + END_CONFIRM_MS + 2,
+const orderA = resolveIntents([
+  { action: "mute", at: t + 500 },
+  { action: "pause", at: t },
+]);
+const orderB = resolveIntents([
+  { action: "pause", at: t },
+  { action: "mute", at: t + 500 },
+]);
+check(
+  "arrival order cannot matter — counting presses is order-independent by construction",
+  orderA.togglePause === orderB.togglePause && orderA.toggleMute === orderB.toggleMute,
 );
-check("two End taps too far apart do not end", !batchWide.end && batchWide.armEndConfirm);
-
-const interrupted = resolveIntents(
-  [
-    { action: "end", at: t },
-    { action: "mute", at: t + 100 },
-    { action: "end", at: t + 200 },
-  ],
-  null,
-  t + 300,
-);
-check("reaching for Mute mid-confirm cancels it", !interrupted.end);
-check("...and the trailing End re-arms", interrupted.armEndConfirm);
-check("...and the mute still happened", interrupted.toggleMute);
-
-const supersede = resolveIntents(
-  [
-    { action: "pause", at: t },
-    { action: "end", at: t + 100 },
-    { action: "end", at: t + 200 },
-  ],
-  null,
-  t + 300,
-);
-check("an end supersedes everything queued with it", supersede.end && !supersede.togglePause);
-
-const outOfOrder = resolveIntents(
-  [
-    { action: "end", at: t + 500 },
-    { action: "end", at: t },
-  ],
-  null,
-  t + 600,
-);
-check("the inbox is sorted before folding, so arrival order cannot matter", outOfOrder.end);
-
-const staleArm = resolveIntents([{ action: "pause", at: t }], t - 60_000, t);
-check("an arm from a minute ago is already dead", !staleArm.armEndConfirm);
 
 // `throw` rather than `process.exit`: this file is typechecked by the app's tsconfig, which has no
 // Node types by design (it is a React Native project). A non-zero exit is all the gate needs.

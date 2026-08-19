@@ -35,26 +35,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, StyleSheet, Text, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
 
-import {
-  addControlIntentListener,
-  drainControlIntents,
-  endActivity,
-  isActivityAvailable,
-  startActivity,
-  updateActivity,
-  type ActivityState,
-} from "@/modules/lesson-activity";
+import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
 
 import { apiFetch } from "@/api";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
-import {
-  buildActivityState,
-  END_CONFIRM_MS,
-  nextArmedAt,
-  OVER_CARD_LINGER_MS,
-  resolveIntents,
-  sameActivityState,
-} from "@/lib/lesson-activity-state";
+import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
+import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import {
@@ -586,16 +572,6 @@ export default function LessonScreen() {
    * which was safe only while Pause was the sole writer of the mute bit. §3.3 of the same document.
    */
   const wasMutedRef = useRef(false);
-  /**
-   * The armed End confirm, as a timestamp.
-   *
-   * A lock screen has no alerts, sheets or modals, so the strongest confirmation End can express is
-   * relabelling itself and waiting for a second tap. This is the only non-idempotent control on the
-   * card, and the only one that does not fire on first press. See
-   * docs/2026-08-16-background-controls-lock-screen.md §3.5.
-   */
-  const endArmedAtRef = useRef<number | null>(null);
-  const [confirmingEnd, setConfirmingEnd] = useState(false);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current !== null) {
@@ -721,112 +697,114 @@ export default function LessonScreen() {
   }, [persistSession, endSession]);
 
   /**
-   * The three controls, reachable from a callback that must not re-subscribe when they change
+   * The two controls, reachable from a callback that must not re-subscribe when they change
    * identity. Same idiom as the unmount guard below: runs whenever, reads the latest.
+   *
+   * Two, not three. End came off the lock screen with the card's buttons — it was the one
+   * non-idempotent control, its two-tap confirm existed only because a lock screen has no modals,
+   * and a Control has room for a pause and a mute. Ending a lesson is an in-app action again.
    */
   const latestControls = useRef({
     togglePause: () => {},
     toggleMute: () => {},
-    endWithPersist: async () => {},
   });
 
-  // ── the lock-screen card ───────────────────────────────────────────────────────────────────
+  // ── the lock-screen surfaces ───────────────────────────────────────────────────────────────
   /**
-   * The Live Activity: the lesson's words and its three controls, on a locked phone.
+   * What the locked phone shows and what it can do, which since 2026-08-18 are two different
+   * things on two different surfaces.
    *
-   * The rule that shapes everything here is that **Swift decides nothing**. The card is a
-   * projection of this screen's state, and its buttons only record that they were pressed — what a
-   * tap means is resolved below, against the state as it is when the tap is drained. Reimplementing
-   * any of it natively would fork the tutor wire contract `packages/shared` exists to keep
-   * singular, and would have to duplicate a mute that throws off-connection, a transcript mark that
-   * decides whether a resume owes a restatement, and a feature-detected reach that silences the
-   * tutor. See docs/2026-08-16-background-controls-lock-screen.md §4.2.
+   * The **card** (a Live Activity) is read-only now: the lesson's words and one sentence saying
+   * what the session is doing. Its three buttons are gone, and not because they misbehaved — Apple
+   * makes every button and toggle in every widget and Live Activity inactive until the device is
+   * unlocked, at the widget host, before an intent is ever consulted. A button that needs an unlock
+   * to pause is worse than no button, because it looks like it works.
+   *
+   * The **actions** moved to two Controls (`targets/controls/LessonControls.swift`) — Control
+   * Center and Lock Screen toggles for pause and mute, gated by their intent's own
+   * `authenticationPolicy`, which defaults to allowing a locked device. Same extension, same App
+   * Group inbox, same everything below this line.
+   * See docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md §1.1, §1.4–§1.6.
+   *
+   * The rule that shapes all of it is unchanged: **Swift decides nothing.** Both surfaces are
+   * projections of this screen's state, and a control press only records that it happened — what a
+   * press means is resolved below, against the state as it is when the press is drained.
+   * Reimplementing any of it natively would fork the tutor wire contract `packages/shared` exists
+   * to keep singular, and would have to duplicate a mute that throws off-connection, a transcript
+   * mark that decides whether a resume owes a restatement, and a feature-detected reach that
+   * silences the tutor. §4.2.
    */
   const activityWords = useMemo(() => active.map((item) => item.text), [active]);
+  /**
+   * Built here, not in Swift: the scheme is per-variant (englishtutordev / …preview / …) and
+   * expo-linking already knows which one this build is. §3.6.
+   */
+  const activityDeepLink = useMemo(() => Linking.createURL(`lessons/${lessonId}`), [lessonId]);
   const activityState = useMemo(
     () =>
       buildActivityState({
+        // The same fallback the screen heading uses, so a lesson with no title is named the
+        // same way in both places rather than "Untitled lesson" here and "Lesson" on the card.
+        title: lessonTitleOrFallback(detail?.lesson.title ?? ""),
+        deepLink: activityDeepLink,
         words: activityWords,
         connected,
         held,
         muted: isMuted,
         silenced,
-        confirmingEnd,
       }),
-    [activityWords, connected, held, isMuted, silenced, confirmingEnd],
+    [detail?.lesson.title, activityDeepLink, activityWords, connected, held, isMuted, silenced],
   );
 
-  /** The last state actually pushed, so an unchanged render does not reach iOS at all (§7.5). */
-  const pushedRef = useRef<ActivityState | null>(null);
   /**
-   * Whether a card exists — three states, not a boolean, because `start` is asynchronous and the
-   * window in between is real. Without `"starting"` a second state change arriving before the first
-   * `start` resolves would see "no card" and request another one.
+   * Whether this mount has already asked for a card.
+   *
+   * It is NOT a record of whether a card exists — that lives in `@/lib/lesson-card`, at module
+   * scope, because a Live Activity outlives this screen, this navigation stack and this process,
+   * and a per-screen ref that starts at "no card" on every mount is precisely how the app came to
+   * believe in one card per lesson while the system was showing four (§2.1).
+   *
+   * What it decides is which of the two entry points to use. `ensureCard` may create a card and
+   * clears the "the learner swiped it away" latch, so it belongs to a deliberate session start;
+   * `pushCard` only ever updates one that already exists. Getting that the wrong way round would
+   * put a dismissed card back on the lock screen on the next word the learner adds.
    */
-  const cardRef = useRef<"none" | "starting" | "live">("none");
+  const cardRequestedRef = useRef(false);
 
   useEffect(() => {
-    if (!isActivityAvailable()) return;
-    if (cardRef.current === "starting") return;
-    if (sameActivityState(pushedRef.current, activityState)) return;
-    const state = activityState;
-    pushedRef.current = state;
-
-    // Only a live session opens a card. `phase: "over"` with no card is not a lesson that ended —
-    // it is a lesson that has not begun, and there is nothing to show.
-    if (cardRef.current === "none" && state.phase === "over") return;
-
-    void (async () => {
-      if (cardRef.current === "none") {
-        cardRef.current = "starting";
-        const id = await startActivity(
-          detail?.lesson.title ?? "Lesson",
-          // Built here, not in Swift: the scheme is per-variant (englishtutordev / …preview / …)
-          // and expo-linking already knows which one this build is. §3.6.
-          Linking.createURL(`lessons/${lessonId}`),
-          state,
-        );
-        // Keyed off the RESULT, never off having made the call. iOS can refuse — activities are
-        // switchable off per app and the system caps how many are live — and a refusal recorded as
-        // success means pushing updates at nothing for the rest of the lesson.
-        cardRef.current = id === null ? "none" : "live";
-        if (id === null) pushedRef.current = null;
-        return;
-      }
-      const reached = await updateActivity(state);
-      if (!reached) {
-        // The card is gone and we were not told: the system ended it, or the learner swiped it
-        // away. Forget it, so the next state change starts a fresh one rather than shouting into
-        // a dismissed card for the rest of the lesson.
-        cardRef.current = "none";
-        pushedRef.current = null;
-      }
-    })();
-  }, [activityState, detail?.lesson.title, lessonId]);
+    if (activityState.phase === "over") {
+      // The card outlives its session, because that is where `Start` lives (§3.6). The singleton
+      // owns the linger and the teardown; all this owes it is the final state.
+      cardRequestedRef.current = false;
+      pushCard(activityState);
+      return;
+    }
+    if (!cardRequestedRef.current) {
+      cardRequestedRef.current = true;
+      ensureCard(activityState);
+      return;
+    }
+    pushCard(activityState);
+  }, [activityState]);
 
   /**
-   * Taps, resolved.
+   * Presses, resolved.
    *
-   * The inbox — App Group `UserDefaults`, written by the intents — is the ONLY source of truth for
-   * a press. The native event is a nudge to drain it, never a second delivery path: the inbox is
-   * what survives the app having been terminated when the button was pressed, so making it the sole
-   * channel means one path to get right instead of two that can disagree (§4.3).
+   * The inbox — App Group `UserDefaults`, written by the control intents — is the ONLY source of
+   * truth for a press. The native event is a nudge to drain it, never a second delivery path: the
+   * inbox is what survives the app having been terminated when a control was pressed, so making it
+   * the sole channel means one path to get right instead of two that can disagree (§4.3).
    *
    * Draining also happens on every foreground transition, for exactly that case.
+   *
+   * The controls are toggles and do know which way they were thrown, but what reaches here is still
+   * an untyped press count. Deliberately — see `resolveIntents`.
    */
   const drainIntents = useCallback(() => {
     const intents = drainControlIntents();
     if (intents.length === 0) return;
-    const now = Date.now();
-    const resolved = resolveIntents(intents, endArmedAtRef.current, now);
-    endArmedAtRef.current = nextArmedAt(intents, resolved);
-    setConfirmingEnd(resolved.armEndConfirm);
-
+    const resolved = resolveIntents(intents);
     const act = latestControls.current;
-    if (resolved.end) {
-      void act.endWithPersist();
-      return;
-    }
     if (resolved.togglePause) act.togglePause();
     if (resolved.toggleMute) act.toggleMute();
   }, []);
@@ -835,66 +813,26 @@ export default function LessonScreen() {
     latestControls.current = {
       togglePause: () => (heldRef.current ? releaseSession() : holdSession()),
       toggleMute,
-      endWithPersist,
     };
   });
-
-  /**
-   * Tearing the card down, which is deliberately NOT what happens when the session ends.
-   *
-   * The card outlives its session because that is where `Start` lives (§3.6) — so the safety comes
-   * from the state, not from the teardown: `phase: "over"` renders every control disabled and the
-   * third button as a deep link, so a tap on a stale card can only open the app. It cannot mute a
-   * conversation that is gone or hang one up twice.
-   *
-   * The card is then dismissed when the learner comes back to the app, or after a window if they
-   * never do. The ordering matters and is the one thing here that must not be swapped: the state
-   * push always lands before the dismissal, because a card torn down without it leaves a snapshot
-   * with live-looking buttons on screen for the length of the system's animation. §7.1.
-   */
-  const dismissActivity = useCallback(() => {
-    if (cardRef.current === "none") return;
-    cardRef.current = "none";
-    pushedRef.current = null;
-    void endActivity();
-  }, []);
-
-  useEffect(() => {
-    if (activityState.phase !== "over" || cardRef.current === "none") return;
-    const timer = setTimeout(dismissActivity, OVER_CARD_LINGER_MS);
-    return () => clearTimeout(timer);
-  }, [activityState.phase, dismissActivity]);
 
   useEffect(() => {
     const subscription = addControlIntentListener(drainIntents);
     const appStateSub = AppState.addEventListener("change", (next) => {
       if (next !== "active") return;
       drainIntents();
-      // They are back in the app: the lock-screen card has no job left, and the only reason it was
-      // still up was to offer a way in.
-      if (statusRef.current !== "connected") dismissActivity();
+      // They are back in the app: the card has no job left, and the only reason it was still up was
+      // to offer a way in.
+      if (statusRef.current !== "connected") void dismissCard();
     });
-    // A tap that landed while this screen was mounting has already been recorded; draining once at
-    // mount is what makes the inbox a queue rather than a stream nobody was listening to.
+    // A press that landed while this screen was mounting has already been recorded; draining once
+    // at mount is what makes the inbox a queue rather than a stream nobody was listening to.
     drainIntents();
     return () => {
       subscription.remove();
       appStateSub.remove();
     };
-  }, [drainIntents, dismissActivity]);
-
-  /**
-   * An armed confirm has to lapse on its own, or a lock-screen card left showing "End lesson?" is a
-   * one-tap teardown waiting for a pocket. The timer only ever DISARMS — it can never end anything.
-   */
-  useEffect(() => {
-    if (!confirmingEnd) return;
-    const timer = setTimeout(() => {
-      endArmedAtRef.current = null;
-      setConfirmingEnd(false);
-    }, END_CONFIRM_MS);
-    return () => clearTimeout(timer);
-  }, [confirmingEnd]);
+  }, [drainIntents]);
 
   /**
    * Proactive kickoff: `first_message` is empty, so the instant we connect we send a hidden user
@@ -943,8 +881,11 @@ export default function LessonScreen() {
   useEffect(
     () => () => {
       latest.current.stopHeartbeat();
-      // A card for a screen that no longer exists has nothing behind its buttons.
-      void endActivity();
+      // A card for a screen that no longer exists has nothing behind its controls: the session is
+      // ended a few lines below, and a lock-screen toggle for a lesson that is over is worse than
+      // no toggle. `dismissCard` ends every activity of ours, not the one this mount thinks it
+      // owns — which is also how a duplicate left by an older build finally goes away.
+      void dismissCard();
       if (statusRef.current === "connected") {
         // A held pause becomes a parked one rather than an End: the learner never pressed End, and
         // `onDisconnect` reads this flag to leave the Paused card behind for their return.

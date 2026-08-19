@@ -14,11 +14,18 @@
  * So: empty object = "yes, entitlements, take them from the app". Naming the group here instead
  * would work but would put it in two places, and a mismatch between them does not error either.
  *
- * `deploymentTarget` is 16.4 rather than the plugin's 18.0 default and rather than 17.0: 16.4 is the
- * floor `expo-modules-core` already imposes on the app, and this target must not raise it. The
- * interactive buttons need 17.0 and are gated with `if #available` inside the view, so a 16.4 device
- * gets a readable card without buttons instead of no card at all.
- * See docs/2026-08-16-background-controls-lock-screen.md §2.
+ * `deploymentTarget` is 16.4 rather than the plugin's 18.0 default: 16.4 is the floor
+ * `expo-modules-core` already imposes on the app, and this target must not raise it. The card is a
+ * Live Activity (16.2) and the two Controls are iOS 18, gated with `@available` in
+ * `LessonControls.swift` and with `if #available` in the widget bundle — so a 16.4 device gets a
+ * readable card and no controls, rather than no card at all.
+ *
+ * The card carries no interactive buttons any more, which is why nothing here mentions 17.0:
+ * buttons inside a widget or Live Activity are inactive until the device is unlocked, so they were
+ * removed rather than gated. The actions live on the Controls instead, which are gated by their
+ * intent's own authentication policy.
+ * See docs/2026-08-16-background-controls-lock-screen.md §2 and
+ * docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md §1.1, §1.4.
  *
  * @type {import('@bacons/apple-targets/app.plugin').Config}
  */
@@ -31,6 +38,7 @@ module.exports = {
   entitlements: {},
   displayName: "Lesson controls",
   deploymentTarget: "16.4",
-  // ActivityKit for the Live Activity itself, AppIntents for the buttons inside it.
+  // ActivityKit for the Live Activity, AppIntents for the control intents, WidgetKit for the
+  // ControlWidget types themselves.
   frameworks: ["SwiftUI", "WidgetKit", "ActivityKit", "AppIntents"],
 };
