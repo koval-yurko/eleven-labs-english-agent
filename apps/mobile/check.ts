@@ -20,6 +20,7 @@ import {
   ACTIVITY_WORD_WINDOW,
 } from "./src/lib/lesson-activity-state";
 import { itemLine } from "@tutor/shared/lesson-types";
+import { tutorErrorMessage } from "./src/lib/tutor-error";
 
 let failures = 0;
 function check(name: string, ok: boolean) {
@@ -55,6 +56,43 @@ check(
   "the line carries no number — both surfaces number by position",
   !/^\d/.test(itemLine({ text: "ephemeral", translationRu: "мимолётный" })),
 );
+
+// ── what an SDK error says on screen ────────────────────────────────────────────────────────
+// The case that motivated this: on 2026-08-20 the ElevenLabs account hit its quota, the platform
+// sent an `error_event` with NO message, and the app reported the result as a possible microphone
+// problem. The first two checks are that regression.
+// The property under test is the absence of the HINT, not the absence of the word: the server
+// branch does mention the microphone, to rule it out. Asserting on the word alone would forbid the
+// one sentence that undoes the original confusion.
+const MIC_HINT = "if you haven't allowed the microphone";
+
+const quotaish = tutorErrorMessage("Server error: This request exceeds your quota limit.");
+check("a quota error names credits", quotaish.includes("out of ElevenLabs credits"));
+check("a quota error drops the microphone hint", !quotaish.includes(MIC_HINT));
+
+const bare = tutorErrorMessage("Server error: Unknown error");
+check("a bare server error drops the microphone hint", !bare.includes(MIC_HINT));
+check("a bare server error rules the microphone out", bare.includes("not a problem with this phone"));
+check("a bare server error still points somewhere", bare.includes("credits"));
+
+const withContext = tutorErrorMessage("Server error: Unknown error", {
+  errorType: "quota_exceeded",
+  code: 429,
+  debugMessage: "agent rejected",
+});
+check("context is surfaced, not dropped", withContext.includes("quota_exceeded"));
+check("a numeric code survives", withContext.includes("code 429"));
+check("debug text survives", withContext.includes("agent rejected"));
+
+// The hint is not deleted, only scoped — a denied microphone is still the likeliest cause of an
+// error that did NOT come from the far end, and that is the one place it belongs.
+const local = tutorErrorMessage("Could not start audio");
+check("a local error keeps the microphone hint", local.includes(MIC_HINT));
+check("a local error is not called a server refusal", !local.includes("refused the session"));
+
+// `context` is typed `any` by the SDK, so junk must not reach the screen as "[object Object]".
+const junk = tutorErrorMessage("Could not start audio", { errorType: {}, code: "", debugMessage: 0 });
+check("unusable context fields are ignored", !junk.includes("[object Object]") && !junk.includes("()"));
 
 // ── the phase ───────────────────────────────────────────────────────────────────────────────
 check("held outranks muted", phaseOf({ connected: true, held: true, muted: true }) === "held");

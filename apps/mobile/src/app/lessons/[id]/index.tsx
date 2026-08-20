@@ -13,6 +13,7 @@ import {
 import { itemLine } from "@tutor/shared/lesson-types";
 import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
 import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
+import { clientDedupeKey } from "@tutor/shared/word-key";
 import { type Palette } from "@tutor/shared/theme";
 import {
   ABORTED_RESUME_MESSAGE,
@@ -40,6 +41,8 @@ import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-
 
 import { apiFetch } from "@/api";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
+import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
+import { tutorErrorMessage } from "@/lib/tutor-error";
 import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
 import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
 import { newId } from "@/lib/ids";
@@ -54,6 +57,8 @@ import {
 } from "@/lib/session-journal";
 import { useTheme } from "@/theme";
 import {
+  Autocomplete,
+  type AutocompleteOption,
   Body,
   Button,
   ButtonRow,
@@ -67,7 +72,6 @@ import {
   Panel,
   Screen,
   Select,
-  TextField,
   space,
   type,
   useLoadingIndicator,
@@ -110,39 +114,23 @@ import {
  *
  * `reason: "user"` produces NO entry here on purpose: the learner pressed End and does not need to
  * be told what they just did. And there is no `"background"` — that failure cannot happen (S1).
+ *
+ * **This used to drive a panel per reason** — "The tutor ended the session" with a Continue
+ * practising / Start fresh instead pair, and three siblings for the other reasons. The panel is
+ * gone (2026-08-21): the button row above it already offers Start, Resume, Pause and End, so the
+ * panel was a second set of session controls sitting under the first, and its CTA said the same
+ * thing as the button one line up.
+ *
+ * What survives is the DISTINCTION, which two things still read: only `"paused"` puts a Resume
+ * button in that row, and only `"paused"` gets its own status line. The other three exist to not
+ * be `"paused"` — they are the difference between "you stopped this" and "this stopped", and the
+ * resume context they carry is spent by the next Start either way.
  */
 type PauseReason =
   | "paused" // the learner pressed Pause — the ONE entry here that is an intent, not an accident
   | "dropped" // reason: "error" — the connection failed (network, audio graph, LiveKit)
   | "ended" // reason: "agent" — the tutor or the server ended it (max_duration_seconds is 1800)
   | "recovered"; // a journal from a previous run was found at mount
-
-const PAUSE_COPY: Record<PauseReason, { title: string; body: string; cta: string }> = {
-  paused: {
-    // No apology and no explanation of what happened: the learner did this on purpose and knows it.
-    // What they cannot see is that the conversation was SAVED and the tutor will carry on, so that
-    // is the only thing this says.
-    title: "Paused",
-    body: "The tutor is waiting. Everything said so far is saved — pick up where you stopped whenever you're ready.",
-    cta: "Resume session",
-  },
-  dropped: {
-    title: "The session dropped",
-    body: "The connection to the tutor failed. What you had already said was saved — pick up where you stopped whenever you're ready.",
-    cta: "Resume session",
-  },
-  ended: {
-    // Not an apology: reaching the agent's 30-minute cap is the tutor hanging up politely.
-    title: "The tutor ended the session",
-    body: "That conversation is finished and saved. You can start another one with the same words — it will carry on from where this left off.",
-    cta: "Continue practising",
-  },
-  recovered: {
-    title: "Your last session ended unexpectedly",
-    body: "The transcript below was recovered and saved to this lesson's history. You can carry on from where it stopped.",
-    cta: "Continue that session",
-  },
-};
 
 /**
  * How often a held pause pings `user_activity` — see `TUTOR_HEARTBEAT_MS` for the reasoning.
@@ -227,6 +215,10 @@ export default function LessonScreen() {
   const [itemsBusy, setItemsBusy] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  /** The add field's own outcome line — "added", "already here", "full". Errors use `itemsError`. */
+  const [addFeedback, setAddFeedback] = useState<{ tone: "ok" | "warn"; message: string } | null>(
+    null,
+  );
   /**
    * What a failed write left behind: the optimistic state it wanted and the op that would produce
    * it. The ARGUMENTS rather than a closure over `writeItems`, because they are exactly what a
@@ -262,8 +254,8 @@ export default function LessonScreen() {
 
   /** Optimistic apply, then re-read; snapshot back on failure and keep the op for a retry (§3.2). */
   const writeItems = useCallback(
-    async (next: LessonItem[], run: () => Promise<void>) => {
-      if (itemsBusy) return;
+    async (next: LessonItem[], run: () => Promise<void>): Promise<boolean> => {
+      if (itemsBusy) return false;
       const snapshot = items;
       setItemsBusy(true);
       setItemsError(null);
@@ -272,10 +264,12 @@ export default function LessonScreen() {
         await run();
         retryRef.current = null;
         await load();
+        return true;
       } catch (e) {
         setItems(snapshot);
         retryRef.current = { next, run };
         setItemsError(e instanceof Error ? e.message : String(e));
+        return false;
       } finally {
         setItemsBusy(false);
       }
@@ -283,23 +277,79 @@ export default function LessonScreen() {
     [itemsBusy, items, load],
   );
 
-  const room = Math.max(0, MAX_ITEMS - active.length);
-  const atCap = room === 0;
+  const atCap = active.length >= MAX_ITEMS;
 
-  async function addItems() {
+  /**
+   * The dedupe keys of everything already in this lesson, so a suggestion can say so before it is
+   * tapped.
+   *
+   * `clientDedupeKey` and not something local: it is the exact key `planNewItems` will use to
+   * decide whether this word is a duplicate, so the marker on the row and the behaviour of the
+   * button cannot disagree. It is deliberately weaker than the Postgres identity — it may fail to
+   * mark a word the server would merge, never the reverse (see the invariant in `word-key.ts`),
+   * which is the safe direction: an unmarked duplicate is caught by `buildAddItemsOp` and reported.
+   */
+  const activeKeys = useMemo(
+    () => new Set(active.map((item) => clientDedupeKey(item.text))),
+    [active],
+  );
+
+  /**
+   * Prefix suggestions for the add field — the same lexicon the collection's Add-a-word box uses.
+   *
+   * Memoised because `Autocomplete` re-runs its debounce effect whenever `search` changes identity:
+   * an inline arrow would restart the timer on every keystroke's render and the request would never
+   * fire. `activeKeys` is in the dependency list and is safe there — it changes when the lesson's
+   * items change, which cannot happen while the learner is mid-word.
+   *
+   * `marked` means "already in THIS LESSON", not the `owned` flag the API returns ("already in your
+   * collection"). On this screen the collection is not the thing the learner is editing, and a word
+   * they own but have not put in this lesson is exactly what they came here to add — marking it
+   * would warn them off the correct action.
+   */
+  const searchWords = useCallback(
+    async (query: string): Promise<AutocompleteOption[]> => {
+      const suggestions = await fetchSuggestions(accessToken, query);
+      return suggestions.map((s) => ({
+        key: s.text,
+        label: s.text,
+        badge: s.level,
+        // Up to three glosses come back; two is what fits at phone width.
+        detail: s.ru.slice(0, 2).join(", "),
+        marked: activeKeys.has(clientDedupeKey(s.text)),
+      }));
+    },
+    [accessToken, activeKeys],
+  );
+
+  /**
+   * Add ONE word to this lesson, from the suggestion field.
+   *
+   * The write path is unchanged and deliberately so: `buildAddItemsOp` → `postOp`, i.e. the outbox
+   * algebra, which is what attaches the word to the lesson. The collection's own `addWord` route
+   * looks like the same action and is not — it creates a word in NO lesson, which on this screen
+   * would add nothing to the list the learner is looking at.
+   *
+   * `buildAddItemsOp` owns the whole rule: normalize, drop blanks, drop anything already active,
+   * and number what survives from `max(position) + 1` — a removed item leaves a gap and reusing its
+   * position would collide. A `null` op therefore means "already in this lesson", which is now
+   * SAID rather than swallowed: with a bulk textarea a silently-skipped duplicate was one line of
+   * several, but when the learner adds one word at a time an empty response reads as a dead button.
+   */
+  async function addWordToLesson() {
     if (!items) return;
-    const texts = draft
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, room);
-    // `buildAddItemsOp` owns the whole rule: normalize, drop blanks, drop anything already active or
-    // repeated in the batch, and number what survives from `max(position) + 1` — a removed item
-    // leaves a gap and reusing its position would collide.
-    const op = buildAddItemsOp(lessonId, texts, active, newId);
+    const text = draft.trim();
+    if (!text) {
+      setAddFeedback({ tone: "warn", message: "Type a word first." });
+      return;
+    }
+    if (atCap) {
+      setAddFeedback({ tone: "warn", message: `This lesson is full (${MAX_ITEMS} items).` });
+      return;
+    }
+    const op = buildAddItemsOp(lessonId, [text], active, newId);
     if (!op) {
-      // Every line was blank or already here. Clearing the box IS the feedback; inventing an error
-      // for "you already have that word" would be noise.
+      setAddFeedback({ tone: "warn", message: `“${text}” is already in this lesson.` });
       setDraft("");
       return;
     }
@@ -319,7 +369,17 @@ export default function LessonScreen() {
       removed_at: null,
     }));
     setDraft("");
-    await writeItems([...items, ...optimistic], () => postOp(accessToken, op));
+    setAddFeedback(null);
+    const landed = await writeItems([...items, ...optimistic], () => postOp(accessToken, op));
+    // A failed write already shows itself through `itemsError` and its Retry, and the optimistic
+    // row has been rolled back — claiming "Added" on top of that would be the screen contradicting
+    // itself.
+    if (!landed) return;
+    // The suggestion buckets carry an `owned` flag per row and one of those rows may have just
+    // become owned: a word added to a lesson is a `words` row the learner now has. Dropping the
+    // cache costs a ~7 KB refetch on the next word and cannot be subtly wrong.
+    clearSuggestionCache();
+    setAddFeedback({ tone: "ok", message: `Added “${op.items[0]?.text ?? text}”.` });
   }
 
   async function removeItem(item: LessonItem) {
@@ -494,10 +554,17 @@ export default function LessonScreen() {
         }
       }
     },
-    // The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so
-    // there is no pre-flight permission call and a DENIED microphone arrives here.
-    onError: (message) =>
-      setError(`${message} — if you haven't allowed the microphone yet, that looks like this too.`),
+    /**
+     * The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so
+     * there is no pre-flight permission call and a DENIED microphone arrives here.
+     *
+     * So does everything else, which is why `context` is no longer dropped: this callback is
+     * `(message, context?)` and the SDK fills the second argument with the `error_event`'s
+     * `errorType` / `code` / `debugMessage` straight off the wire. Taking only the first parameter
+     * is how an exhausted ElevenLabs quota reached the learner as "Unknown error" with a microphone
+     * hint stapled to it. `tutorErrorMessage` owns the wording and the branching.
+     */
+    onError: (message, context) => setError(tutorErrorMessage(message, context)),
   });
 
   const {
@@ -736,9 +803,19 @@ export default function LessonScreen() {
    */
   const endWithPersist = useCallback(() => {
     setEnding(true);
+    // END IS A FULL STOP. Nothing about this conversation may be handed to the next one: the next
+    // Start gets a clean lesson, and continuing is what Pause/Resume is for.
+    //
+    // `onDisconnect` already declines to park a context for `reason: "user"` without a pause
+    // intent, so most of this is belt to that brace — but "most" is the problem. The parked copy
+    // ALSO lives on disk, where it outlives this process and is read back at the next mount, and
+    // nothing was clearing that on End. Doing it here makes the guarantee a statement rather than
+    // an emergent property of three cooperating branches.
+    resumeContextRef.current = null;
+    void clearPauseMarker(lessonId);
     endSession();
     void persistSession();
-  }, [persistSession, endSession, setEnding]);
+  }, [persistSession, endSession, setEnding, lessonId]);
 
   /**
    * The two controls, reachable from a callback that must not re-subscribe when they change
@@ -995,6 +1072,25 @@ export default function LessonScreen() {
     };
   }, [accessToken, lessonId, load]);
 
+  /**
+   * Throw away a parked conversation, so the next `start` begins a genuinely new one.
+   *
+   * This exists because **Start and Resume were the same call.** On a parked pause the button row
+   * shows both, and both ran `start()` — which resumes whenever `resumeContextRef` holds anything.
+   * So the button labelled "Start conversation" silently continued the previous conversation, and
+   * after the pause panel's "Start fresh instead" was removed there was no way to get a clean one
+   * at all.
+   *
+   * Three places hold the tail of a conversation and all three have to go, or the next mount reads
+   * one of them back: the ref this process is using, the marker on disk that outlives the process,
+   * and the `pause` state that decides whether a Resume button is offered at all.
+   */
+  function discardParkedSession() {
+    resumeContextRef.current = null;
+    setPause(null);
+    void clearPauseMarker(lessonId);
+  }
+
   async function start() {
     if (!detail || connected || busy) return;
     setError(null);
@@ -1052,12 +1148,6 @@ export default function LessonScreen() {
     } finally {
       setStarting(false);
     }
-  }
-
-  function dismissPause() {
-    resumeContextRef.current = null;
-    setPause(null);
-    void clearPauseMarker(lessonId);
   }
 
   // ── render ─────────────────────────────────────────────────────────────────────────────────
@@ -1133,7 +1223,12 @@ export default function LessonScreen() {
       </Muted>
 
       {/* ── Words ──────────────────────────────────────────────────────────────────────────── */}
-      <Panel title="Words in this lesson">
+      {/* `zIndex` because the suggestion popup is an absolute overlay that hangs out of this
+          panel's bottom edge, and `zIndex` only orders SIBLINGS — so the panel itself has to
+          outrank the Practice panel and everything after it, or the overlay renders behind them.
+          Setting it on the popup alone does nothing across this boundary. Same reason, same
+          number, as the collection's Add-a-word panel. */}
+      <Panel title="Words in this lesson" style={{ zIndex: 10 }}>
         {items === null ? (
           <ActivityIndicator color={theme.accent} />
         ) : active.length === 0 ? (
@@ -1150,25 +1245,49 @@ export default function LessonScreen() {
           ))
         )}
 
-        <TextField
-          value={draft}
-          onChangeText={setDraft}
-          multiline
-          editable={!atCap}
-          placeholder="Add words or sentences — one per line"
-          accessibilityLabel="Words or sentences to add — one per line"
-          style={{ marginTop: space.panelGap }}
-        />
-        <ButtonRow style={{ marginTop: space.row }}>
-          <Button
-            label="Add words"
-            disabled={atCap || itemsBusy}
-            onPress={() => void addItems()}
+        {/* The collection's Add-a-word field, writing to this lesson instead of to no lesson.
+            It replaced a multiline "one per line" box, which is why bulk paste is gone: the ask was
+            the suggestion list, and a textarea cannot have one — there is no single word to
+            complete. See docs/2026-08-21-add-word-with-suggestions-on-lesson-page.md §2. */}
+        <View style={[styles.addRow, { marginTop: space.panelGap }]}>
+          <Autocomplete
+            value={draft}
+            onChangeText={setDraft}
+            search={searchWords}
+            markedLabel="Already in this lesson"
+            // 7,226 lexicon rows are unlevelled and plenty of real words are outside it
+            // altogether, so "no matches" must not read as "that is not a word". A lesson also
+            // holds phrases and whole sentences, which the dictionary never will.
+            emptyLabel="Not in the dictionary — you can still add it."
+            placeholder="A word, phrase, or sentence"
+            returnKeyType="done"
+            editable={!atCap}
+            onSubmitEditing={() => void addWordToLesson()}
+            accessibilityLabel="A word, phrase, or sentence to add to this lesson"
+            style={{ flex: 1 }}
           />
-          <Muted>
-            {atCap ? `Lesson is full (${MAX_ITEMS} items).` : `${active.length}/${MAX_ITEMS} items`}
+          <Button
+            label={itemsBusy ? "Adding…" : "Add"}
+            disabled={atCap || itemsBusy}
+            onPress={() => void addWordToLesson()}
+          />
+        </View>
+
+        {addFeedback ? (
+          <Muted
+            accessibilityLiveRegion="polite"
+            style={[
+              { marginTop: space.row },
+              addFeedback.tone === "ok" ? styles.added : styles.removed,
+            ]}
+          >
+            {addFeedback.message}
           </Muted>
-        </ButtonRow>
+        ) : (
+          <Muted style={{ marginTop: space.row }}>
+            {atCap ? `This lesson is full (${MAX_ITEMS} items).` : `${active.length}/${MAX_ITEMS} items`}
+          </Muted>
+        )}
 
         {/* The caveat that made editing its own screen (D51). It is true on the web too, which has
             simply never said it — `items_list` is baked into `dynamicVariables` at connect. */}
@@ -1233,7 +1352,12 @@ export default function LessonScreen() {
             <Button
               label={busy ? "Connecting…" : "Start conversation"}
               disabled={busy}
-              onPress={() => void start()}
+              onPress={() => {
+                // Fresh, always — and it has to say so, because the Resume button beside it calls
+                // the same `start()`. The only difference between the two controls is this line.
+                discardParkedSession();
+                void start();
+              }}
             />
           )}
           {connected ? (
@@ -1245,7 +1369,8 @@ export default function LessonScreen() {
           ) : pause === "paused" ? (
             // The parked pause — the line was taken while the learner was away. Resuming it is a
             // NEW conversation handed the old one's tail, which is the lossy path; it exists as the
-            // floor under the held pause, not as the pause.
+            // floor under the held pause, not as the pause. This is the ONE button that carries
+            // that tail; its neighbour deliberately throws it away.
             <Button
               variant="secondary"
               label="Resume"
@@ -1270,27 +1395,6 @@ export default function LessonScreen() {
 
         {error ? <ErrorText style={{ marginTop: space.row }}>{error}</ErrorText> : null}
       </Panel>
-
-      {/* `warn` for the three accidents, plain for the one intent: a bordered alert around "Paused"
-          would dress the learner's own decision up as something that went wrong. */}
-      {pause && !connected ? (
-        <Panel tone={pause === "paused" ? undefined : "warn"} title={PAUSE_COPY[pause].title}>
-          <Muted>{PAUSE_COPY[pause].body}</Muted>
-          <ButtonRow style={{ marginTop: space.row }}>
-            <Button
-              label={busy ? "Connecting…" : PAUSE_COPY[pause].cta}
-              disabled={busy}
-              onPress={() => void start()}
-            />
-            <Button
-              variant="quiet"
-              label="Start fresh instead"
-              disabled={busy}
-              onPress={dismissPause}
-            />
-          </ButtonRow>
-        </Panel>
-      ) : null}
 
       {/* ── Live transcript ────────────────────────────────────────────────────────────────── */}
       {transcript.length > 0 ? (
@@ -1501,6 +1605,7 @@ const makeStyles = (t: Palette) =>
     },
     /** The `1.` gutter. Fixed width so the words line up however far the list counts. */
     wordIndex: { width: 1.4 * 16 },
+    addRow: { flexDirection: "row", alignItems: "center", gap: space.row },
     versionRow: {
       flexDirection: "row",
       alignItems: "center",
