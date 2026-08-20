@@ -9,6 +9,7 @@ import { wordInputKey } from "@tutor/shared/word-key";
 import { nextLessonTitle, normalizeLessonTitle } from "@tutor/shared/sync-ops";
 import type { TranscriptLine, TutorItem } from "@tutor/shared/tutor";
 import type { WordDetails } from "@tutor/shared/word-types";
+import { ITEM_TRANSLATION_LIMIT } from "@tutor/shared/lesson-types";
 import type {
   Lesson,
   LessonDetail,
@@ -325,17 +326,43 @@ export async function listLessonItemHistory(
     .from("lesson_items")
     // Since 0007 the spelling lives on `words`, not `lesson_items` — embed it (same to-one FK cast
     // as getLesson/listLessons) rather than selecting the dropped `lesson_items.text` column.
-    .select("id, position, created_at, removed_at, words(text)")
+    //
+    // `word_id` and `details` ride along because this route is the ONLY one that can carry them to
+    // a client that needs to address a word: `LessonDetail.items` is `string[]` and `itemsDetailed`
+    // is `{ text, details }`, so neither can link a lesson row to `/lesson-items/:id`. Selecting
+    // `details` (a jsonb blob with forms and examples) to keep two strings of it is deliberate —
+    // PostgREST has no way to project into jsonb here, and the alternative is a second round trip
+    // per lesson for data the row already touched.
+    .select("id, position, created_at, removed_at, word_id, words(text, details)")
     .eq("owner_id", ownerId)
     .eq("lesson_id", lessonId)
     .order("created_at", { ascending: true })
     .order("position", { ascending: true });
   if (error) throw new Error(`listLessonItemHistory: ${error.message}`);
-  type Row = Omit<LessonItem, "text"> & { words: { text: string } | null };
-  return ((data as unknown as Row[] | null) ?? []).map(({ words, ...row }) => ({
+  type Row = Omit<LessonItem, "text" | "wordId" | "translationRu"> & {
+    word_id: string | null;
+    words: { text: string; details: WordDetails | null } | null;
+  };
+  return ((data as unknown as Row[] | null) ?? []).map(({ words, word_id, ...row }) => ({
     ...row,
+    wordId: word_id,
     text: words?.text ?? "",
+    translationRu: joinTranslations(words?.details ?? null),
   }));
+}
+
+/**
+ * The first `ITEM_TRANSLATION_LIMIT` Russian translations of a word, comma-joined — or null.
+ *
+ * The cap lives on the server so every client shows the same thing, and null (rather than "") is
+ * the real state: `details` is written only by the enrichment job and is nullable forever, so "no
+ * translation" is a normal, permanent answer for a word the model could not place — not a gap
+ * waiting to be filled. See docs/2026-07-18-word-details-enrichment-job.md.
+ */
+function joinTranslations(details: WordDetails | null): string | null {
+  const ru = details?.translations_ru ?? [];
+  const picked = ru.filter((t) => t.trim()).slice(0, ITEM_TRANSLATION_LIMIT);
+  return picked.length > 0 ? picked.join(", ") : null;
 }
 
 /** Past tutor conversations for a lesson, newest first. */

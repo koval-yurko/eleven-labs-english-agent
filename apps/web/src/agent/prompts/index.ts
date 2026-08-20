@@ -13,6 +13,7 @@ import words12 from "./words-1.2";
 import words13 from "./words-1.3";
 import words14 from "./words-1.4";
 import words15 from "./words-1.5";
+import words16 from "./words-1.6";
 
 export type { PromptVersion } from "./types";
 
@@ -40,7 +41,15 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
  * drives the version picker; it is the canonical ordering (the lockfile is an unordered map).
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words12, words13, words14, words15];
+export const PROMPT_VERSIONS: PromptVersion[] = [
+  words10,
+  words11,
+  words12,
+  words13,
+  words14,
+  words15,
+  words16,
+];
 
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {

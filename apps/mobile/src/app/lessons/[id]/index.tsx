@@ -10,6 +10,7 @@ import {
   type LessonDetailResponse,
   type TutorSessionInput,
 } from "@tutor/shared/api";
+import { itemLine } from "@tutor/shared/lesson-types";
 import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
 import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
@@ -56,6 +57,8 @@ import {
   Body,
   Button,
   ButtonRow,
+  CloseIcon,
+  ConfirmDialog,
   Disclosure,
   ErrorText,
   H1,
@@ -230,6 +233,12 @@ export default function LessonScreen() {
    * durable outbox would store when the mirror lands.
    */
   const retryRef = useRef<{ next: LessonItem[]; run: () => Promise<void> } | null>(null);
+  /**
+   * Which row is waiting on a confirmation. ONE dialog for the whole list, driven by this — the
+   * pattern `ConfirmDialog` documents and `/lesson-items` already follows — rather than a mounted
+   * dialog per word, which at `MAX_ITEMS` would be fifty modals in the tree to show none of them.
+   */
+  const [removeTarget, setRemoveTarget] = useState<LessonItem | null>(null);
 
   /** Active rows in display order — what the learner edits, and what the tutor will be given. */
   const active = useMemo(
@@ -298,7 +307,13 @@ export default function LessonScreen() {
     const at = new Date().toISOString();
     const optimistic: LessonItem[] = op.items.map((it) => ({
       id: it.id,
+      // Both null, and neither is a placeholder to be filled in later on the client. Word identity
+      // needs Postgres (`resolve_words`, unaccent + NFKC), and the translation is written by the
+      // enrichment job well after the write — so a just-added word is a row that renders as plain
+      // text with no Russian until `writeItems`' re-read, one round trip from now.
+      wordId: null,
       text: it.text,
+      translationRu: null,
       position: it.position,
       created_at: at,
       removed_at: null,
@@ -324,6 +339,15 @@ export default function LessonScreen() {
   // conversation is saved under its own id and nothing is stored twice; shown together below.
   const [carried, setCarried] = useState<TranscriptLine[]>([]);
   const [starting, setStarting] = useState(false);
+  /**
+   * The End press has been taken and the hangup is in flight.
+   *
+   * Cleared by `start`, not by the disconnect that ends it — deliberately. The button that reads it
+   * only renders while `connected`, so the instant End lands the whole control is replaced by
+   * "Start conversation" and the flag is invisible; clearing it in an effect keyed on `status`
+   * would be a setState in an effect body to fix something nobody can see. See `endWithPersist`.
+   */
+  const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pause, setPause] = useState<PauseReason | null>(null);
 
@@ -683,18 +707,38 @@ export default function LessonScreen() {
   }, [status, stopHeartbeat]);
 
   /**
-   * End, the way the lock screen must do it: persist, THEN hang up.
+   * End, from the screen. **Hang up FIRST, and never behind a network call.**
    *
-   * `endSession` reaches `persistSession` through `onDisconnect`, but a card tap can arrive with the
-   * app in the background and nothing on screen, which is exactly when a callback is least likely to
-   * survive long enough to finish a network call. The unmount guard already orders it this way for
-   * the same reason; the per-conversation guard makes the second attempt a no-op.
+   * This used to `await persistSession()` before `endSession()`, justified as "the way the lock
+   * screen must do it" — persist while a callback can still run, because a card tap arrives with
+   * the app in the background. That reasoning is dead: End came off the lock screen with the card's
+   * buttons on 2026-08-18 (`ResolvedIntents` carries only pause and mute), so the only caller is
+   * the button below, pressed in the foreground on a mounted screen.
+   *
+   * What the ordering cost was a button that did nothing. `persistSession` goes through `apiFetch`,
+   * which awaits `getCredentials()` — the call that silently renews an expired token, i.e. a
+   * network round trip mid-lesson — and then a `fetch` with **no timeout**. On a weak network the
+   * hangup was simply never reached: the tutor kept teaching, the session kept billing, and the
+   * button re-rendered identically because nothing marked it busy. Worse, the first press had
+   * already claimed `savedForRef`, so a second press skipped the guard and ended the session —
+   * making the first one look like it had never registered.
+   *
+   * Persisting is not lost by going second. It is wired three ways already: `onDisconnect` calls
+   * it on every disconnect including `reason: "user"`, the journal is on disk from `onMessage`, and
+   * the post-call webhook writes the same `conversation_id` row server-side. This call is the belt
+   * to that pair of braces, and the per-conversation guard makes whichever loses the race a no-op.
+   *
+   * There is also no `statusRef.current !== "connected"` guard any more. It could only ever lose
+   * presses: the screen records `"disconnecting"` where `ConversationStatusProvider` filters it
+   * out, so the button could be visible while the ref disagreed — and `BaseConversation.endSession`
+   * already no-ops when its own status is neither connected nor connecting.
+   * See docs/2026-08-20-words-1.6-lock-screen-translations-and-lesson-words.md §2.
    */
-  const endWithPersist = useCallback(async () => {
-    if (statusRef.current !== "connected") return;
-    await persistSession();
+  const endWithPersist = useCallback(() => {
+    setEnding(true);
     endSession();
-  }, [persistSession, endSession]);
+    void persistSession();
+  }, [persistSession, endSession, setEnding]);
 
   /**
    * The two controls, reachable from a callback that must not re-subscribe when they change
@@ -734,7 +778,7 @@ export default function LessonScreen() {
    * mark that decides whether a resume owes a restatement, and a feature-detected reach that
    * silences the tutor. §4.2.
    */
-  const activityWords = useMemo(() => active.map((item) => item.text), [active]);
+  const activityWords = useMemo(() => active.map(itemLine), [active]);
   /**
    * Built here, not in Swift: the scheme is per-variant (englishtutordev / …preview / …) and
    * expo-linking already knows which one this build is. §3.6.
@@ -981,6 +1025,7 @@ export default function LessonScreen() {
       savedForRef.current = null;
       kickedOffRef.current = false;
       setPause(null);
+      setEnding(false);
 
       // Seeded BEFORE startSession. From here on this is the row key, whatever the transport says.
       conversationIdRef.current = res.conversationId;
@@ -1094,18 +1139,14 @@ export default function LessonScreen() {
         ) : active.length === 0 ? (
           <Muted>No words yet — add some below.</Muted>
         ) : (
-          active.map((item) => (
-            <View key={item.id} style={styles.wordRow}>
-              <Body style={{ flex: 1 }}>{item.text}</Body>
-              <Button
-                variant="inline"
-                tone="danger"
-                label="remove"
-                disabled={itemsBusy}
-                onPress={() => void removeItem(item)}
-                accessibilityLabel={`Remove ${item.text}`}
-              />
-            </View>
+          active.map((item, index) => (
+            <WordRow
+              key={item.id}
+              item={item}
+              index={index}
+              disabled={itemsBusy}
+              onRemove={setRemoveTarget}
+            />
           ))
         )}
 
@@ -1179,10 +1220,15 @@ export default function LessonScreen() {
             reach; an absent one says the same thing without inviting the tap. */}
         <ButtonRow style={{ marginTop: space.row }}>
           {connected ? (
-            // The same path the lock-screen End takes: persist, then hang up. On screen there is
-            // no confirm — the learner can see what they are ending, which is exactly the thing a
-            // locked device cannot offer (§3.5).
-            <Button label="End session" onPress={() => void endWithPersist()} />
+            // Hangs up FIRST and persists after — see `endWithPersist` for why the old ordering
+            // made this button do nothing on a slow network. There is no confirm: the learner can
+            // see what they are ending, which is exactly the thing a locked device cannot offer
+            // (§3.5), and End has not been reachable from the lock screen since 2026-08-18.
+            <Button
+              label={ending ? "Ending…" : "End session"}
+              disabled={ending}
+              onPress={endWithPersist}
+            />
           ) : (
             <Button
               label={busy ? "Connecting…" : "Start conversation"}
@@ -1299,9 +1345,102 @@ export default function LessonScreen() {
           </>
         )}
       </Panel>
+
+      {/*
+        The copy REASSURES where the collection's delete dialog warns, and the difference is the
+        point — the same difference the two existing dialogs already draw between themselves.
+        `/lesson-items` has to say a word "leaves every lesson and loses its practice history",
+        because `deleteWord` really does that. This removes one `lesson_items` row: the word keeps
+        its place in the collection, its statistics and every other lesson, and the removed row
+        survives as the "Word changes" entry below. Nothing here is unrecoverable, so nothing here
+        should read as though it were.
+      */}
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+        title={removeTarget ? `Remove “${removeTarget.text}” from this lesson?` : ""}
+        description="It stays in your collection with its practice history, and you can add it back any time."
+        confirmLabel="Remove"
+        onConfirm={() => {
+          const target = removeTarget;
+          setRemoveTarget(null);
+          if (target) void removeItem(target);
+        }}
+      />
     </Screen>
   );
 }
+
+/**
+ * One word of the lesson: its number, its spelling as a link to the word page, its Russian, and the
+ * ✕ that takes it out of this lesson.
+ *
+ * **The number and the translation are `itemLine`'s job, not this file's.** The lock-screen card
+ * renders the same pair, and the two drifting apart — one saying "word — перевод" and the other
+ * "word (перевод)" — is exactly the class of thing `packages/shared` exists to prevent. What stays
+ * here is the *typography* of it, which the widget extension cannot share anyway: the word carries
+ * the weight, the Russian recedes.
+ *
+ * `wordId` is null for the round trip between an optimistic add and its re-read, and the row is
+ * plain text for exactly that long. A link to `/lesson-items/null` would be a dead tap, and the
+ * only thing worse than a word that is not yet a link is one that pretends to be.
+ */
+const WordRow = memo(function WordRow({
+  item,
+  index,
+  disabled,
+  onRemove,
+}: {
+  item: LessonItem;
+  index: number;
+  disabled: boolean;
+  /**
+   * Takes the item rather than closing over it, so the parent can pass `setRemoveTarget` itself.
+   *
+   * The obvious `onRemove={() => setRemoveTarget(item)}` allocates a fresh closure on every parent
+   * render and makes the `memo` below decorative — and the parent re-renders on every transcript
+   * turn (`onMessage` → `setLines`), so during a live session all fifty possible rows would redraw
+   * several times a minute to change nothing.
+   */
+  onRemove: (item: LessonItem) => void;
+}) {
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+
+  return (
+    <View style={styles.wordRow}>
+      <Muted style={styles.wordIndex}>{index + 1}.</Muted>
+      <Body style={{ flex: 1 }}>
+        {item.wordId ? (
+          // `plain`, not `accent`: a panel of six accent-blue words reads as a link farm, and the
+          // web makes the same call for a lesson title that is a link but reads as content.
+          <Link href={`/lesson-items/${item.wordId}`} variant="plain">
+            <Text style={styles.strong}>{item.text}</Text>
+          </Link>
+        ) : (
+          <Text style={styles.strong}>{item.text}</Text>
+        )}
+        {item.translationRu ? (
+          <Text style={styles.muted}> — {item.translationRu}</Text>
+        ) : null}
+      </Body>
+      {/* `hitSlop` is small on purpose, as it is on the collection's row: its neighbour is the word
+          itself, which is a link, and generous slop would trade a missed tap for a removed word. */}
+      <Button
+        variant="icon"
+        tone="danger"
+        hitSlop={4}
+        disabled={disabled}
+        onPress={() => onRemove(item)}
+        accessibilityLabel={`Remove ${item.text} from this lesson`}
+      >
+        <CloseIcon size={16} color={theme.error} />
+      </Button>
+    </View>
+  );
+});
 
 function SessionEntry({ session }: { session: LessonSession }) {
   const theme = useTheme();
@@ -1360,6 +1499,8 @@ const makeStyles = (t: Palette) =>
       gap: 0.75 * 16,
       paddingVertical: 0.25 * 16,
     },
+    /** The `1.` gutter. Fixed width so the words line up however far the list counts. */
+    wordIndex: { width: 1.4 * 16 },
     versionRow: {
       flexDirection: "row",
       alignItems: "center",

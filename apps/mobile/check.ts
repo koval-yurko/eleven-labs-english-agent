@@ -19,6 +19,7 @@ import {
   windowWords,
   ACTIVITY_WORD_WINDOW,
 } from "./src/lib/lesson-activity-state";
+import { itemLine } from "@tutor/shared/lesson-types";
 
 let failures = 0;
 function check(name: string, ok: boolean) {
@@ -36,6 +37,24 @@ check("window keeps lesson order", win.words[0] === "w0" && win.words[5] === "w5
 check("overflow counts the rest", win.overflow === 9);
 check("a short list overflows by zero", windowWords(["a"]).overflow === 0);
 check("an empty lesson is not an error", windowWords([]).words.length === 0);
+
+// ── the word line ───────────────────────────────────────────────────────────────────────────
+// Shared with the lesson screen's Words panel, which is the whole reason it is worth asserting:
+// the card is drawn by a widget extension nobody can inspect from JS, so if these two ever
+// disagree the only place it shows is a locked phone.
+check(
+  "a translated word joins with an em dash",
+  itemLine({ text: "ephemeral", translationRu: "мимолётный, недолговечный" }) ===
+    "ephemeral — мимолётный, недолговечный",
+);
+check(
+  "an un-enriched word is just the word",
+  itemLine({ text: "ephemeral", translationRu: null }) === "ephemeral",
+);
+check(
+  "the line carries no number — both surfaces number by position",
+  !/^\d/.test(itemLine({ text: "ephemeral", translationRu: "мимолётный" })),
+);
 
 // ── the phase ───────────────────────────────────────────────────────────────────────────────
 check("held outranks muted", phaseOf({ connected: true, held: true, muted: true }) === "held");

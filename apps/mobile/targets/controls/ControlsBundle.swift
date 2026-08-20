@@ -47,7 +47,10 @@ struct LessonActivityWidget: Widget {
           }
         }
         DynamicIslandExpandedRegion(.bottom) {
-          WordGrid(
+          // Four, not six: the expanded island is shorter than the lock-screen card and a row now
+          // carries a translation as well as a word. Whatever it drops is added to `overflow`, so
+          // the "+N more" affordance stays truthful on this surface too.
+          WordList(
             words: Array(context.state.words.prefix(4)),
             overflow: context.state.overflow + max(0, context.state.words.count - 4),
             focusIndex: context.state.focusIndex

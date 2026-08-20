@@ -137,6 +137,28 @@ export function RefreshIcon(props: IconProps) {
   );
 }
 
+/**
+ * A cross — REMOVE FROM, never delete.
+ *
+ * Deliberately not `TrashIcon`, and the distinction is the whole reason it exists. The bin means
+ * the word is gone from the account: `/lesson-items` and the word page both use it for `deleteWord`,
+ * whose own confirm copy warns that the word "leaves every lesson and loses its practice history".
+ * This cross removes one `lesson_items` row and keeps everything else — the word, its statistics,
+ * its membership in every other lesson, and the removed row itself, which is what feeds the change
+ * log. Two opposite blast radii must not share a glyph.
+ *
+ * The one icon here with no counterpart in `apps/web/src/app/icons/index.tsx`: the web's lesson
+ * page still renders a text "remove" button. If that page is ever revived, copy this path there.
+ */
+export function CloseIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <Path d="M18 6L6 18" />
+      <Path d="M6 6l12 12" />
+    </Icon>
+  );
+}
+
 /** Trash can — destructive delete. */
 export function TrashIcon(props: IconProps) {
   return (

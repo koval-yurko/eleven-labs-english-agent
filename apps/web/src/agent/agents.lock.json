@@ -43,6 +43,13 @@
       "hash": "sha256:8539728559f99910498c866f9b11ebe5f3bd79b079ff1f9eff2a889fc3708e5c",
       "name": "english-words-tutor (words-1.5)",
       "updatedAt": "2026-08-18T13:10:18.709Z"
+    },
+    "words-1.6": {
+      "agentId": "agent_3901m0g9a9bzfjd9sejmt993vcng",
+      "status": "active",
+      "hash": "sha256:399feb00b030e1a0db58a95649bdda7126d74e0b3cf292ff0b8f9384a592d983",
+      "name": "english-words-tutor (words-1.6)",
+      "updatedAt": "2026-08-20T19:25:35.791Z"
     }
   }
 }
