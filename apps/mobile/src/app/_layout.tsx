@@ -11,8 +11,9 @@ import { Auth0Provider } from "react-native-auth0";
 
 import { env } from "@/env";
 import { reconcileAtLaunch } from "@/lib/lesson-card";
+import { TutorSessionProvider } from "@/lib/tutor-session";
 import { useScheme, useTheme } from "@/theme";
-import { NavProgressBar } from "@/ui";
+import { NavProgressBar, SessionBar } from "@/ui";
 
 /**
  * The root layout: providers, the status bar, one stack, and the progress bar above it.
@@ -85,23 +86,38 @@ export default function RootLayout() {
       useDPoP={false}
     >
       <ConversationProvider>
-        {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
-            background: dark glyphs on a light screen. Without this the status bar keeps its
-            light glyphs and vanishes into a white page. */}
-        <StatusBar style={scheme === "light" ? "dark" : "light"} />
-        <Stack
-          screenOptions={{
-            // Set here AND in `Screen`, deliberately: this is what stops a native header flashing
-            // during the first frame of a push, before the screen's own `Stack.Screen` applies.
-            headerShown: false,
-            // The only colour the navigator still owns — without it a push slides the new screen in
-            // over white, which reads as a flash on a dark theme.
-            contentStyle: { backgroundColor: theme.bg },
-          }}
-        />
-        {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
-            is `position: fixed` with `z-index: 100` for the same reason. */}
-        <NavProgressBar />
+        {/*
+          The tutor session, above the router.
+
+          It has to be here and not in the lesson screen: `useConversation` unregisters its callbacks
+          when the component holding them unmounts, so a screen-owned session stopped collecting its
+          transcript — and stopped being controllable — the moment the learner navigated. Mounted
+          INSIDE `ConversationProvider` (it consumes the SDK context) and OUTSIDE `Stack` (so a push
+          or a pop cannot touch it). See `lib/tutor-session.tsx`.
+        */}
+        <TutorSessionProvider>
+          {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
+              background: dark glyphs on a light screen. Without this the status bar keeps its
+              light glyphs and vanishes into a white page. */}
+          <StatusBar style={scheme === "light" ? "dark" : "light"} />
+          <Stack
+            screenOptions={{
+              // Set here AND in `Screen`, deliberately: this is what stops a native header flashing
+              // during the first frame of a push, before the screen's own `Stack.Screen` applies.
+              headerShown: false,
+              // The only colour the navigator still owns — without it a push slides the new screen in
+              // over white, which reads as a flash on a dark theme.
+              contentStyle: { backgroundColor: theme.bg },
+            }}
+          />
+          {/* The way back to a lesson that is still talking. It is also the answer to the objection
+              the old unmount guard raised — a live, billed session with nothing on screen saying so —
+              now that navigating away no longer ends one. */}
+          <SessionBar />
+          {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
+              is `position: fixed` with `z-index: 100` for the same reason. */}
+          <NavProgressBar />
+        </TutorSessionProvider>
       </ConversationProvider>
     </Auth0Provider>
   );

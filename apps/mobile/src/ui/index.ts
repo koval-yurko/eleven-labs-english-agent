@@ -27,6 +27,7 @@ export { Panel } from "./Panel";
 export { PromptDialog } from "./PromptDialog";
 export { Screen } from "./Screen";
 export { Select, type SelectOption } from "./Select";
+export { SessionBar } from "./SessionBar";
 export { Body, ErrorText, Faint, H1, H2, Muted, WarnText } from "./Text";
 export { TextField } from "./TextField";
 export { ThemeToggle } from "./ThemeToggle";

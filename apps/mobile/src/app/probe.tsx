@@ -30,6 +30,7 @@ import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
 import { useEventLog } from "@/hooks/use-event-log";
+import { useActiveSession } from "@/lib/tutor-session";
 import { useTheme, type Palette } from "@/theme";
 import { useSuspensionProbe } from "@/hooks/use-suspension-probe";
 
@@ -72,6 +73,8 @@ const LESSON_ITEMS: TutorItem[] = [
 
 export default function ProbeScreen() {
   const { entries, log, clear } = useEventLog();
+  /** A lesson that is talking right now, if any — see `onStart`. */
+  const running = useActiveSession();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const kindStyles = useMemo(() => makeKindStyles(theme), [theme]);
@@ -202,6 +205,15 @@ export default function ProbeScreen() {
   }, [status, sendUserMessage, log]);
 
   const onStart = useCallback(async () => {
+    // A tutor session now outlives the screen that started it (`lib/tutor-session.tsx`), so for the
+    // first time this instrument can be opened while one is running — and there is exactly one
+    // `Conversation` behind `ConversationProvider`, so starting here would fight it for the
+    // microphone and pollute the lesson's transcript. Refuse and say why; the probe measures the
+    // transport, and a measurement taken on top of a live lesson measures nothing.
+    if (running) {
+      log("error", `a lesson is already talking (“${running.title}”) — end it first`);
+      return;
+    }
     clear();
     setConversationId(null);
     setVersion(null);
@@ -248,7 +260,7 @@ export default function ProbeScreen() {
         app_env: body.appEnv,
       },
     });
-  }, [accessToken, clear, log, startSession]);
+  }, [accessToken, clear, log, running, startSession]);
 
   const onEnd = useCallback(() => {
     log("note", "ending session");

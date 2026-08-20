@@ -1,60 +1,33 @@
-import { useConversation, useRawConversation } from "@elevenlabs/react-native";
 import {
   API_V2_ROUTES,
-  conversationTokenPath,
   isAgentVersionsResponse,
-  isConversationTokenResponse,
   isLessonDetailResponse,
   lessonPath,
   type AgentVersionsResponse,
   type LessonDetailResponse,
-  type TutorSessionInput,
 } from "@tutor/shared/api";
 import { itemLine } from "@tutor/shared/lesson-types";
 import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
 import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
 import { clientDedupeKey } from "@tutor/shared/word-key";
 import { type Palette } from "@tutor/shared/theme";
-import {
-  ABORTED_RESUME_MESSAGE,
-  formatHeldResumeContext,
-  formatItemsList,
-  formatResumeContext,
-  HIDDEN_KICKOFF_MESSAGES,
-  KICKOFF_MESSAGE,
-  PAUSE_CONTEXT,
-  PAUSE_RESUME_MESSAGE,
-  PAUSE_STOP_MESSAGE,
-  RESUME_MESSAGE,
-  TUTOR_HEARTBEAT_MS,
-  UNHEARD_RESUME_MESSAGE,
-  type ResumeCause,
-  type TranscriptLine,
-} from "@tutor/shared/tutor";
+import type { TranscriptLine } from "@tutor/shared/tutor";
 import * as Linking from "expo-linking";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useAuth0 } from "react-native-auth0";
 
-import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
-
 import { apiFetch } from "@/api";
-import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
-import { tutorErrorMessage } from "@/lib/tutor-error";
-import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
-import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import {
-  clearJournal,
-  clearPauseMarker,
-  readJournal,
-  readPauseMarker,
-  writeJournal,
-  writePauseMarker,
-} from "@/lib/session-journal";
+  useActiveSession,
+  useTutorControls,
+  useTutorSession,
+  type LessonMeta,
+} from "@/lib/tutor-session";
 import { useTheme } from "@/theme";
 import {
   Autocomplete,
@@ -80,18 +53,23 @@ import {
 /**
  * One lesson: its words, a live tutor session, and the history of past conversations.
  *
- * ## The session logic (unchanged)
+ * ## The session is not owned here any more
  *
- * Ported from `apps/web/src/app/lessons/[id]/LessonTutor.tsx`, which stays exactly as it is: the
- * browser still needs the workarounds absent here. What survived is the part that was never about
- * the browser — the proactive kickoff, the hidden-message filter, the per-conversation-id save
- * guard, the carried transcript and the resume context. What went is everything that existed
- * because a web page cannot run a voice session in the background: the wake lock, the
- * volume-polling audio health check, the visibility grace timer, the `pagehide` beacons and the
- * `"background"` pause card. S1 measured that a locked native app keeps talking.
+ * It lives in `TutorSessionProvider` (`lib/tutor-session.tsx`), above the router, and this screen is
+ * one of its views. That is a change of *ownership*, not of behaviour: the proactive kickoff, the
+ * hidden-message filter, the per-conversation-id save guard, the carried transcript, the resume
+ * context, the held pause and the lock-screen surfaces all moved across unchanged, with their
+ * reasoning attached.
  *
- * `onDisconnect` carries `reason: "error" | "agent" | "user"`, so every inference the browser had
- * to make is replaced by reading a value. See docs/2026-08-13-expo-s4-tutor-screen.md §3.
+ * What changed is what leaving does — **nothing**. The screen used to hang up on unmount, so
+ * opening the collection, another lesson, or even this same lesson again killed the conversation
+ * the learner was in the middle of, and re-entering looked like a resume while actually replaying a
+ * truncated tail into a brand-new call. Now only End, the tutor, the network, or starting a
+ * different lesson ends a session.
+ *
+ * The corollary is that the session on display may belong to a **different** lesson. `isOurs`
+ * guards every read of it: a lesson that is not the one talking renders as idle, with a line saying
+ * where the voice is coming from and a way back to it.
  *
  * ## What the design port changed
  *
@@ -110,40 +88,13 @@ import {
  */
 
 /**
- * Why the session is not running. Sourced from `onDisconnect`, never inferred.
+ * The empty transcript, as one shared array.
  *
- * `reason: "user"` produces NO entry here on purpose: the learner pressed End and does not need to
- * be told what they just did. And there is no `"background"` — that failure cannot happen (S1).
- *
- * **This used to drive a panel per reason** — "The tutor ended the session" with a Continue
- * practising / Start fresh instead pair, and three siblings for the other reasons. The panel is
- * gone (2026-08-21): the button row above it already offers Start, Resume, Pause and End, so the
- * panel was a second set of session controls sitting under the first, and its CTA said the same
- * thing as the button one line up.
- *
- * What survives is the DISTINCTION, which two things still read: only `"paused"` puts a Resume
- * button in that row, and only `"paused"` gets its own status line. The other three exist to not
- * be `"paused"` — they are the difference between "you stopped this" and "this stopped", and the
- * resume context they carry is spent by the next Start either way.
+ * A fresh `[]` per render would be a new identity every time, and the `useMemo` that concatenates
+ * the transcript takes it as a dependency — so a screen showing another lesson's session would
+ * rebuild its (empty) transcript on every one of that session's turns.
  */
-type PauseReason =
-  | "paused" // the learner pressed Pause — the ONE entry here that is an intent, not an accident
-  | "dropped" // reason: "error" — the connection failed (network, audio graph, LiveKit)
-  | "ended" // reason: "agent" — the tutor or the server ended it (max_duration_seconds is 1800)
-  | "recovered"; // a journal from a previous run was found at mount
-
-/**
- * How often a held pause pings `user_activity` — see `TUTOR_HEARTBEAT_MS` for the reasoning.
- *
- * It moved into `packages/shared` when words-1.5 took `turn_timeout` to 3 s for podcast pacing:
- * the ping interval and the baked timeout are one mechanism, and a local constant reasoning about
- * a 7-second window went stale the moment the window changed on the server.
- *
- * The ping itself can never report failure — `WebRTCConnection.sendMessage` warns and returns when
- * the room is gone, and swallows publish errors — so liveness is read from `status`, never from
- * this. See docs/2026-08-18-podcast-mode-tutor.md §3.
- */
-const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
+const EMPTY_LINES: TranscriptLine[] = [];
 
 type ItemEvent = { at: string; kind: "added" | "removed"; text: string };
 
@@ -393,467 +344,67 @@ export default function LessonScreen() {
   }
 
   // ── the session ────────────────────────────────────────────────────────────────────────────
-  const [version, setVersion] = useState<string | null>(null);
-  const [lines, setLines] = useState<TranscriptLine[]>([]);
-  // Turns from earlier, interrupted conversations of the same sitting. Kept out of `lines` so each
-  // conversation is saved under its own id and nothing is stored twice; shown together below.
-  const [carried, setCarried] = useState<TranscriptLine[]>([]);
-  const [starting, setStarting] = useState(false);
-  /**
-   * The End press has been taken and the hangup is in flight.
-   *
-   * Cleared by `start`, not by the disconnect that ends it — deliberately. The button that reads it
-   * only renders while `connected`, so the instant End lands the whole control is replaced by
-   * "Start conversation" and the flag is invisible; clearing it in an effect keyed on `status`
-   * would be a setState in an effect body to fix something nobody can see. See `endWithPersist`.
-   */
-  const [ending, setEnding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pause, setPause] = useState<PauseReason | null>(null);
-
-  // Mirrors for the SDK callbacks (they close over the render they were created in).
-  const linesRef = useRef<TranscriptLine[]>([]);
-  const versionRef = useRef("");
-  /** THE ROW KEY. Seeded from the token response before `startSession`, never by a callback (S3 D23). */
-  const conversationIdRef = useRef<string | null>(null);
-  const savedForRef = useRef<string | null>(null);
-  /**
-   * What the next session will be handed, and WHY it is being handed it. One ref rather than a pair,
-   * because a cause that can drift out of sync with its lines is a cause that eventually describes
-   * the wrong conversation — and this value is spoken aloud by the tutor.
-   */
-  const resumeContextRef = useRef<{ lines: TranscriptLine[]; cause: ResumeCause } | null>(null);
-  /**
-   * "This session is being hung up while the learner considered it PAUSED" — read once by
-   * `onDisconnect`, which then parks it instead of treating it as an ordinary End.
-   *
-   * The Pause button no longer sets this: it holds the line open and never disconnects. What does
-   * set it is the unmount guard, because navigating away from a held pause has to end the call (a
-   * live, billed, listening session with nothing on screen saying so is the bug that guard exists to
-   * prevent) and the learner should still find their lesson waiting when they come back. The SDK
-   * reports `reason: "user"` for that teardown exactly as it does for End, so the intent cannot be
-   * read off the transport and is recorded here on the way out.
-   */
-  const pauseIntentRef = useRef(false);
-  const kickedOffRef = useRef(false);
-  const statusRef = useRef<string>("disconnected");
-
-  const selectedVersion = version ?? versions?.defaultVersion ?? null;
-
-  /** The journal payload for whatever is being said right now. */
-  const snapshot = useCallback(
-    () => ({
-      lessonId,
-      conversationId: conversationIdRef.current,
-      agentVersion: versionRef.current,
-      lines: linesRef.current,
-    }),
-    [lessonId],
-  );
-
-  /**
-   * Persist the finished conversation once per conversation id, then refresh the history below.
-   * Best-effort: a failed save must not break the UI — the post-call webhook is the backstop and the
-   * journal keeps the local copy either way.
-   */
-  const persistSession = useCallback(async () => {
-    const conversationId = conversationIdRef.current;
-    if (!conversationId || savedForRef.current === conversationId) return;
-    if (linesRef.current.length === 0) return;
-    savedForRef.current = conversationId;
-
-    const payload: TutorSessionInput = {
-      lessonId,
-      conversationId,
-      agentVersion: versionRef.current,
-      lines: linesRef.current,
-    };
-    try {
-      await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      await clearJournal(lessonId);
-      void load(); // the web called router.refresh(); here the history is refetched
-    } catch {
-      // Un-guard so a later attempt can retry: a lost transcript is the one failure that cannot be
-      // recovered after the fact.
-      savedForRef.current = null;
-    }
-  }, [accessToken, lessonId, load]);
-
-  const conversation = useConversation({
-    onConnect: ({ conversationId: sdkId }) => {
-      // ADVISORY ONLY — compared, never written to the ref. The SDK derives this from the LiveKit
-      // room name and falls back to `room_<timestamp>` when that name is empty, which no other
-      // writer would ever produce. S3 measured them agreeing; this is the tripwire for the day they
-      // stop.
-      const authoritative = conversationIdRef.current;
-      if (authoritative && sdkId !== authoritative) {
-        setError(`Session id mismatch (${sdkId}). The transcript is still saved correctly.`);
-      }
-    },
-    onMessage: ({ message, role }) => {
-      // The kickoff is the trigger, not something the learner said — every other writer filters it
-      // out of the stored history, so it must not be collected here either.
-      if (role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(message)) return;
-      linesRef.current = [...linesRef.current, { role, text: message }];
-      setLines(linesRef.current);
-      // Journal as we go: a crash or a force-quit never runs `onDisconnect`.
-      void writeJournal(snapshot());
-    },
-    /**
-     * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
-     * in an app whose whole premise is interrupting freely. The web app has never wired it and
-     * mostly gets away with it because the post-call webhook overwrites the row with ElevenLabs'
-     * corrected copy; "mostly" is the problem, since a webhook that fails leaves the wrong text
-     * permanent.
-     */
-    onAgentResponseCorrection: ({ original_agent_response, corrected_agent_response }) => {
-      const index = linesRef.current.findLastIndex(
-        (l) => l.role === "agent" && l.text === original_agent_response,
-      );
-      if (index === -1) return;
-      const corrected = [...linesRef.current];
-      corrected[index] = { role: "agent", text: corrected_agent_response };
-      linesRef.current = corrected;
-      setLines(corrected);
-      void writeJournal(snapshot());
-    },
-    onStatusChange: ({ status: next }) => {
-      statusRef.current = next;
-    },
-    onDisconnect: (details) => {
-      kickedOffRef.current = false;
-      const intended = pauseIntentRef.current;
-      pauseIntentRef.current = false;
-      void persistSession();
-      // The whole pause machine: the SDK says why, so nothing is inferred — except the one thing it
-      // cannot say, which is whether the learner meant to stop. A deliberate pause wins over the
-      // transport's own reason, so a connection that dies in the half-second after the tap still
-      // reads as "Paused" rather than "The session dropped".
-      if (intended) setPause("paused");
-      else if (details.reason === "error") setPause("dropped");
-      else if (details.reason === "agent") setPause("ended");
-      // "user" without intent — the learner pressed End and knows it. No card.
-      if ((intended || details.reason !== "user") && linesRef.current.length > 0) {
-        resumeContextRef.current = {
-          lines: linesRef.current,
-          cause: intended ? "paused" : "interrupted",
-        };
-        // Parked on the device so the pause outlives this screen and this process. Written for a
-        // PAUSE only: an accident is already covered by the journal, which is still on disk if the
-        // save above fails and is cleared if it succeeds.
-        if (intended) {
-          void writePauseMarker({
-            lessonId,
-            conversationId: conversationIdRef.current,
-            agentVersion: versionRef.current,
-            lines: linesRef.current,
-          });
-        }
-      }
-    },
-    /**
-     * The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so
-     * there is no pre-flight permission call and a DENIED microphone arrives here.
-     *
-     * So does everything else, which is why `context` is no longer dropped: this callback is
-     * `(message, context?)` and the SDK fills the second argument with the `error_event`'s
-     * `errorType` / `code` / `debugMessage` straight off the wire. Taking only the first parameter
-     * is how an exhausted ElevenLabs quota reached the learner as "Unknown error" with a microphone
-     * hint stapled to it. `tutorErrorMessage` owns the wording and the branching.
-     */
-    onError: (message, context) => setError(tutorErrorMessage(message, context)),
-  });
-
+  const session = useTutorSession();
   const {
-    status,
-    isMuted,
-    isSpeaking,
-    startSession,
-    endSession,
-    sendUserMessage,
-    sendContextualUpdate,
-    sendUserActivity,
-    setMuted,
-  } = conversation;
-  /**
-   * The escape hatch, for exactly one job: silencing the tutor. `conversation.setVolume()` is a
-   * NO-OP on React Native — the SDK only registers an audio adapter in its web entrypoint — so a
-   * pause that called it left the tutor audible. See `@/lib/agent-audio`.
-   */
-  const rawConversation = useRawConversation();
-  const connected = status === "connected";
-  const busy = starting || status === "connecting";
-
-  // ── the held pause ─────────────────────────────────────────────────────────────────────────
-  /**
-   * Pause WITHOUT hanging up: mute the microphone, silence the output, and keep the turn timer from
-   * expiring with a `user_activity` heartbeat. The conversation stays open, so the tutor keeps its
-   * own context and there is nothing to hand over on the way back — which is the entire point. The
-   * shipped alternative (end the session, replay the tail into a new one) is structurally lossy: the
-   * system prompt comes back in full telling the agent to greet and teach item one, and it wins the
-   * argument against a truncated chat log delivered as background information. That is the
-   * repetition. See docs/2026-08-16-tutor-pause-hold-the-line.md §1.
-   *
-   * `endSession` is NOT part of this path. It stays behind the End button, and behind the unmount
-   * guard, where hanging up is what the learner actually asked for.
-   */
-  const [held, setHeld] = useState(false);
-  const heldRef = useRef(false);
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const heldSinceRef = useRef<number>(0);
-  /**
-   * Where the transcript stood when the hold began, so a resume can tell whether a WHOLE turn
-   * played into the void while the line was held — one that slipped past the heartbeat.
-   *
-   * It no longer has to catch the turn that was in flight at the tap: `abortedRef` below owns that
-   * case, and owns it more accurately. The mark alone was timing-dependent — `agent_response`
-   * carries the full text as soon as the LLM finishes, typically well BEFORE the audio has finished
-   * playing, so the line of a turn the learner was cut off in has usually already landed and does
-   * not count as "added since the mark". Two cases, two signals.
-   */
-  const heldAtLineRef = useRef(0);
-  /**
-   * Was the tutor mid-sentence when Pause landed — i.e. did we barge in to stop it?
-   *
-   * This is what decides which resume message is owed, and the two are different requests: a turn
-   * we cut off owes the learner the TAIL of one thought (the tutor's own context now ends where
-   * the learner stopped hearing it, because `agent_response_correction` truncated it); a turn that
-   * played out unheard owes them THAT POINT restated. Both are bounded — which is the whole fix.
-   * The single unbounded "recap what I missed" they replace is what re-delivered a whole item.
-   * See docs/2026-08-17-short-turns-and-chunked-pause.md §4.3.
-   */
-  const abortedRef = useRef(false);
-  /**
-   * `isSpeaking`, readable from outside a render — the hold path runs from a lock-screen intent
-   * drain as well as from a button, and both need the value as it is NOW. Same idiom as `mutedRef`.
-   */
-  const speakingRef = useRef(false);
-  useEffect(() => {
-    speakingRef.current = isSpeaking;
-  });
-  /** Did we actually manage to silence the agent's audio? `false` is shown, never hidden. */
-  const [silenced, setSilenced] = useState(true);
-  /**
-   * Standalone mute — "keep teaching, I just need to not be recorded for a moment".
-   *
-   * NOT the same control as Pause, even though Pause mutes: a pause silences BOTH directions and
-   * runs the heartbeat that keeps `turn_timeout` from firing, so the tutor waits. A mute silences
-   * only the microphone and has no heartbeat, deliberately — so a mute held past ~7 s gets a tutor
-   * asking whether the learner is still there, which is the correct behaviour for "I can hear you,
-   * carry on". See docs/2026-08-16-background-controls-lock-screen.md §3.4.
-   *
-   * The mute bit itself is NOT stored here. `useConversation` already owns it — `isMuted` is the
-   * provider's own state, and its `onDisconnect` resets it to `false` `[source]`. Mirroring it in a
-   * `useState` gave the same bit two homes and one of them would eventually be wrong; the ref below
-   * exists only because two readers are outside a render (the hold path and the lock-screen intent
-   * drain, which resolves a tap against the state as it is *now*).
-   */
-  const mutedRef = useRef(false);
-  useEffect(() => {
-    mutedRef.current = isMuted;
-  });
-  /**
-   * The learner's OWN mute, remembered across a pause.
-   *
-   * Pause mutes as part of holding the line, so without this a resume would unmute someone who had
-   * muted on purpose before pausing. `releaseSession` restores this rather than assuming `false` —
-   * which was safe only while Pause was the sole writer of the mute bit. §3.3 of the same document.
-   */
-  const wasMutedRef = useRef(false);
-
-  const stopHeartbeat = useCallback(() => {
-    if (heartbeatRef.current !== null) {
-      clearInterval(heartbeatRef.current);
-      heartbeatRef.current = null;
-    }
-  }, []);
-
-  function holdSession() {
-    if (!connected || heldRef.current) return;
-    // Output first, then the microphone: both are instant, and between them they are the whole of
-    // what the learner can perceive.
-    //
-    // Through LiveKit, NOT through `conversation.setVolume()`, which is a silent no-op on React
-    // Native and left the tutor audible through the whole of the first held pause. The return value
-    // is how many agent tracks were actually reached; 0 means the escape hatch is closed, and the
-    // status line says so rather than claiming a silence we did not deliver (`@/lib/agent-audio`).
-    setSilenced(setAgentAudioVolume(rawConversation, 0) > 0);
-    // Remembered before the pause takes the microphone, so a resume gives the learner back the
-    // mute they chose rather than the one the pause imposed. §3.3.
-    wasMutedRef.current = mutedRef.current;
-    setMuted(true);
-    mutedRef.current = true;
-    heldAtLineRef.current = linesRef.current.length;
-    heldSinceRef.current = Date.now();
-    // The barge-in. Silencing the speaker is local — the platform has no idea, so without this the
-    // tutor keeps teaching to nobody for the rest of its turn, is billed for it, and comes back
-    // convinced the learner heard it. `user_message` is the only client event that ends a turn
-    // ("triggers the same response flow as spoken user input"); there is no abort in the protocol.
-    // Guarded on `isSpeaking` because a pause taken while the tutor is LISTENING has nothing to
-    // interrupt, and barging into silence would only provoke a turn.
-    abortedRef.current = speakingRef.current;
-    if (abortedRef.current) sendUserMessage(PAUSE_STOP_MESSAGE);
-    sendContextualUpdate(PAUSE_CONTEXT);
-    heartbeatRef.current = setInterval(() => sendUserActivity(), HEARTBEAT_MS);
-    heldRef.current = true;
-    setHeld(true);
-  }
-
-  function releaseSession() {
-    if (!heldRef.current) return;
-    stopHeartbeat();
-    heldRef.current = false;
-    setHeld(false);
-    // The line died while the pause was held: `setMuted` THROWS with no active conversation, and
-    // the provider has already reset its own mute state on disconnect. The drop path owns this.
-    if (!connected) return;
-    // Restore, do NOT assume: the learner may have muted themselves before pausing, and a pause is
-    // not a request to be unmuted. See §3.3 of the background-controls document.
-    setMuted(wasMutedRef.current);
-    mutedRef.current = wasMutedRef.current;
-    setAgentAudioVolume(rawConversation, 1);
-    setSilenced(true);
-    sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
-    // What the learner is owed, in exactly three cases — and each of the two that speak is bounded
-    // to ONE turn, which with words-1.4 is one thread of one item. The tutor was:
-    //   listening → nothing was lost; say nothing and let the learner speak first
-    //   cut off   → the tail of one thought
-    //   unheard   → one whole turn, restated
-    // The order matters: an aborted turn is also a turn that landed after the mark on some timings,
-    // and asking for the tail is the smaller, more accurate request of the two.
-    const aborted = abortedRef.current;
-    abortedRef.current = false;
-    if (aborted) {
-      sendUserMessage(ABORTED_RESUME_MESSAGE);
-      return;
-    }
-    const unheard = linesRef.current
-      .slice(heldAtLineRef.current)
-      .some((line) => line.role === "agent");
-    if (unheard) sendUserMessage(UNHEARD_RESUME_MESSAGE);
-  }
+    focusLesson,
+    syncMeta,
+    start,
+    end,
+    hold,
+    release,
+    toggleMute,
+    discardParked,
+    chooseVersion,
+  } = useTutorControls();
 
   /**
-   * Mute on its own. Not reachable while held: the pause owns the microphone for as long as it
-   * lasts, and a Mute button that appeared to do something inside a pause would be lying — the mic
-   * is already muted. The button is hidden there rather than disabled, because "unmute" during a
-   * pause is a request the app would have to refuse.
+   * Is the session on display this lesson's?
+   *
+   * Every read below goes through it. There is one session for the whole app, and while it is
+   * running it belongs to one lesson — so a screen that is not that lesson must render as idle
+   * rather than as a second set of controls for someone else's conversation.
    */
-  function toggleMute() {
-    if (!connected || heldRef.current) return;
-    const next = !mutedRef.current;
-    setMuted(next);
-    mutedRef.current = next;
-    // The learner's own choice, which a pause must restore rather than override. §3.3.
-    wasMutedRef.current = next;
-  }
+  const isOurs = session.lessonId === lessonId;
+  const connected = isOurs && session.connected;
+  const busy = isOurs && session.busy;
+  const ending = isOurs && session.ending;
+  const held = isOurs && session.held;
+  const isMuted = isOurs && session.muted;
+  const silenced = !isOurs || session.silenced;
+  const pause = isOurs ? session.pause : null;
+  const error = isOurs ? session.error : null;
+  const lines = isOurs ? session.lines : EMPTY_LINES;
+  const carried = isOurs ? session.carried : EMPTY_LINES;
+  const selectedVersion = (isOurs ? session.version : null) ?? versions?.defaultVersion ?? null;
 
   /**
-   * A held pause cannot outlive its connection. Anything that takes the line — a network drop, the
-   * agent's own 30-minute cap, the End button — clears the hold here, so the screen can never show
-   * a Resume button for a conversation that no longer exists.
+   * Another lesson has the microphone.
+   *
+   * From `useActiveSession` rather than from `session` above, because it carries the other lesson's
+   * TITLE — naming it is the difference between "something else is using the microphone" and a
+   * sentence the learner can act on.
+   */
+  const running = useActiveSession();
+  const elsewhere = running && running.lessonId !== lessonId ? running : null;
+
+  /**
+   * Claim the session state for this lesson.
+   *
+   * Refused while another lesson is connected — that refusal is the whole feature — which is why
+   * this re-runs on `session.lessonId` and `session.connected`: the claim then lands by itself the
+   * moment the other session ends, rather than leaving this screen stuck showing nothing.
+   * `focusLesson` returns immediately when the lesson is already focused, so re-running is free.
    */
   useEffect(() => {
-    if (status === "connected") return;
-    // Nothing here resets the mute bit: the provider's own `onDisconnect` sets `isMuted` back to
-    // false, and the effect above mirrors that into `mutedRef` on the next render. Only the
-    // remembered pre-pause mute is ours to clear, because it belongs to a session that is over.
-    wasMutedRef.current = false;
-    // Belongs to a conversation that no longer exists: the turn it describes cannot be finished by
-    // the agent that comes back, so a stale `true` would make the next resume ask a fresh session
-    // to finish a sentence it never started.
-    abortedRef.current = false;
-    if (!heldRef.current) return;
-    stopHeartbeat();
-    heldRef.current = false;
-    setHeld(false);
-    setSilenced(true);
-  }, [status, stopHeartbeat]);
-
-  /**
-   * End, from the screen. **Hang up FIRST, and never behind a network call.**
-   *
-   * This used to `await persistSession()` before `endSession()`, justified as "the way the lock
-   * screen must do it" — persist while a callback can still run, because a card tap arrives with
-   * the app in the background. That reasoning is dead: End came off the lock screen with the card's
-   * buttons on 2026-08-18 (`ResolvedIntents` carries only pause and mute), so the only caller is
-   * the button below, pressed in the foreground on a mounted screen.
-   *
-   * What the ordering cost was a button that did nothing. `persistSession` goes through `apiFetch`,
-   * which awaits `getCredentials()` — the call that silently renews an expired token, i.e. a
-   * network round trip mid-lesson — and then a `fetch` with **no timeout**. On a weak network the
-   * hangup was simply never reached: the tutor kept teaching, the session kept billing, and the
-   * button re-rendered identically because nothing marked it busy. Worse, the first press had
-   * already claimed `savedForRef`, so a second press skipped the guard and ended the session —
-   * making the first one look like it had never registered.
-   *
-   * Persisting is not lost by going second. It is wired three ways already: `onDisconnect` calls
-   * it on every disconnect including `reason: "user"`, the journal is on disk from `onMessage`, and
-   * the post-call webhook writes the same `conversation_id` row server-side. This call is the belt
-   * to that pair of braces, and the per-conversation guard makes whichever loses the race a no-op.
-   *
-   * There is also no `statusRef.current !== "connected"` guard any more. It could only ever lose
-   * presses: the screen records `"disconnecting"` where `ConversationStatusProvider` filters it
-   * out, so the button could be visible while the ref disagreed — and `BaseConversation.endSession`
-   * already no-ops when its own status is neither connected nor connecting.
-   * See docs/2026-08-20-words-1.6-lock-screen-translations-and-lesson-words.md §2.
-   */
-  const endWithPersist = useCallback(() => {
-    setEnding(true);
-    // END IS A FULL STOP. Nothing about this conversation may be handed to the next one: the next
-    // Start gets a clean lesson, and continuing is what Pause/Resume is for.
-    //
-    // `onDisconnect` already declines to park a context for `reason: "user"` without a pause
-    // intent, so most of this is belt to that brace — but "most" is the problem. The parked copy
-    // ALSO lives on disk, where it outlives this process and is read back at the next mount, and
-    // nothing was clearing that on End. Doing it here makes the guarantee a statement rather than
-    // an emergent property of three cooperating branches.
-    resumeContextRef.current = null;
-    void clearPauseMarker(lessonId);
-    endSession();
-    void persistSession();
-  }, [persistSession, endSession, setEnding, lessonId]);
-
-  /**
-   * The two controls, reachable from a callback that must not re-subscribe when they change
-   * identity. Same idiom as the unmount guard below: runs whenever, reads the latest.
-   *
-   * Two, not three. End came off the lock screen with the card's buttons — it was the one
-   * non-idempotent control, its two-tap confirm existed only because a lock screen has no modals,
-   * and a Control has room for a pause and a mute. Ending a lesson is an in-app action again.
-   */
-  const latestControls = useRef({
-    togglePause: () => {},
-    toggleMute: () => {},
-  });
+    focusLesson(lessonId);
+  }, [focusLesson, lessonId, session.lessonId, session.connected]);
 
   // ── the lock-screen surfaces ───────────────────────────────────────────────────────────────
   /**
-   * What the locked phone shows and what it can do, which since 2026-08-18 are two different
-   * things on two different surfaces.
-   *
-   * The **card** (a Live Activity) is read-only now: the lesson's words and one sentence saying
-   * what the session is doing. Its three buttons are gone, and not because they misbehaved — Apple
-   * makes every button and toggle in every widget and Live Activity inactive until the device is
-   * unlocked, at the widget host, before an intent is ever consulted. A button that needs an unlock
-   * to pause is worse than no button, because it looks like it works.
-   *
-   * The **actions** moved to two Controls (`targets/controls/LessonControls.swift`) — Control
-   * Center and Lock Screen toggles for pause and mute, gated by their intent's own
-   * `authenticationPolicy`, which defaults to allowing a locked device. Same extension, same App
-   * Group inbox, same everything below this line.
-   * See docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md §1.1, §1.4–§1.6.
-   *
-   * The rule that shapes all of it is unchanged: **Swift decides nothing.** Both surfaces are
-   * projections of this screen's state, and a control press only records that it happened — what a
-   * press means is resolved below, against the state as it is when the press is drained.
-   * Reimplementing any of it natively would fork the tutor wire contract `packages/shared` exists
-   * to keep singular, and would have to duplicate a mute that throws off-connection, a transcript
-   * mark that decides whether a resume owes a restatement, and a feature-detected reach that
-   * silences the tutor. §4.2.
+   * What the card shows. Computed here because this is where the lesson is loaded, and pushed at the
+   * provider, which owns the card itself — the projection rules and the "Swift decides nothing" rule
+   * live there (see `lib/tutor-session.tsx` and
+   * docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md).
    */
   const activityWords = useMemo(() => active.map(itemLine), [active]);
   /**
@@ -861,294 +412,55 @@ export default function LessonScreen() {
    * expo-linking already knows which one this build is. §3.6.
    */
   const activityDeepLink = useMemo(() => Linking.createURL(`lessons/${lessonId}`), [lessonId]);
-  const activityState = useMemo(
-    () =>
-      buildActivityState({
-        // The same fallback the screen heading uses, so a lesson with no title is named the
-        // same way in both places rather than "Untitled lesson" here and "Lesson" on the card.
-        title: lessonTitleOrFallback(detail?.lesson.title ?? ""),
-        deepLink: activityDeepLink,
-        words: activityWords,
-        connected,
-        held,
-        muted: isMuted,
-        silenced,
-      }),
-    [detail?.lesson.title, activityDeepLink, activityWords, connected, held, isMuted, silenced],
+  const lessonMeta = useMemo<LessonMeta>(
+    () => ({
+      // The same fallback the screen heading uses, so a lesson with no title is named the same way
+      // in both places rather than "Untitled lesson" here and "Lesson" on the card.
+      title: lessonTitleOrFallback(detail?.lesson.title ?? ""),
+      deepLink: activityDeepLink,
+      words: activityWords,
+    }),
+    [detail?.lesson.title, activityDeepLink, activityWords],
   );
 
-  /**
-   * Whether this mount has already asked for a card.
-   *
-   * It is NOT a record of whether a card exists — that lives in `@/lib/lesson-card`, at module
-   * scope, because a Live Activity outlives this screen, this navigation stack and this process,
-   * and a per-screen ref that starts at "no card" on every mount is precisely how the app came to
-   * believe in one card per lesson while the system was showing four (§2.1).
-   *
-   * What it decides is which of the two entry points to use. `ensureCard` may create a card and
-   * clears the "the learner swiped it away" latch, so it belongs to a deliberate session start;
-   * `pushCard` only ever updates one that already exists. Getting that the wrong way round would
-   * put a dismissed card back on the lock screen on the next word the learner adds.
-   */
-  const cardRequestedRef = useRef(false);
-
+  /** Ignored for a lesson that is not the focused one — a word added here must not re-point a card
+   *  that belongs to the lesson currently talking. */
   useEffect(() => {
-    if (activityState.phase === "over") {
-      // The card outlives its session, because that is where `Start` lives (§3.6). The singleton
-      // owns the linger and the teardown; all this owes it is the final state.
-      cardRequestedRef.current = false;
-      pushCard(activityState);
-      return;
-    }
-    if (!cardRequestedRef.current) {
-      cardRequestedRef.current = true;
-      ensureCard(activityState);
-      return;
-    }
-    pushCard(activityState);
-  }, [activityState]);
+    syncMeta(lessonId, lessonMeta);
+  }, [syncMeta, lessonId, lessonMeta]);
 
   /**
-   * Presses, resolved.
+   * Refetch when a transcript of ours reaches the server.
    *
-   * The inbox — App Group `UserDefaults`, written by the control intents — is the ONLY source of
-   * truth for a press. The native event is a nudge to drain it, never a second delivery path: the
-   * inbox is what survives the app having been terminated when a control was pressed, so making it
-   * the sole channel means one path to get right instead of two that can disagree (§4.3).
-   *
-   * Draining also happens on every foreground transition, for exactly that case.
-   *
-   * The controls are toggles and do know which way they were thrown, but what reaches here is still
-   * an untyped press count. Deliberately — see `resolveIntents`.
+   * The provider used to be this screen and simply called `load()`. It cannot now — it runs above
+   * the router and this screen may not even be mounted when a session is saved — so it publishes
+   * the fact and this reacts to it. The ref starts at whatever is already published so that a save
+   * from before this mount does not trigger a second load on top of the one `load` does anyway.
    */
-  const drainIntents = useCallback(() => {
-    const intents = drainControlIntents();
-    if (intents.length === 0) return;
-    const resolved = resolveIntents(intents);
-    const act = latestControls.current;
-    if (resolved.togglePause) act.togglePause();
-    if (resolved.toggleMute) act.toggleMute();
-  }, []);
-
+  const seenPersistRef = useRef(session.lastPersisted?.at ?? 0);
   useEffect(() => {
-    latestControls.current = {
-      togglePause: () => (heldRef.current ? releaseSession() : holdSession()),
-      toggleMute,
-    };
-  });
+    const stamp = session.lastPersisted;
+    if (!stamp || stamp.lessonId !== lessonId || stamp.at === seenPersistRef.current) return;
+    seenPersistRef.current = stamp.at;
+    void load();
+  }, [session.lastPersisted, lessonId, load]);
 
-  useEffect(() => {
-    const subscription = addControlIntentListener(drainIntents);
-    const appStateSub = AppState.addEventListener("change", (next) => {
-      if (next !== "active") return;
-      drainIntents();
-      // They are back in the app: the card has no job left, and the only reason it was still up was
-      // to offer a way in.
-      if (statusRef.current !== "connected") void dismissCard();
+  /**
+   * Start — or take the session over from whichever lesson currently has it.
+   *
+   * The takeover is deliberate and it is the ONE navigation-shaped act that ends a conversation:
+   * pressing Start on a lesson is an unambiguous request for *this* lesson's voice. The provider
+   * saves and parks the outgoing one on the way out, so nothing is lost by it.
+   */
+  const startHere = useCallback(() => {
+    if (!detail || busy) return;
+    void start({
+      lessonId,
+      meta: lessonMeta,
+      itemsDetailed: detail.lesson.itemsDetailed,
+      version: selectedVersion,
     });
-    // A press that landed while this screen was mounting has already been recorded; draining once
-    // at mount is what makes the inbox a queue rather than a stream nobody was listening to.
-    drainIntents();
-    return () => {
-      subscription.remove();
-      appStateSub.remove();
-    };
-  }, [drainIntents]);
-
-  /**
-   * Proactive kickoff: `first_message` is empty, so the instant we connect we send a hidden user
-   * message — that reliably makes the agent take its opening turn without the learner speaking
-   * first. A resumed session gets the interrupted conversation as context first, so it continues
-   * instead of starting the lesson over.
-   *
-   * Keyed on `status` and it must stay that way: `WebRTCConnection.sendMessage` drops anything sent
-   * before `RoomEvent.Connected` with a console warning and no error.
-   */
-  useEffect(() => {
-    if (status !== "connected" || kickedOffRef.current) return;
-    kickedOffRef.current = true;
-    const resumeFrom = resumeContextRef.current;
-    resumeContextRef.current = null;
-    if (resumeFrom && resumeFrom.lines.length > 0) {
-      sendContextualUpdate(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
-      sendUserMessage(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);
-    } else {
-      sendUserMessage(KICKOFF_MESSAGE);
-    }
-  }, [status, sendUserMessage, sendContextualUpdate]);
-
-  /**
-   * A tutor session may not outlive the screen that owns it.
-   *
-   * `ConversationProvider` is mounted in `_layout.tsx`, ABOVE the router — so unmounting this screen
-   * does not touch the conversation — and `UIBackgroundModes: ["audio"]` means iOS will not suspend
-   * the app either. Without this, navigating back mid-session leaves a live, billed, listening
-   * session running with nothing on screen saying so. The web cannot have this bug; leaving the page
-   * tears the whole runtime down.
-   *
-   * Persist BEFORE ending: `endSession` reaches `persistSession` through `onDisconnect`, but this
-   * component is unmounting and that callback may not survive to finish a network call. The
-   * per-conversation guard makes the second attempt a no-op.
-   *
-   * The dependency array is EMPTY and the callbacks are reached through a ref, deliberately. Listing
-   * `persistSession` would re-run this effect — and therefore its cleanup — every time that callback
-   * changed identity, which is every time `load` does: the guard would end the lesson mid-sentence
-   * instead of on unmount. "Runs once, reads the latest" is the whole requirement.
-   */
-  const latest = useRef({ persistSession, endSession, stopHeartbeat });
-  useEffect(() => {
-    latest.current = { persistSession, endSession, stopHeartbeat };
-  });
-  useEffect(
-    () => () => {
-      latest.current.stopHeartbeat();
-      // A card for a screen that no longer exists has nothing behind its controls: the session is
-      // ended a few lines below, and a lock-screen toggle for a lesson that is over is worse than
-      // no toggle. `dismissCard` ends every activity of ours, not the one this mount thinks it
-      // owns — which is also how a duplicate left by an older build finally goes away.
-      void dismissCard();
-      if (statusRef.current === "connected") {
-        // A held pause becomes a parked one rather than an End: the learner never pressed End, and
-        // `onDisconnect` reads this flag to leave the Paused card behind for their return.
-        if (heldRef.current) pauseIntentRef.current = true;
-        void latest.current.persistSession();
-        latest.current.endSession();
-      }
-    },
-    [],
-  );
-
-  /**
-   * Two things can be waiting on disk at mount, and they are checked in this order:
-   *
-   *   1. **A journal** — the last session died without saving: a crash or a force-quit, since
-   *      backgrounding is survivable here. Push it to the server, then offer to carry on.
-   *   2. **A pause marker** — the learner pressed Pause and then left (or the app restarted). The
-   *      transcript was already saved on the way out, so there is nothing to push; the marker only
-   *      restores the card and the context.
-   *
-   * The journal wins when both exist, because both existing means the save at pause time FAILED —
-   * so the unsaved copy is the one that has to reach the server, and the marker would only put a
-   * second card on the same screen. Its copy ("ended unexpectedly") is then also the true one.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const journal = await readJournal(lessonId);
-      if (cancelled) return;
-      if (!journal || journal.lines.length === 0) {
-        const marker = await readPauseMarker(lessonId);
-        if (cancelled || !marker || marker.lines.length === 0) return;
-        setCarried(marker.lines);
-        resumeContextRef.current = { lines: marker.lines, cause: "paused" };
-        setPause("paused");
-        return;
-      }
-      await clearPauseMarker(lessonId);
-      if (journal.conversationId) {
-        try {
-          await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
-            method: "POST",
-            body: JSON.stringify({
-              lessonId,
-              conversationId: journal.conversationId,
-              agentVersion: journal.agentVersion,
-              lines: journal.lines,
-            } satisfies TutorSessionInput),
-          });
-          void load();
-        } catch {
-          // The post-call webhook is the backstop; the lines are still offered as context below.
-        }
-      }
-      await clearJournal(lessonId);
-      if (cancelled) return;
-      setCarried(journal.lines);
-      resumeContextRef.current = { lines: journal.lines, cause: "interrupted" };
-      setPause("recovered");
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, lessonId, load]);
-
-  /**
-   * Throw away a parked conversation, so the next `start` begins a genuinely new one.
-   *
-   * This exists because **Start and Resume were the same call.** On a parked pause the button row
-   * shows both, and both ran `start()` — which resumes whenever `resumeContextRef` holds anything.
-   * So the button labelled "Start conversation" silently continued the previous conversation, and
-   * after the pause panel's "Start fresh instead" was removed there was no way to get a clean one
-   * at all.
-   *
-   * Three places hold the tail of a conversation and all three have to go, or the next mount reads
-   * one of them back: the ref this process is using, the marker on disk that outlives the process,
-   * and the `pause` state that decides whether a Resume button is offered at all.
-   */
-  function discardParkedSession() {
-    resumeContextRef.current = null;
-    setPause(null);
-    void clearPauseMarker(lessonId);
-  }
-
-  async function start() {
-    if (!detail || connected || busy) return;
-    setError(null);
-    setStarting(true);
-    try {
-      // No microphone pre-flight: the SDK's audio session raises the prompt itself, so a denial
-      // arrives through `onError` rather than here.
-      const res = await apiFetch<unknown>(
-        conversationTokenPath(selectedVersion ?? undefined),
-        accessToken,
-        { method: "POST" },
-      );
-      if (!isConversationTokenResponse(res)) {
-        throw new Error("The server did not return a usable conversation token.");
-      }
-
-      const resuming = (resumeContextRef.current?.lines.length ?? 0) > 0;
-      // Either way the next conversation starts with a transcript of its own; resuming moves what
-      // was already said into the read-only carried block above it.
-      setCarried(resuming ? (prev) => [...prev, ...linesRef.current] : []);
-      setLines([]);
-      linesRef.current = [];
-      await clearJournal(lessonId);
-      // The pause is being spent — whether it is resumed or overridden by a fresh start, the parked
-      // copy must not outlive this call, or the next mount offers a resume into a conversation the
-      // learner has already moved past.
-      await clearPauseMarker(lessonId);
-      savedForRef.current = null;
-      kickedOffRef.current = false;
-      setPause(null);
-      setEnding(false);
-
-      // Seeded BEFORE startSession. From here on this is the row key, whatever the transport says.
-      conversationIdRef.current = res.conversationId;
-      versionRef.current = res.version;
-      setVersion(res.version);
-
-      startSession({
-        conversationToken: res.token,
-        connectionType: "webrtc", // the only transport the RN SDK supports; websocket throws
-        // The screen is never held awake (D40): S1 proved a locked session keeps talking, and the
-        // web's wake lock was an apology for a browser limitation that does not exist here.
-        useWakeLock: false,
-        dynamicVariables: {
-          items_list: formatItemsList(detail.lesson.itemsDetailed),
-          // Ties the post-call webhook payload back to this lesson's history.
-          lesson_id: lessonId,
-          // Required, never defaulted: the webhook routes on it, and a missing one would file this
-          // session under the wrong environment.
-          app_env: res.appEnv,
-        },
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setStarting(false);
-    }
-  }
+  }, [busy, detail, lessonId, lessonMeta, selectedVersion, start]);
 
   // ── render ─────────────────────────────────────────────────────────────────────────────────
   const transcript = useMemo(() => carried.concat(lines), [carried, lines]);
@@ -1181,7 +493,12 @@ export default function LessonScreen() {
         : "● listening — just talk to interrupt"
       : pause === "paused"
         ? "⏸ paused — resume when you're ready"
-        : `status: ${status}`;
+        : elsewhere
+          ? // The one status this screen reports about a session that is not its own. Without it the
+            // line would read "status: disconnected" next to a Start button that is about to end
+            // someone else's conversation.
+            `“${elsewhere.title}” is using the microphone`
+          : `status: ${isOurs ? session.status : "disconnected"}`;
   const versionOptions = useMemo(
     () => (versions?.versions ?? []).map((v) => ({ value: v.version, label: v.label })),
     [versions],
@@ -1315,13 +632,34 @@ export default function LessonScreen() {
       <Panel title="Practice">
         <Muted>Press start and discuss the words out loud with the tutor. Interrupt any time.</Muted>
 
+        {/* A conversation is running somewhere else. Said plainly, with the way to it — because the
+            alternative is a Start button that silently hangs up a lesson the learner is still in
+            the middle of, on a screen that gave no hint one was running. Starting here is still
+            allowed: it is an unambiguous request for THIS lesson's voice, and the outgoing session
+            is saved and parked on the way out. */}
+        {elsewhere ? (
+          <Panel tone="warn" style={{ marginTop: space.row }}>
+            <Body>
+              {elsewhere.held ? "Paused" : "In progress"}: “{elsewhere.title}”. Starting here will
+              end it.
+            </Body>
+            <ButtonRow style={{ marginTop: space.row }}>
+              <Button
+                variant="secondary"
+                label={`Back to “${elsewhere.title}”`}
+                onPress={() => router.push(`/lessons/${elsewhere.lessonId}`)}
+              />
+            </ButtonRow>
+          </Panel>
+        ) : null}
+
         {versionOptions.length > 1 ? (
           <View style={styles.versionRow}>
             <Muted>Tutor version</Muted>
             <Select
               label="Tutor version"
               value={selectedVersion ?? versionOptions[0]?.value ?? ""}
-              onValueChange={setVersion}
+              onValueChange={chooseVersion}
               options={versionOptions}
               disabled={connected || busy}
             />
@@ -1346,7 +684,7 @@ export default function LessonScreen() {
             <Button
               label={ending ? "Ending…" : "End session"}
               disabled={ending}
-              onPress={endWithPersist}
+              onPress={end}
             />
           ) : (
             <Button
@@ -1355,8 +693,8 @@ export default function LessonScreen() {
               onPress={() => {
                 // Fresh, always — and it has to say so, because the Resume button beside it calls
                 // the same `start()`. The only difference between the two controls is this line.
-                discardParkedSession();
-                void start();
+                discardParked(lessonId);
+                startHere();
               }}
             />
           )}
@@ -1364,19 +702,14 @@ export default function LessonScreen() {
             <Button
               variant="secondary"
               label={held ? "Resume" : "Pause"}
-              onPress={held ? releaseSession : holdSession}
+              onPress={held ? release : hold}
             />
           ) : pause === "paused" ? (
             // The parked pause — the line was taken while the learner was away. Resuming it is a
             // NEW conversation handed the old one's tail, which is the lossy path; it exists as the
             // floor under the held pause, not as the pause. This is the ONE button that carries
             // that tail; its neighbour deliberately throws it away.
-            <Button
-              variant="secondary"
-              label="Resume"
-              disabled={busy}
-              onPress={() => void start()}
-            />
+            <Button variant="secondary" label="Resume" disabled={busy} onPress={startHere} />
           ) : null}
           {/* Hidden during a hold, not disabled: the pause already owns the microphone, so the only
               thing this button could offer there is an unmute the app would have to refuse. */}

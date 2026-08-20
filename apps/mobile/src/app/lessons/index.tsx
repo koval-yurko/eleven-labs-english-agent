@@ -7,12 +7,13 @@ import {
 } from "@tutor/shared/sync-ops";
 import { type Palette } from "@tutor/shared/theme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth0 } from "react-native-auth0";
 
 import { newId } from "@/lib/ids";
 import { fetchLessons, lessonTitleOrFallback, postOp } from "@/lib/lessons";
+import { useActiveSession } from "@/lib/tutor-session";
 import { useTheme } from "@/theme";
 import {
   Body,
@@ -30,6 +31,7 @@ import {
   TextField,
   TrashIcon,
   useLoadingIndicator,
+  radius,
   space,
   type,
 } from "@/ui";
@@ -68,6 +70,19 @@ export default function LessonsScreen() {
   const [busy, setBusy] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; title: string } | null>(null);
+
+  /**
+   * Which lesson is talking, if any.
+   *
+   * A session used to be unable to outlive the screen that started it, so this list could never be
+   * looking at one — leaving the lesson ended it. It can now (`lib/tutor-session.tsx`), which makes
+   * "no marker" a lie the moment the learner navigates back here mid-conversation.
+   *
+   * `useActiveSession` and not the full session state, deliberately: the full state changes on
+   * every transcript turn, and reading it here would redraw the whole list several times a minute
+   * to render one unchanged chip.
+   */
+  const running = useActiveSession();
 
   // The top bar reports the first load and every write, which is what it reports on the web too.
   useLoadingIndicator(lessons === null || busy);
@@ -212,6 +227,12 @@ export default function LessonsScreen() {
                 accessibilityRole="link"
                 accessibilityLabel={`${title}, ${lesson.items.length} ${
                   lesson.items.length === 1 ? "item" : "items"
+                }${
+                  running?.lessonId === lesson.id
+                    ? running.held
+                      ? ", paused conversation"
+                      : ", conversation in progress"
+                    : ""
                 }`}
                 style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
               >
@@ -222,6 +243,16 @@ export default function LessonsScreen() {
                   <Body style={styles.rowTitle} numberOfLines={1}>
                     {title}
                   </Body>
+                  {/* The live marker. Two states, not one: a held pause is still a session — it
+                      holds the line open and is still billed — and a learner who sees "In progress"
+                      on a lesson they paused would reasonably think the pause had not taken. */}
+                  {running?.lessonId === lesson.id ? (
+                    <Text
+                      style={[styles.badge, running.held ? styles.badgeHeld : styles.badgeLive]}
+                    >
+                      {running.held ? "⏸ Paused" : "● In progress"}
+                    </Text>
+                  ) : null}
                   <Button
                     variant="icon"
                     tone="danger"
@@ -352,6 +383,22 @@ const makeStyles = (t: Palette) =>
       gap: 0.75 * 16,
     },
     rowTitle: { ...type.body, fontWeight: type.weightSemibold, flexShrink: 1 },
+    /**
+     * Deliberately a text badge rather than a `Chip`: a chip is a control, and this is a fact about
+     * the row. It sits between the title and the bin, where it also does the useful work of pushing
+     * a destructive button away from a lesson that is mid-conversation.
+     */
+    badge: {
+      ...type.small,
+      fontWeight: type.weightSemibold,
+      borderWidth: 1,
+      borderRadius: radius.pill,
+      paddingHorizontal: 0.5 * 16,
+      paddingVertical: 0.1 * 16,
+      overflow: "hidden",
+    },
+    badgeLive: { color: t.ok, borderColor: t.ok },
+    badgeHeld: { color: t.warn, borderColor: t.warn },
     footer: { marginTop: space.panelPadding, gap: 4 },
     quietLink: { color: t.faint },
   });
