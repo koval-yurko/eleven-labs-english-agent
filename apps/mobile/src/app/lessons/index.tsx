@@ -44,10 +44,15 @@ import {
  *
  *  - **It is no longer the app's home screen.** `/` redirects to the collection now, as it does on
  *    the web. See `app/index.tsx`.
- *  - **The composer is always open.** It used to be a collapsed `＋ New lesson` toggle, on the
- *    reasoning that a permanently-open composer costs more viewport than it earns on a phone. True,
- *    and the web shows it open — and now that the page is one scroll container rather than a
- *    `FlatList` that owns the viewport, the cost is a scroll rather than a squeeze.
+ *  - **The composer is collapsed.** It went open (to match the web) and is folded again, which is
+ *    where it started life as a `＋ New lesson` toggle: the reasoning that a permanently-open
+ *    composer costs more viewport than it earns on a phone turned out to be right. What is
+ *    different this time is the mechanism — `Panel collapsible` rather than a bespoke toggle, so
+ *    the affordance is the same one the words page uses for its filters.
+ *
+ *    The composer's draft does not survive a fold (`Panel` unmounts its children — see its
+ *    docblock). Accepted rather than worked around: the fold is a deliberate press, and a title and
+ *    a word list are seconds of typing, not minutes.
  *  - **Delete confirms in our own dialog**, not `Alert.alert`. Same copy, drawn in the app's type
  *    and colours.
  *
@@ -184,7 +189,7 @@ export default function LessonsScreen() {
         through with the tutor and revisit past conversations.
       </Muted>
 
-      <Panel title="New lesson">
+      <Panel title="New lesson" collapsible defaultOpen={false}>
         <NewLessonForm busy={busy} onCreate={(t, x) => void createLesson(t, x)} />
       </Panel>
 
@@ -313,7 +318,7 @@ export default function LessonsScreen() {
 }
 
 /**
- * The composer. Always open now, matching the web — see the screen's docblock.
+ * The composer. Folded away behind its panel title — see the screen's docblock.
  *
  * The submit is disabled until there is at least one non-blank line, which is the mobile
  * equivalent of the web's `required` textarea and its `Add at least one word…` field error.

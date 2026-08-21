@@ -20,10 +20,12 @@
  * `LessonControls.swift` and with `if #available` in the widget bundle — so a 16.4 device gets a
  * readable card and no controls, rather than no card at all.
  *
- * The card carries no interactive buttons any more, which is why nothing here mentions 17.0:
- * buttons inside a widget or Live Activity are inactive until the device is unlocked, so they were
- * removed rather than gated. The actions live on the Controls instead, which are gated by their
- * intent's own authentication policy.
+ * The card carries ONE interactive button — mute — and nothing here mentions 17.0 for it either: it
+ * is gated with `if #available(iOS 18.0, *)` in `LessonActivityView.swift`, which covers both
+ * `Button(intent:)` (17.0) and `SetMuteIntent` (18.0) in one condition. Buttons inside a widget or
+ * Live Activity are inactive until the device is unlocked, so it is a convenience for the unlocked
+ * card and not the locked-screen answer; the actions that work locked live on the Controls, which
+ * are gated by their intent's own authentication policy.
  * See docs/2026-08-16-background-controls-lock-screen.md §2 and
  * docs/2026-08-18-lock-screen-controls-unlock-and-single-card.md §1.1, §1.4.
  *

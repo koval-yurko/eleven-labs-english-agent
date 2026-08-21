@@ -40,6 +40,7 @@ import {
   ChipRow,
   ConfirmDialog,
   ErrorText,
+  Faint,
   H1,
   H2,
   Link,
@@ -82,11 +83,18 @@ import {
  * `ContentUnavailableView`, and `Alert.prompt` for adding a word are all gone, replaced by the
  * web's layout — an add-word panel, flat chip rows, a `Select`, and checkbox list rows.
  *
- * The riskiest part is the filters. The web lays out six groups of chips flat because it can; the
+ * The riskiest part was the filters. The web lays out six groups of chips flat because it can; the
  * `BottomSheet` existed precisely because that is a lot of vertical space at phone width (S6 §4.3).
- * The mitigations are that the rows wrap and the whole page scrolls — but this is the one screen
- * to look at on the smallest device before calling the port finished.
+ * That risk is now paid off differently from either: the search box and all six chip groups live in
+ * ONE collapsible panel, closed by default. It is the sheet's saving without the sheet's machinery,
+ * and it keeps the flat layout the port went to for — the groups are still flat, they are just
+ * folded. The header states what is active while it is closed, which is the whole obligation a
+ * collapsed filter panel takes on.
  * See docs/2026-08-15-web-design-parity-on-mobile.md §8.3, §10.3.
+ *
+ * **Search is typo-tolerant** (`searchItems`, `@tutor/shared/item-list`): it folds the way the
+ * add-word autocomplete folds its prefixes, so `cafe` finds `café`, and it allows a bounded number
+ * of edits, so `ubiqutous` finds `ubiquitous`. Still in memory, still not on the wire.
  */
 const EMPTY_QUERY: ItemsQuery = {
   levels: [],
@@ -294,6 +302,14 @@ export default function CollectionScreen() {
   }
 
   const filterCount = activeFilterCount(query);
+  /** What the collapsed search panel confesses to. `undefined` when nothing is on. */
+  const searchSummary =
+    [
+      search.trim() ? `“${search.trim()}”` : null,
+      filterCount > 0 ? `${filterCount} ${filterCount === 1 ? "filter" : "filters"}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || undefined;
 
   return (
     <Screen
@@ -342,7 +358,19 @@ export default function CollectionScreen() {
         getToken={accessToken}
       />
 
-      <Panel>
+      {/*
+        Collapsed by default, and the `summary` is the price of that. A closed panel that is
+        silently filtering the list below it is the one failure mode this affordance has — see
+        `Panel`'s docblock — so the header states the search term and the filter count whenever
+        either is on. The search text itself lives on the screen, not in the `TextField`, so folding
+        the panel does not clear it.
+      */}
+      <Panel
+        title="Search & filters"
+        summary={searchSummary}
+        collapsible
+        defaultOpen={false}
+      >
         <TextField
           value={search}
           onChangeText={setSearch}
@@ -647,6 +675,25 @@ function AddWordForm({
   );
 }
 
+/**
+ * One word: what it means and what it has been through, beside a column of three controls.
+ *
+ * **What the row says, and what it stopped saying.** The line under the word used to be four
+ * statistics — conversations, lessons, the date added, the date last practised — and no
+ * translation, so a learner scanning fifty rows had to open each one to remember what it meant.
+ * The date pair is gone and the Russian is in its place. Nothing is lost: both dates are on the
+ * detail page, and `first_added_at` / `last_practiced_at` are still what the sort control orders
+ * by, so the information that made them worth showing is now expressed as an ordering rather than
+ * as forty characters per row.
+ *
+ * **Why the controls stack.** Level, favourite and delete used to sit in the row beside the text,
+ * which cost the word itself three controls' worth of width — on a phone that is most of it, and
+ * it is why a translation could not fit. As a column they cost one control's width and the text
+ * gets the rest. The order is fixed and deliberate: the level is a fact and sits at the top out of
+ * the thumb's way, the favourite is the one a learner presses often and sits in the middle where
+ * the thumb lands, and delete is at the bottom — the destructive control is the one the thumb
+ * should have to travel to, which is the same rule the lessons list follows left-to-right.
+ */
 function ItemLine({
   item,
   selected,
@@ -666,11 +713,7 @@ function ItemLine({
   const stats = [
     `${item.practice_count} ${item.practice_count === 1 ? "conversation" : "conversations"}`,
     `${item.lesson_count} ${item.lesson_count === 1 ? "lesson" : "lessons"}`,
-    `added ${new Date(item.first_added_at).toLocaleDateString()}`,
-    item.last_practiced_at
-      ? `last practiced ${new Date(item.last_practiced_at).toLocaleDateString()}`
-      : null,
-  ].filter(Boolean);
+  ];
 
   return (
     <View style={styles.itemRow}>
@@ -680,37 +723,63 @@ function ItemLine({
         <Link href={`/lesson-items/${item.id}`} style={styles.itemText}>
           {item.text}
         </Link>
+        {/*
+          Up to three glosses, joined — the view caps the count (migration 0015), so this renders
+          what it is given rather than slicing again. An unenriched word simply has none: the job is
+          a background sweep with no deadline, and a placeholder saying so would be a line of
+          apology on a row that has a perfectly good word on it.
+
+          `numberOfLines={1}`: three glosses can be long, and a row that grows to two lines for its
+          translation pushes the statistics out of alignment down the whole list.
+        */}
+        {item.translations_ru.length > 0 ? (
+          <Muted numberOfLines={1} style={styles.translations}>
+            {item.translations_ru.join(", ")}
+          </Muted>
+        ) : null}
         {/* The lessons this word is in live on its detail page now, not inline here. */}
-        <Muted>{stats.join(" · ")}</Muted>
+        <Faint>{stats.join(" · ")}</Faint>
       </View>
 
-      {item.level ? <Muted style={styles.levelPill}>{item.level}</Muted> : null}
+      <View style={styles.itemActions}>
+        {/*
+          The empty slot is not padding. Without it an unlevelled word's star and bin slide up by a
+          pill's height, so in a list where most words are levelled and some are not the two
+          controls sit at two different heights from row to row — and a control that moves is a
+          control the thumb has to look for.
+        */}
+        {item.level ? (
+          <Muted style={styles.levelPill}>{item.level}</Muted>
+        ) : (
+          <View style={styles.levelSlot} />
+        )}
 
-      <Button
-        variant="icon"
-        hitSlop={4}
-        onPress={onToggleFavorite}
-        accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
-      >
-        <StarIcon
-          size={18}
-          state={item.is_favorite ? "filled" : "empty"}
-          color={item.is_favorite ? theme.warn : theme.faint}
-        />
-      </Button>
+        <Button
+          variant="icon"
+          hitSlop={4}
+          onPress={onToggleFavorite}
+          accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
+        >
+          <StarIcon
+            size={18}
+            state={item.is_favorite ? "filled" : "empty"}
+            color={item.is_favorite ? theme.warn : theme.faint}
+          />
+        </Button>
 
-      {/* Last in the row, as it is in the lessons list — the destructive control is the one the
-          thumb should have to travel to. `hitSlop` is small on purpose here: its neighbour is the
-          favourite star, so generous slop would trade a missed delete for an accidental one. */}
-      <Button
-        variant="icon"
-        tone="danger"
-        hitSlop={4}
-        onPress={onDelete}
-        accessibilityLabel={`Delete ${item.text}`}
-      >
-        <TrashIcon size={18} color={theme.error} />
-      </Button>
+        {/* `hitSlop` is small on purpose: its neighbour is the favourite star, so generous slop
+            would trade a missed delete for an accidental one. Vertical neighbours now rather than
+            horizontal, which does not change the argument. */}
+        <Button
+          variant="icon"
+          tone="danger"
+          hitSlop={4}
+          onPress={onDelete}
+          accessibilityLabel={`Delete ${item.text}`}
+        >
+          <TrashIcon size={18} color={theme.error} />
+        </Button>
+      </View>
     </View>
   );
 }
@@ -729,13 +798,18 @@ const makeStyles = (t: Palette) =>
 
     itemRow: {
       flexDirection: "row",
-      alignItems: "center",
+      // `flex-start`, not `center`: the actions column is a fixed three-slot stack and the text
+      // column is one to three lines, so centring would float the controls against a short row.
+      alignItems: "flex-start",
       gap: 0.85 * 16,
       paddingVertical: 0.6 * 16,
       borderBottomWidth: 1,
       borderBottomColor: t.border,
     },
     itemText: { fontWeight: type.weightSemibold },
+    translations: { color: t.text },
+    /** Level, favourite, delete — see `ItemLine` for why the order is what it is. */
+    itemActions: { alignItems: "center", gap: 0.25 * 16 },
     levelPill: {
       ...type.tiny,
       borderWidth: 1,
@@ -743,7 +817,12 @@ const makeStyles = (t: Palette) =>
       borderRadius: radius.pill,
       paddingHorizontal: 0.5 * 16,
       overflow: "hidden",
+      // The pill is text in a column of 32pt icon buttons; without this it hugs the left edge of
+      // the column instead of sitting over them.
+      alignSelf: "center",
     },
+    /** The unlevelled word's placeholder. Height = the pill's line box, so the stack does not shift. */
+    levelSlot: { height: type.tiny.lineHeight },
 
     /**
      * The pinned selection bar. `Screen`'s `footer` slot is what finally made this possible — see

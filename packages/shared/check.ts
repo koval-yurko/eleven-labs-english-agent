@@ -117,9 +117,28 @@ if (searchItems(rows, "   ") !== rows) failures.push("searchItems: whitespace-on
 if (searchItems(rows, "UBIQ").length !== 1) failures.push("searchItems: should match case-insensitively");
 if (searchItems(rows, "ice").length !== 1) failures.push("searchItems: should match a substring");
 if (searchItems(rows, "zzz").length !== 0) failures.push("searchItems: no match should return empty");
-// Documented limitation, pinned so a change is deliberate: search is NOT norm_key-aware.
-if (searchItems(rows, "cafe").length !== 0) {
-  failures.push("searchItems: 'cafe' now matches 'café' — intended? update the note in item-list.ts");
+// Search folds like `lexiconPrefixFold` now, so it IS accent-aware — the inverse of what this
+// line used to pin. Kept pinned in the new direction: it is the reason the box finds "café".
+if (searchItems(rows, "cafe").length !== 1) {
+  failures.push("searchItems: 'cafe' must match 'café' — the fold is what makes search norm-aware");
+}
+
+// ── typo tolerance ───────────────────────────────────────────────────────────────────────────
+// The budget ladder (0 edits below 4 chars, 1 up to 6, 2 beyond) is the whole behaviour, so each
+// rung is pinned. A change to `editBudget` that is not deliberate fails here.
+if (searchItems(rows, "ubiqutous").length !== 1) failures.push("searchItems: one deletion should still match");
+if (searchItems(rows, "ubiquitious").length !== 1) failures.push("searchItems: one insertion should still match");
+if (searchItems(rows, "ubiqu").length !== 1) failures.push("searchItems: a typed prefix should match");
+if (searchItems(rows, "ubiqi").length !== 1) failures.push("searchItems: a typo inside a typed prefix should match");
+// 3 edits from "ubiquitous" at 9 characters, where the budget is 2. Mean on purpose.
+if (searchItems(rows, "ubqitos").length !== 0) failures.push("searchItems: 3 edits must not match — the budget is 2");
+// Below four characters the budget is zero: "abc" must not drag in every three-letter neighbour.
+if (searchItems(rows, "ubq").length !== 0) failures.push("searchItems: needles under 4 chars must be exact");
+// Substring still matches anywhere ("quitous" is literally inside "ubiquitous") — it is the FUZZY
+// pass that is anchored to a token's start, so a mid-word needle with a typo in it does not match.
+if (searchItems(rows, "quitous").length !== 1) failures.push("searchItems: substring match is not anchored");
+if (searchItems(rows, "quitious").length !== 0) {
+  failures.push("searchItems: the fuzzy pass must be anchored at a token start, not floating");
 }
 
 const facets: ItemFacet[] = [
