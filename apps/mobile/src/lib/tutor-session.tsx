@@ -33,11 +33,11 @@ import {
   type ReactNode,
 } from "react";
 import { AppState } from "react-native";
-import { useAuth0 } from "react-native-auth0";
 
 import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
 
 import { apiFetch } from "@/api";
+import { useAccessToken, useSession } from "@/lib/auth";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
 import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
@@ -203,12 +203,7 @@ const ActiveContext = createContext<ActiveSession>(null);
 const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
 
 export function TutorSessionProvider({ children }: { children: ReactNode }) {
-  const { getCredentials } = useAuth0();
-
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   // ── whose session this is ──────────────────────────────────────────────────────────────────
   const [lessonId, setLessonId] = useState<string | null>(null);
@@ -627,6 +622,22 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     endSession();
     void persistSession();
   }, [endSession, persistSession]);
+
+  /**
+   * A session that ends takes the conversation with it.
+   *
+   * The tutor does not stop talking when the app signs itself out: LiveKit is already connected and
+   * needs no further token, so the call runs on — while every control for it is behind the gate that
+   * is now showing a sign-in screen (`lib/auth.tsx`). A billed conversation nobody can hang up is
+   * the worst version of the bug this repair is for, so ending the session is part of ending the
+   * session. `end` persists what it has; that write will fail while signed out and is swallowed, as
+   * it is for every other failed persist — the post-call webhook is the backstop.
+   */
+  const signedOut = useSession().status === "signed-out";
+  useEffect(() => {
+    if (!signedOut || !ownsRef.current || statusRef.current === "disconnected") return;
+    end();
+  }, [signedOut, end]);
 
   // ── focus: which lesson the state above describes ──────────────────────────────────────────
   /**

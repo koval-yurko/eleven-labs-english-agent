@@ -10,6 +10,7 @@ import { Appearance } from "react-native";
 import { Auth0Provider } from "react-native-auth0";
 
 import { env } from "@/env";
+import { AuthGate, AuthProvider } from "@/lib/auth";
 import { reconcileAtLaunch } from "@/lib/lesson-card";
 import { TutorSessionProvider } from "@/lib/tutor-session";
 import { useScheme, useTheme } from "@/theme";
@@ -85,8 +86,18 @@ export default function RootLayout() {
       // (RFC 9449) — not something to inherit from a default.
       useDPoP={false}
     >
-      <ConversationProvider>
-        {/*
+      {/*
+        The session, then the tutor, then the router.
+
+        `AuthProvider` sits above `TutorSessionProvider` because that provider needs the app's one
+        access-token source; `AuthGate` sits below it and around the navigator, so a signed-out app
+        renders a sign-in screen instead of mounting screens that immediately fail. Before this the
+        app had no login flow at all — see `lib/auth.tsx` and
+        docs/2026-08-21-login-and-auth-flow-repair.md.
+      */}
+      <AuthProvider>
+        <ConversationProvider>
+          {/*
           The tutor session, above the router.
 
           It has to be here and not in the lesson screen: `useConversation` unregisters its callbacks
@@ -95,30 +106,33 @@ export default function RootLayout() {
           INSIDE `ConversationProvider` (it consumes the SDK context) and OUTSIDE `Stack` (so a push
           or a pop cannot touch it). See `lib/tutor-session.tsx`.
         */}
-        <TutorSessionProvider>
-          {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
+          <TutorSessionProvider>
+            {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
               background: dark glyphs on a light screen. Without this the status bar keeps its
               light glyphs and vanishes into a white page. */}
-          <StatusBar style={scheme === "light" ? "dark" : "light"} />
-          <Stack
-            screenOptions={{
-              // Set here AND in `Screen`, deliberately: this is what stops a native header flashing
-              // during the first frame of a push, before the screen's own `Stack.Screen` applies.
-              headerShown: false,
-              // The only colour the navigator still owns — without it a push slides the new screen in
-              // over white, which reads as a flash on a dark theme.
-              contentStyle: { backgroundColor: theme.bg },
-            }}
-          />
-          {/* The way back to a lesson that is still talking. It is also the answer to the objection
+            <StatusBar style={scheme === "light" ? "dark" : "light"} />
+            <AuthGate>
+              <Stack
+                screenOptions={{
+                  // Set here AND in `Screen`, deliberately: this is what stops a native header flashing
+                  // during the first frame of a push, before the screen's own `Stack.Screen` applies.
+                  headerShown: false,
+                  // The only colour the navigator still owns — without it a push slides the new screen in
+                  // over white, which reads as a flash on a dark theme.
+                  contentStyle: { backgroundColor: theme.bg },
+                }}
+              />
+              {/* The way back to a lesson that is still talking. It is also the answer to the objection
               the old unmount guard raised — a live, billed session with nothing on screen saying so —
               now that navigating away no longer ends one. */}
-          <SessionBar />
-          {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
+              <SessionBar />
+              {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
               is `position: fixed` with `z-index: 100` for the same reason. */}
-          <NavProgressBar />
-        </TutorSessionProvider>
-      </ConversationProvider>
+              <NavProgressBar />
+            </AuthGate>
+          </TutorSessionProvider>
+        </ConversationProvider>
+      </AuthProvider>
     </Auth0Provider>
   );
 }

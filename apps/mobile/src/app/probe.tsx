@@ -26,9 +26,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
+import { useAccessToken } from "@/lib/auth";
 import { useEventLog } from "@/hooks/use-event-log";
 import { useActiveSession } from "@/lib/tutor-session";
 import { useTheme, type Palette } from "@/theme";
@@ -78,7 +78,6 @@ export default function ProbeScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const kindStyles = useMemo(() => makeKindStyles(theme), [theme]);
-  const { getCredentials } = useAuth0();
 
   // Toggled by the buttons rather than derived from `status`, so the probe also measures the
   // connecting window — a session that never connects still produces a readable timeline.
@@ -99,10 +98,7 @@ export default function ProbeScreen() {
   /** Per-conversation save guard: a reconnect must not re-post the same transcript. */
   const savedForRef = useRef<string | null>(null);
 
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   /** Post the collected transcript. Called on disconnect; idempotent per conversation id. */
   const saveTranscript = useCallback(async () => {

@@ -16,9 +16,9 @@ import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { useAuth0 } from "react-native-auth0";
 
 import { apiFetch } from "@/api";
+import { useAccessToken } from "@/lib/auth";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
@@ -107,14 +107,10 @@ function formatDuration(secs: number | null): string | null {
 
 export default function LessonScreen() {
   const { id: lessonId } = useLocalSearchParams<{ id: string }>();
-  const { getCredentials } = useAuth0();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   // ── the lesson ─────────────────────────────────────────────────────────────────────────────
   const [detail, setDetail] = useState<LessonDetailResponse | null>(null);

@@ -3,8 +3,8 @@ import type { ItemDetail, WordDetails } from "@tutor/shared/word-types";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { useAuth0 } from "react-native-auth0";
 
+import { useAccessToken } from "@/lib/auth";
 import { deleteWord, fetchItem, setFavorite } from "@/lib/items";
 import { useTheme } from "@/theme";
 import {
@@ -42,14 +42,10 @@ import {
  */
 export default function WordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getCredentials } = useAuth0();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

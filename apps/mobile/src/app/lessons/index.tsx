@@ -9,8 +9,8 @@ import { type Palette } from "@tutor/shared/theme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { useAuth0 } from "react-native-auth0";
 
+import { useAccessToken, useSession } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 import { fetchLessons, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import { useActiveSession } from "@/lib/tutor-session";
@@ -60,14 +60,11 @@ import {
  * server stopped retrying and not that anything changed (S5 §3.2 / D47).
  */
 export default function LessonsScreen() {
-  const { user, getCredentials } = useAuth0();
+  const { status: sessionStatus, label: signedInAs } = useSession();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   const [lessons, setLessons] = useState<LessonListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -289,7 +286,15 @@ export default function LessonsScreen() {
       {/* The web's footer has no counterpart — Auth0 and the suspension instrument are the phone's
           own concerns — so it stays, as quiet prose rather than a panel. */}
       <View style={styles.footer}>
-        <Faint>{user ? `signed in as ${user.email ?? user.sub}` : "signed out"}</Faint>
+        {/* `label` comes from the id token, which a launch that could not reach Auth0 never parsed
+            — so the STATUS decides whether this says signed in, and the label only names who. */}
+        <Faint>
+          {sessionStatus === "signed-in"
+            ? signedInAs
+              ? `signed in as ${signedInAs}`
+              : "signed in"
+            : "signed out"}
+        </Faint>
         <Link href="/auth">Account →</Link>
         {/* The upgrade regression instrument, not a feature (S4 D43). */}
         <Link href="/probe" style={styles.quietLink}>

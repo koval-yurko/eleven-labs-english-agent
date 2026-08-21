@@ -3,25 +3,33 @@ import { Link } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth0 } from "react-native-auth0";
 
 import { env } from "@/env";
 import { useEventLog } from "@/hooks/use-event-log";
+import { RefreshTokenWarning, useSession } from "@/lib/auth";
 import { useTheme, type Palette } from "@/theme";
 
 /**
- * S2 — Auth0 on the device, Bearer against the server.
+ * `/account` — the session, and the instrument that proves it works.
  *
- * The gate runs in two halves (research doc §7), because there is no deployment yet:
- *   Half A needs only Auth0 and the phone — login, a JWT access token, silent renewal, logout.
- *   Half B needs `apiBaseUrl` filled in — GET /api/v2/me returning the right `sub`, and 401s.
+ * This started life as S2's gate screen: the only `authorize()` call in the app, reached from a
+ * link at the bottom of the lessons list. That made it *the* login screen by accident, which is how
+ * the app shipped with no login screen on purpose — see the docblock in `lib/auth.tsx`.
+ *
+ * It no longer owns any auth mechanism. Sign in, sign out and the token both live in
+ * `AuthProvider`, and this screen drives them, so what the learner presses here is the same code
+ * path the gate uses. What stays is the diagnostic half, because it is still the fastest way to
+ * answer "is this a token problem or a server problem" from a device:
+ *
+ *  - the token is a JWT, not an opaque Auth0 string (i.e. an audience was requested);
+ *  - `getCredentials()` renews without prompting;
+ *  - `/api/v2/me` returns the right `sub`, and an absent or bad token gets a 401 envelope.
  *
  * Everything is reported into the same scrollback S1 used, so a failure is readable rather than
  * inferred from a spinner that never stops.
  */
-export default function AuthScreen() {
-  const { authorize, clearSession, clearCredentials, getCredentials, user, isLoading, error } =
-    useAuth0();
+export default function AccountScreen() {
+  const { status, label, sub, error, reason, busy, signIn, signOut, accessToken } = useSession();
   const { entries, log } = useEventLog();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -30,8 +38,8 @@ export default function AuthScreen() {
   const [tokenSummary, setTokenSummary] = useState<string>("—");
 
   /**
-   * Reading `env.apiBaseUrl` throws while it is unset (it is, until the deploy — §3.2). That is the
-   * intended design, so catch it here and show the message instead of white-screening the tool.
+   * Reading `env.apiBaseUrl` throws while it is unset (src/env.ts), which is the intended design.
+   * Catch it here and show the message rather than white-screening the tool.
    */
   const readApiBase = useCallback((): string | null => {
     try {
@@ -44,63 +52,43 @@ export default function AuthScreen() {
 
   /** Gate criterion: the access token must be a JWT (three segments), not an opaque Auth0 string. */
   const describe = useCallback(
-    (accessToken: string, tokenType: string, expiresAt: number) => {
-      const segments = accessToken.split(".").length;
+    (token: string) => {
+      const segments = token.split(".").length;
       const isJwt = segments === 3;
-      const secondsLeft = Math.round(expiresAt - Date.now() / 1000);
-      setTokenSummary(
-        `${tokenType} · ${isJwt ? "JWT" : `OPAQUE (${segments} seg)`} · ${secondsLeft}s left`,
-      );
-      log(isJwt ? "you" : "error", `token: ${tokenType}, ${isJwt ? "JWT ✓" : "NOT a JWT ✗"}`);
+      setTokenSummary(isJwt ? "Bearer · JWT" : `OPAQUE (${segments} seg)`);
+      log(isJwt ? "you" : "error", `token: ${isJwt ? "JWT ✓" : "NOT a JWT ✗"}`);
       if (!isJwt) {
         log("error", "an opaque token means no audience was requested — check auth0Audience");
-      }
-      if (tokenType !== "Bearer") {
-        log("error", `tokenType is "${tokenType}", not Bearer — is useDPoP still enabled?`);
       }
     },
     [log],
   );
 
   const onLogin = useCallback(async () => {
-    try {
-      log("note", `authorize → audience ${env.auth0Audience}`);
-      const credentials = await authorize({
-        audience: env.auth0Audience,
-        // offline_access yields a refresh token, which is what makes getCredentials() renew
-        // silently. Without it the learner re-authenticates mid-lesson, which is not shippable.
-        scope: "openid profile email offline_access",
-      });
-      if (!credentials) return log("error", "authorize returned no credentials");
-      describe(credentials.accessToken, credentials.tokenType, credentials.expiresAt);
-    } catch (e) {
-      log("error", `authorize failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [authorize, log, describe]);
+    log("note", `authorize → audience ${env.auth0Audience}`);
+    await signIn();
+  }, [signIn, log]);
 
-  /** Renewal: with the API lifetime temporarily at 300s (D17), this must not prompt for login. */
-  const onRefresh = useCallback(async () => {
+  /** Renewal: with the API lifetime temporarily at 300s (S2 D17), this must not prompt for login. */
+  const onRenew = useCallback(async () => {
     try {
-      const credentials = await getCredentials();
-      if (!credentials)
-        return log("error", "getCredentials returned nothing — is the session gone?");
-      describe(credentials.accessToken, credentials.tokenType, credentials.expiresAt);
-      log("status", "getCredentials returned without prompting ✓");
+      const token = await accessToken({ forceRefresh: true });
+      if (!token) return log("error", "no token — is the session gone?");
+      describe(token);
+      log("status", "renewed without prompting ✓");
     } catch (e) {
-      log("error", `getCredentials failed: ${e instanceof Error ? e.message : String(e)}`);
+      log("error", `renew failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [getCredentials, log, describe]);
+  }, [accessToken, log, describe]);
 
   const onCallMe = useCallback(async () => {
     const base = readApiBase();
     if (!base) return;
     try {
-      const credentials = await getCredentials();
+      const token = await accessToken();
       const url = `${base}${API_V2_ROUTES.me}`;
       log("note", `GET ${url}`);
-      const res = await fetch(url, {
-        headers: { authorization: `Bearer ${credentials?.accessToken ?? ""}` },
-      });
+      const res = await fetch(url, { headers: { authorization: `Bearer ${token ?? ""}` } });
       const body: unknown = await res.json();
       if (isMeResponse(body)) {
         log("you", `sub = ${body.sub}`);
@@ -112,7 +100,7 @@ export default function AuthScreen() {
     } catch (e) {
       log("error", `fetch failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [getCredentials, log, readApiBase]);
+  }, [accessToken, log, readApiBase]);
 
   /** The negative half of the gate: no token and a garbage token must both 401. */
   const onCallMeUnauthed = useCallback(async () => {
@@ -137,24 +125,16 @@ export default function AuthScreen() {
   }, [log, readApiBase]);
 
   const onLogout = useCallback(async () => {
-    try {
-      // Both: clearCredentials drops the Keychain copy, clearSession ends the Auth0 web session.
-      // Without the second, the next login silently reuses the browser session and never shows the
-      // prompt — which makes the login gate untestable after the first run.
-      await clearCredentials();
-      await clearSession();
-      setTokenSummary("—");
-      log("status", "logged out (credentials + web session)");
-    } catch (e) {
-      log("error", `logout failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [clearCredentials, clearSession, log]);
+    await signOut();
+    setTokenSummary("—");
+    log("status", "signed out (credentials + web session)");
+  }, [signOut, log]);
 
   let apiBase: string;
   try {
     apiBase = env.apiBaseUrl || "(empty)";
   } catch {
-    apiBase = "(not set — blocked on deploy)";
+    apiBase = "(not set)";
   }
 
   return (
@@ -164,21 +144,27 @@ export default function AuthScreen() {
       </Link>
 
       <View style={styles.stats}>
-        <Stat label="state" value={isLoading ? "loading" : user ? "signed in" : "signed out"} />
+        <Stat label="state" value={busy ? "working" : status} />
         <Stat label="token" value={tokenSummary} />
       </View>
 
       <Text style={styles.meta} numberOfLines={1}>
-        sub: {user?.sub ?? "—"}
+        {label ?? "—"}
+      </Text>
+      <Text style={styles.meta} numberOfLines={1}>
+        sub: {sub ?? "—"}
       </Text>
       <Text style={styles.meta} numberOfLines={1}>
         api: {apiBase}
       </Text>
-      {error ? <Text style={styles.err}>{error.message}</Text> : null}
+      {/* The tenant misconfiguration this whole repair exists for — see `lib/auth.tsx`. */}
+      <RefreshTokenWarning />
+      {reason ? <Text style={styles.meta}>{reason}</Text> : null}
+      {error ? <Text style={styles.err}>{error}</Text> : null}
 
       <View style={styles.buttons}>
         <Button label="Log in" onPress={onLogin} />
-        <Button label="Renew" onPress={onRefresh} />
+        <Button label="Renew" onPress={onRenew} />
         <Button label="Log out" onPress={onLogout} />
       </View>
       <View style={styles.buttons}>

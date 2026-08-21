@@ -23,8 +23,8 @@ import {
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useAuth0 } from "react-native-auth0";
 
+import { useAccessToken } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 import { addWord, deleteWord, fetchItems, setFavorite } from "@/lib/items";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
@@ -124,14 +124,10 @@ function activeFilterCount(query: ItemsQuery): number {
 }
 
 export default function CollectionScreen() {
-  const { getCredentials } = useAuth0();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  const accessToken = useCallback(async () => {
-    const credentials = await getCredentials();
-    return credentials?.accessToken ?? null;
-  }, [getCredentials]);
+  const accessToken = useAccessToken();
 
   const [query, setQuery] = useState<ItemsQuery>(EMPTY_QUERY);
   const [data, setData] = useState<ItemsResponse | null>(null);
