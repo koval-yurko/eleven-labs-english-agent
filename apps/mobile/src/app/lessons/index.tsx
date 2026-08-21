@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 
-import { useAccessToken, useSession } from "@/lib/auth";
+import { useAccessToken } from "@/lib/auth";
 import { newId } from "@/lib/ids";
 import { fetchLessons, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import { useActiveSession } from "@/lib/tutor-session";
@@ -23,8 +23,6 @@ import {
   ErrorText,
   Faint,
   H1,
-  LegalLinks,
-  Link,
   Muted,
   Panel,
   Screen,
@@ -60,7 +58,6 @@ import {
  * server stopped retrying and not that anything changed (S5 §3.2 / D47).
  */
 export default function LessonsScreen() {
-  const { status: sessionStatus, label: signedInAs } = useSession();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -283,26 +280,6 @@ export default function LessonsScreen() {
         )}
       </Panel>
 
-      {/* The web's footer has no counterpart — Auth0 and the suspension instrument are the phone's
-          own concerns — so it stays, as quiet prose rather than a panel. */}
-      <View style={styles.footer}>
-        {/* `label` comes from the id token, which a launch that could not reach Auth0 never parsed
-            — so the STATUS decides whether this says signed in, and the label only names who. */}
-        <Faint>
-          {sessionStatus === "signed-in"
-            ? signedInAs
-              ? `signed in as ${signedInAs}`
-              : "signed in"
-            : "signed out"}
-        </Faint>
-        <Link href="/auth">Account →</Link>
-        {/* The upgrade regression instrument, not a feature (S4 D43). */}
-        <Link href="/probe" style={styles.quietLink}>
-          Session probe →
-        </Link>
-        <LegalLinks />
-      </View>
-
       {/* One dialog for the whole list, driven by which row is pending — not one mounted per row. */}
       <ConfirmDialog
         open={confirmTarget !== null}
@@ -409,6 +386,4 @@ const makeStyles = (t: Palette) =>
     },
     badgeLive: { color: t.ok, borderColor: t.ok },
     badgeHeld: { color: t.warn, borderColor: t.warn },
-    footer: { marginTop: space.panelPadding, gap: 4 },
-    quietLink: { color: t.faint },
   });

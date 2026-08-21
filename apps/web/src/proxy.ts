@@ -21,17 +21,14 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
   // SW is fetched/registered with no guarantee of a validated session, and `/offline` is the
   // credential-less fallback shown when navigations can't reach the network.
   //
-  // `/privacy` and `/support` are the two URLs App Store Connect requires for the iOS app. Both the
-  // store's own link validator and the App Review team open them with no session, so gating them
-  // would 302 the check into a login page and read as a dead link — a submission blocker, not a
-  // detail. See docs/2026-08-13-expo-s7-ship.md §5.3.
+  // `/privacy` and `/support` used to be exempt here too — the two URLs App Store Connect requires,
+  // opened with no session by the store's link validator and by App Review. Both pages are gone, so
+  // whatever URLs are entered in App Store Connect now have to be hosted somewhere else.
   if (
     pathname.startsWith("/auth") ||
     pathname === "/manifest.webmanifest" ||
     pathname === "/sw.js" ||
-    pathname === "/offline" ||
-    pathname === "/privacy" ||
-    pathname === "/support"
+    pathname === "/offline"
   ) {
     return authRes;
   }

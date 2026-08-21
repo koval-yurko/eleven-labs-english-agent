@@ -255,9 +255,11 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * It never had to be asked before: the session and its callbacks lived on the lesson screen, so a
    * screen that was not mounted could not hear about a session it had not started. This provider is
    * mounted for the life of the app, and `ConversationProvider` composes every registered set of
-   * callbacks into one — so `app/probe.tsx`, which runs its own diagnostic session through the same
-   * provider, would otherwise push turns into a lesson's transcript, raise a lock-screen card for a
-   * lesson nobody opened, and get a second kickoff message sent into its own conversation.
+   * callbacks into one — so any OTHER component running a conversation through the same provider
+   * would otherwise push turns into a lesson's transcript, raise a lock-screen card for a lesson
+   * nobody opened, and get a second kickoff message sent into its own conversation. The diagnostic
+   * screen that first made this concrete is gone; the guard is not, because the coupling it defends
+   * against is a property of the shared provider rather than of that one screen.
    *
    * Set the instant before `startSession`, cleared when the transport settles at "disconnected"
    * outside a start. A ref because the callbacks read it, a state because the render does.
@@ -445,8 +447,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   const rawConversation = useRawConversation();
   /**
-   * `owns` and `!starting` are both load-bearing. Ownership keeps another component's session (the
-   * probe's) out of this state machine; `!starting` covers the half-beat of a takeover, where the
+   * `owns` and `!starting` are both load-bearing. Ownership keeps another component's session out
+   * of this state machine; `!starting` covers the half-beat of a takeover, where the
    * outgoing conversation is still reported as connected while the incoming one is being minted —
    * without it, the screen that just pressed Start flashes an "End session" button belonging to a
    * lesson it is replacing.
@@ -1047,7 +1049,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       held,
       silenced,
       // Same reasoning as `status`: the mute bit belongs to whatever conversation is running, and
-      // the probe's is not one this state should describe.
+      // a conversation we do not own is not one this state should describe.
       muted: owns && isMuted,
       lines,
       carried,

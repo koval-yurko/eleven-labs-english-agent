@@ -16,7 +16,12 @@ import { useAuth0 } from "react-native-auth0";
 import type { TokenSource } from "@/api";
 import { env } from "@/env";
 import { useTheme } from "@/theme";
-import { Body, Button, ErrorText, H1, LegalLinks, Muted, WarnText, layout, space } from "@/ui";
+// The leaf modules rather than the `@/ui` barrel, deliberately: `AppHeader` reads `useSession` from
+// this file, so the barrel would close a cycle (ui → AppHeader → lib/auth → ui). None of the three
+// modules below imports anything from `lib/`, so the graph stays a tree.
+import { Button } from "@/ui/Button";
+import { Body, ErrorText, H1, Muted, WarnText } from "@/ui/Text";
+import { layout, space } from "@/ui/tokens";
 
 /**
  * The app's session — one sign-in flow, one token source, one way back from a dead session.
@@ -102,7 +107,7 @@ const MIN_TTL_SECONDS = 30;
  * a dropped connection *deleting a working refresh token*, and the learner re-authenticating
  * because a train went into a hill. It is reported as an ordinary, retryable error instead
  * (`RENEW_FAILED_MESSAGE`); if the token really was revoked, every attempt keeps failing and the
- * account screen's **Log out** is one link away in the lessons footer.
+ * account screen's **Log out** is one link away in the header.
  */
 const TERMINAL_CREDENTIAL_ERRORS: ReadonlySet<string> = new Set([
   "NO_CREDENTIALS",
@@ -477,7 +482,6 @@ function SignInScreen() {
             disabled={busy}
             style={styles.action}
           />
-          <LegalLinks />
         </View>
       </View>
     </SafeAreaView>

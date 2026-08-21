@@ -18,7 +18,6 @@ export { Chip, ChipRow } from "./Chip";
 export { ConfirmDialog } from "./ConfirmDialog";
 export { Disclosure } from "./Disclosure";
 export { EmptyState } from "./EmptyState";
-export { LegalLinks } from "./LegalLinks";
 export { Link } from "./Link";
 export { NavProgressBar } from "./NavProgressBar";
 export { beginNavigation, useLoadingIndicator, useNavigationPending } from "./nav-progress";
