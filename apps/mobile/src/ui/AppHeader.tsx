@@ -13,8 +13,8 @@ import { layout, space, type } from "./tokens";
  * The app's one piece of chrome — `apps/web/src/app/layout.tsx`'s `<header>`.
  *
  * ```
- * 🎧 English Tutor              signed in as you@example.com
- *                               Words   Lessons   [☾ Dark]
+ * 🎧 English Tutor    signed in as you@example.com
+ *                            Words   Lessons   [☾ Dark]
  * ```
  *
  * **This replaces the bottom tab bar**, which is the single biggest navigational change in the port.
@@ -30,10 +30,15 @@ import { layout, space, type } from "./tokens";
  * already says which page this is, and a highlighted nav item would be the one piece of visual
  * language the two apps didn't share.
  *
- * **It wraps, and the web's doesn't.** Brand + two links + the toggle come to roughly 400pt, which
- * fits an iPad and does not fit an iPhone. The web has the same arithmetic and simply overflows;
- * here the nav group drops to a second line instead, because the alternative on a phone is
- * ellipsising the app's own name down to "🎧 Engl…".
+ * **It is two lines, and the web's is one.** Brand + identity + two links + the toggle come to
+ * roughly 400pt, which fits an iPad and does not fit an iPhone. The web has the same arithmetic and
+ * simply overflows; here it breaks in a fixed place — brand and identity share the top line, the
+ * nav gets the second — because the alternative on a phone is ellipsising the app's own name down
+ * to "🎧 Engl…".
+ *
+ * The break is written into the tree, not left to `flexWrap`. Wrapping moved the identity and the
+ * nav together as one block, so on a phone the identity landed on its own second line and the nav
+ * on a third: a three-line header whose top line was a bare logo with the whole right half empty.
  *
  * ## Who is signed in
  *
@@ -52,18 +57,18 @@ export function AppHeader() {
 
   return (
     <View style={styles.header}>
-      {/* The brand goes to the collection, not to `/lessons` — `/` redirects there too, because
-          the words are what the learner opens the app for. */}
-      <Link href="/lesson-items" variant="plain" style={styles.brand} numberOfLines={1}>
-        🎧 English Tutor
-      </Link>
-      <View style={styles.right}>
+      <View style={styles.identityRow}>
+        {/* The brand goes to the collection, not to `/lessons` — `/` redirects there too, because
+            the words are what the learner opens the app for. */}
+        <Link href="/lesson-items" variant="plain" style={styles.brand} numberOfLines={1}>
+          🎧 English Tutor
+        </Link>
         <SignedInAs />
-        <View style={styles.nav}>
-          <Link href="/lesson-items">Words</Link>
-          <Link href="/lessons">Lessons</Link>
-          <ThemeToggle />
-        </View>
+      </View>
+      <View style={styles.nav}>
+        <Link href="/lesson-items">Words</Link>
+        <Link href="/lessons">Lessons</Link>
+        <ThemeToggle />
       </View>
     </View>
   );
@@ -100,29 +105,44 @@ function SignedInAs() {
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
-    header: {
+    header: { gap: 2, marginBottom: layout.headerGap },
+    /**
+     * Brand left, identity hard right, on ONE line — never two.
+     *
+     * The row this replaced was `brand | (identity above nav)` with `flexWrap`, and the wrap is what
+     * it actually did on a phone: the whole right-hand column dropped below the brand, so "signed
+     * in as …" read as a second header line and the nav as a third. Two rows was always the answer
+     * at phone width — the mistake was letting flexbox choose WHICH two.
+     *
+     * So the split is explicit: identity keeps the brand's line (it is one short grey line and
+     * there is room for it beside a two-word app name), and the nav gets its own. No `flexWrap`
+     * anywhere — a wrap here can only reintroduce the layout this fixes.
+     */
+    identityRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      flexWrap: "wrap",
       gap: space.row,
-      marginBottom: layout.headerGap,
     },
     /** `fontWeight: 700; fontSize: 1.25rem` — the web's inline style on the brand link. */
-    brand: { fontSize: 1.25 * 16, fontWeight: type.weightBold, color: t.text, flexShrink: 1 },
+    brand: { fontSize: 1.25 * 16, fontWeight: type.weightBold, color: t.text, flexShrink: 0 },
     /**
-     * Identity above nav, both right-aligned. A column rather than one long row because the two
-     * together are wider than an iPhone, and the wrap this replaces would otherwise break between
-     * "signed in as" and the address it names.
+     * The identity takes the leftover width and gives it back: `flexShrink` plus `minWidth: 0` are
+     * what let a long address ellipsise instead of shoving the brand off the left edge.
      */
-    right: { alignItems: "flex-end", gap: 2, flexShrink: 1 },
-    identity: { flexDirection: "row", alignItems: "baseline", maxWidth: "100%" },
+    identity: { flexDirection: "row", alignItems: "baseline", flexShrink: 1, minWidth: 0 },
     signedIn: { flexShrink: 0 },
     /**
      * `Link`'s own size is `type.body` — the size of prose, not of a meta line. Overridden to
      * `type.tiny` so it sits level with the grey half, and left shrinkable so a long address
      * ellipsises instead of pushing the nav row off the right edge.
      */
-    account: { ...type.tiny, flexShrink: 1 },
-    nav: { flexDirection: "row", alignItems: "center", gap: space.navGap, flexShrink: 0 },
+    account: { ...type.tiny, flexShrink: 1, minWidth: 0 },
+    /** Its own line, right-aligned under the identity it follows. */
+    nav: {
+      flexDirection: "row",
+      alignItems: "center",
+      alignSelf: "flex-end",
+      gap: space.navGap,
+    },
   });

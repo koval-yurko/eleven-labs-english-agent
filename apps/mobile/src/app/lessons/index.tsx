@@ -271,9 +271,17 @@ export default function LessonsScreen() {
                   {lesson.sessionCount === 1 ? "conversation" : "conversations"} ·{" "}
                   {new Date(lesson.created_at).toLocaleDateString()}
                 </Muted>
-                {lesson.items.length > 0 ? (
-                  <Faint numberOfLines={1}>{lesson.items.join(" · ")}</Faint>
-                ) : null}
+                {/*
+                  Every word in the lesson, wrapping for as many lines as that takes — not the one
+                  ellipsised line this was. `LessonListItem.items` is the full set of active texts
+                  (the list route caps nothing), so the truncation was throwing away a payload the
+                  row had already been handed, and throwing it away at exactly the moment it became
+                  useful: a one-word lesson read fine, a twelve-word lesson — the one a learner
+                  actually needs to tell apart from its neighbour — showed three words and a "…".
+                  The count line directly above already says how many there are, so the ellipsis
+                  wasn't even carrying "there is more"; it was only hiding what.
+                */}
+                {lesson.items.length > 0 ? <Faint>{lesson.items.join(" · ")}</Faint> : null}
               </Pressable>
             );
           })

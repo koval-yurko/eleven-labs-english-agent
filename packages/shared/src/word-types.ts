@@ -77,16 +77,18 @@ export interface ItemRow {
   is_favorite: boolean;
   categories: Record<string, string>;
   /**
-   * Up to three Russian glosses, best/most-common first — the head of `WordDetails.translations_ru`,
-   * derived by the `owner_items` view (migration 0015) rather than by any client.
+   * Up to six Russian glosses, best/most-common first — the head of `WordDetails.translations_ru`,
+   * derived by the `owner_items` view (0015, widened from three by 0016) rather than by any client.
    *
    * **Empty is the normal case, not a gap.** The enrichment job is a background sweep with no
    * deadline (`words.details_at` is an ATTEMPTED flag), so a word added a minute ago has none, and a
    * word the model could not gloss never will. A row renders what it has.
    *
-   * The three-item cap is in SQL on purpose: it is the answer to "how many translations does a list
-   * row show", and every list of words has to agree on it. The full document — the rest of the
-   * glosses, the forms, the examples — is `ItemDetail.details`, read per-word by the detail page.
+   * The cap is in SQL on purpose: it is the answer to "how many translations does a list row show",
+   * and every list of words has to agree on it. Six is `MAX_TRANSLATIONS`, the most the job stores,
+   * so in practice this is now the whole gloss list rather than its head — a caller wanting fewer
+   * clips at render time. The rest of the document — the forms, the examples — is
+   * `ItemDetail.details`, read per-word by the detail page.
    */
   translations_ru: string[];
 }

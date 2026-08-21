@@ -720,16 +720,22 @@ function ItemLine({
           {item.text}
         </Link>
         {/*
-          Up to three glosses, joined — the view caps the count (migration 0015), so this renders
-          what it is given rather than slicing again. An unenriched word simply has none: the job is
-          a background sweep with no deadline, and a placeholder saying so would be a line of
-          apology on a row that has a perfectly good word on it.
+          The glosses, joined — the view caps the count (migration 0016), so this renders what it is
+          given rather than slicing again. An unenriched word simply has none: the job is a
+          background sweep with no deadline, and a placeholder saying so would be a line of apology
+          on a row that has a perfectly good word on it.
 
-          `numberOfLines={1}`: three glosses can be long, and a row that grows to two lines for its
-          translation pushes the statistics out of alignment down the whole list.
+          `numberOfLines={3}`, not 1. One line was the wrong economy: it bought row-to-row alignment
+          of the statistics line and paid for it with the meaning of the word, which is the reason
+          the translations were put on the row at all. A learner scanning for "which word was this"
+          reads the Russian, and a Russian gloss list that ends in "…" answers the question for the
+          first word and not the second. Three is the ceiling rather than none because the point is
+          a row that varies a little, not a row that can grow without limit — six long glosses at
+          phone width are five lines, and at five lines the list stops being scannable in the
+          different direction.
         */}
         {item.translations_ru.length > 0 ? (
-          <Muted numberOfLines={1} style={styles.translations}>
+          <Muted numberOfLines={3} style={styles.translations}>
             {item.translations_ru.join(", ")}
           </Muted>
         ) : null}
