@@ -28,9 +28,16 @@
  *
  * **The audio session.** On iOS AVAudioSession is one process-wide resource, and an adapter that
  * configures it privately fights the other one — last writer wins and the loser fails as *silence*,
- * not as an error. It is owned above the adapters (`apps/mobile/src/lib/audio-session.ts`); all a
- * transport does is declare, through `managesAudioSession`, whether its SDK already handles it.
- * See §4.1 and §7 of the stage-0 document.
+ * not as an error. The POLICY (which category a voice lesson needs) is owned by one module,
+ * `apps/mobile/src/lib/audio-session.ts`; adapters are its callers.
+ *
+ * **This was a capability flag until stage 2 and should not have been.** The idea was that the
+ * session would assert the category for any transport whose SDK did not. Writing the second adapter
+ * showed why that cannot work: the assertion has to happen when the local track opens and again when
+ * the remote track arrives — moments only the transport can see, and both before it ever reports
+ * `"connected"`. A session-level effect keyed on status fires too late to help and too coarsely to
+ * be right. So there is no flag: the module decides *what*, the adapter decides *when*, and the
+ * session is not involved. See §4.1 and §7 of the stage-0 document.
  */
 import type { TranscriptLine, TutorItem } from "./tutor";
 
@@ -117,20 +124,6 @@ export interface TutorCapabilities {
    * adapter absorbs that; the session sees one event either way.
    */
   responseCorrection: boolean;
-  /**
-   * Does this transport's SDK already own the iOS audio session?
-   *
-   * `true` for ElevenLabs — `@elevenlabs/react-native` calls `AudioSession.configureAudio()`,
-   * `startAudioSession()` and, on detach, `stopAudioSession()`, with no way to turn any of it off.
-   * `false` for a hand-rolled `RTCPeerConnection`, which has no `Room` and therefore never leaves
-   * the `soloAmbient` category that cannot render a WebRTC audio unit.
-   *
-   * This is NOT a capability the session shows anyone. It exists so the audio-session owner knows
-   * whether to assert the category itself or stay out of the way — and so that the day a second
-   * transport is live, the fact that one of them stops the session globally is written down
-   * somewhere the compiler can see.
-   */
-  managesAudioSession: boolean;
 }
 
 /** What the session asks for when it starts a lesson. Provider-neutral by construction. */

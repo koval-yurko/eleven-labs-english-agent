@@ -41,10 +41,11 @@ import { tutorErrorMessage } from "@/lib/tutor-error";
  * has to be filtered back out of the transcript. The session takes that fallback BECAUSE of this
  * flag rather than because it was written for this provider.
  *
- * `managesAudioSession: true` is a statement of fact about the SDK, not a preference:
+ * Nothing here touches the audio session, and that is a fact about the SDK rather than a choice:
  * `@elevenlabs/react-native/src/index.react-native.ts` calls `AudioSession.configureAudio()` and
  * `startAudioSession()` in its setup strategy and `stopAudioSession()` on detach, with no option to
- * disable any of it. `lib/audio-session.ts` stays out of the way when this is true.
+ * disable any of it. `lib/audio-session.ts` is therefore never called from this adapter — and the
+ * fact that the SDK's detach stops the session GLOBALLY is the hazard that module documents.
  */
 const CAPABILITIES: TutorCapabilities = {
   // Only through the escape hatch in `lib/agent-audio.ts` — which is exactly why
@@ -54,7 +55,6 @@ const CAPABILITIES: TutorCapabilities = {
   userActivity: true,
   cancelTurn: false,
   responseCorrection: true,
-  managesAudioSession: true,
 };
 
 export function useElevenLabsTransport(events: TutorTransportEvents): TutorTransport {

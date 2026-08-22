@@ -1,7 +1,7 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
-Research, 2026-08-22. **Status: Stage 0 spike BUILT and PASSED on device, 2026-08-22 — all five
-questions green (§14). Stages 1–5 not started.**
+Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1 and 2 BUILT and green in CI but
+not yet device-verified (§14, §15). Stages 3–5 not started.**
 
 ## 1. The question
 
@@ -498,12 +498,12 @@ Answers, on a device:
 
 Nothing else starts until 1 and 2 are yes. **Both are yes.**
 
-**Stage 1 — extract the interface from ElevenLabs alone.** Write `tutor-transport.ts`, wrap the
+**Stage 1 — extract the interface from ElevenLabs alone. ✅ BUILT 2026-08-22 (§15).** Write `tutor-transport.ts`, wrap the
 existing SDK in `transport/elevenlabs.ts`, and rewrite `tutor-session.tsx` against the contract with
 **zero behaviour change**. This stage is verifiable — the app must behave identically — which is why
 it is separate from stage 2.
 
-**Stage 2 — the OpenAI adapter**, shaped by what stage 0 learned, with `capabilities` telling the
+**Stage 2 — the OpenAI adapter. ✅ BUILT 2026-08-22 (§15).**, shaped by what stage 0 learned, with `capabilities` telling the
 truth about §6.
 
 **Stage 3 — server: provider-aware versions.** `PromptVersion.provider`, `sync:agents` skips OpenAI,
@@ -586,7 +586,68 @@ Recorded as gaps rather than quietly omitted, in the manner of
   teaching pacing, not that: its prompt is not a podcast prompt and `server_vad` was never exercised.
   Do not read Q5's pass as covering words-1.5.
 
-## 15. Sources
+## 15. Stages 1 and 2 — 2026-08-22
+
+**Built; typecheck, lint, the shared property checks, the mobile logic checks and the iOS bundle all
+pass. NOT device-verified.** Stage 1's whole criterion is *zero behaviour change*, and no compiler
+can check that — a lesson that starts, holds, resumes, mutes, silences, survives a lock and files its
+transcript is the only proof, and it has not been run.
+
+| | |
+| --- | --- |
+| `packages/shared/src/tutor-transport.ts` | the contract: state, controls, capabilities, events |
+| `apps/mobile/src/lib/audio-session.ts` | the category policy (§4.1) |
+| `apps/mobile/src/lib/transport/elevenlabs.ts` | absorbed `tutor-error.ts`, `agent-audio.ts`, the token mint, `formatItemsList` |
+| `apps/mobile/src/lib/transport/openai.ts` | the second adapter |
+| `apps/mobile/src/lib/transport/index.ts` | the registry and `DEFAULT_TUTOR_PROVIDER` |
+| `apps/web/.../v2/words-agent/openai-token/route.ts` | the spike route, promoted: mints the row key, interpolates the words |
+
+The stage-0 spike screen and its route are **deleted**, as §14.3 said they would be. Keeping a second
+OpenAI client alongside the adapter is exactly the drift the interface exists to prevent.
+
+### 15.1 What writing the SECOND adapter changed about the interface
+
+This is the argument of §12 doing its job, so it is worth being specific about.
+
+1. **`managesAudioSession` was a capability and is now nothing.** The idea was that the session would
+   assert the iOS category for any transport whose SDK did not. The second adapter showed it cannot
+   work: the assertion has to happen when the local track opens and again when the remote track
+   arrives — moments only the transport can see, both *before* it ever reports `"connected"`. A
+   session-level effect keyed on status fires too late and too coarsely. The module owns *what*, the
+   adapter decides *when*, the session is not involved. Had stage 2 been skipped, this would have
+   shipped as a flag that looked principled and did nothing.
+2. **`TutorTransport` had to split into state and controls.** Bundling them meant the object changed
+   identity on every `isSpeaking` toggle, which would have made `useTutorControls()` unstable — and
+   `lessons/[id]/index.tsx` puts `focusLesson` and `syncMeta` in effect dependency arrays. Several
+   re-runs a minute for the whole of a lesson, from a refactor whose criterion was *no behaviour
+   change*. Found by reading, not by running; it is the kind of thing a device test would not have
+   caught either.
+3. **`TutorStatus` has five values, not four.** The ElevenLabs SDK uses two different unions — the
+   render field carries `"error"`, the callback carries `"disconnecting"` — and the session branches
+   on both. Collapsing either into `"disconnected"` would let a screen steal focus from a session
+   mid-hangup and would release ownership on error.
+4. **`start` needed a seam, not a return value.** The row key must be seeded, the parked state spent
+   and ownership claimed *between* minting the credential and connecting. Returning a descriptor puts
+   all three after the connect, which is too late — a turn can arrive on the first frame.
+
+### 15.2 What stage 2 knowingly deferred
+
+- **Nothing selects the provider.** `DEFAULT_TUTOR_PROVIDER` is `"elevenlabs"`, and flipping that one
+  line runs every lesson on OpenAI. Who *should* choose — learner, prompt version, or server — is
+  §13 Q2 and belongs to stage 3; inventing an answer here to make the adapter reachable would have
+  been the wrong kind of progress.
+- **The OpenAI route serves words-1.x prompts, which is a PORT.** §11.1 is explicit that the reason
+  to run this provider is that it hears audio rather than reading a transcript, and that this wants
+  its own version (stage 4). Running the existing prompt proves the transport, not the product. The
+  route says so where someone changing it will read it.
+- **The end reason is synthesised** (§6.2), so `PauseReason` is less trustworthy on this provider
+  than the session's "read rather than inferred" comment claims. The asymmetry is absorbed in the
+  adapter and documented there.
+- **No fake transport.** A non-React implementation would be the honest way to prove the contract is
+  not React-shaped, and would make the pause machine testable without a device. It is the obvious
+  next piece of infrastructure and it is not built.
+
+## 16. Sources
 
 - OpenAI, *Realtime API with WebRTC* — https://developers.openai.com/api/docs/guides/realtime-webrtc
 - OpenAI, *Realtime and audio* — https://developers.openai.com/api/docs/guides/realtime

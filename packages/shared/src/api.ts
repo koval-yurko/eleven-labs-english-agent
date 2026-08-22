@@ -20,7 +20,7 @@
 import type { ItemsQuery } from "./items-query";
 import { serializeItemsQuery } from "./items-query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
-import type { TranscriptLine } from "./tutor";
+import type { TranscriptLine, TutorItem } from "./tutor";
 import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./word-types";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
@@ -44,14 +44,8 @@ export const API_V2_ROUTES = {
   agentVersions: `${API_V2}/agent-versions`,
   /** Mint a WebRTC conversation token + its authoritative conversation id. */
   conversationToken: `${API_V2}/words-agent/token`,
-  /**
-   * STAGE 0 SPIKE — mint an OpenAI Realtime ephemeral client secret.
-   *
-   * A sibling of `conversationToken`, not a replacement: it exists to answer the five questions in
-   * docs/2026-08-22-openai-realtime-second-provider.md §12 on a real device, and it is expected to
-   * be deleted or promoted once they are answered. Nothing in the tutor session reaches it.
-   */
-  realtimeSpikeToken: `${API_V2}/words-agent/openai-token`,
+  /** Mint an OpenAI Realtime client secret + its authoritative conversation id. */
+  realtimeToken: `${API_V2}/words-agent/openai-token`,
   /** Save a finished conversation's transcript. Same body as the v1 beacon route. */
   lessonSession: `${API_V2}/lessons/session`,
   /** The learner's lessons, newest first. */
@@ -332,36 +326,58 @@ export function isConversationTokenResponse(body: unknown): body is Conversation
 }
 
 /**
- * `POST /api/v2/words-agent/openai-token` — 200. **STAGE 0 SPIKE.**
+ * `POST /api/v2/words-agent/openai-token` — the OpenAI Realtime twin of `ConversationTokenResponse`.
  *
- * The OpenAI Realtime twin of `ConversationTokenResponse`, and shaped like it for one reason: the
- * two routes have the same job — keep the provider's api key server-side, keep the agent's identity
- * out of the shipped binary, and hand the client one short-lived credential.
+ * Shaped like its ElevenLabs sibling because the two routes have the same job: keep the provider's
+ * api key server-side, keep the agent's identity out of the shipped binary, and hand the client one
+ * short-lived credential plus the row key it must file its transcript under.
  *
- * What is deliberately NOT here yet: `conversationId` and `appEnv`. Both exist on the ElevenLabs
- * response because a transcript gets persisted against them, and this spike persists nothing. Stage
- * 1 decides the real shape once there are two adapters to shape it — see
- * docs/2026-08-22-openai-realtime-second-provider.md §7.
+ * The REQUEST differs, and that difference is the whole of §8. ElevenLabs takes the version in the
+ * query string and injects the words at runtime through a dynamic variable; OpenAI has no dynamic
+ * variables, so the words travel in the body and the server interpolates them into
+ * `session.instructions` before minting anything.
  */
-export interface RealtimeSpikeTokenResponse {
-  /** The ephemeral key (`ek_…`). Bearer for the SDP exchange, and ONLY for that. */
-  clientSecret: string;
-  /** Unix seconds. Displayed on the spike screen so an expiry is diagnosable rather than mysterious. */
-  expiresAt: number;
-  /** Echoed so the screen reports which model actually answered, rather than which one it asked for. */
-  model: string;
+export interface RealtimeTokenRequest {
+  lessonId: string;
+  /** The lesson's active words, formatted server-side into the prompt. */
+  items: TutorItem[];
+  /** Requested prompt version, or absent for the default. */
+  version?: string;
 }
 
-/** Narrow an already-parsed spike token response. */
-export function isRealtimeSpikeTokenResponse(body: unknown): body is RealtimeSpikeTokenResponse {
+/** `POST /api/v2/words-agent/openai-token` — 200. */
+export interface RealtimeTokenResponse {
+  /** The ephemeral key (`ek_…`). Bearer for the SDP exchange, and ONLY for that. */
+  clientSecret: string;
+  /**
+   * THE ROW KEY, minted here rather than derived from anything the transport says.
+   *
+   * OpenAI does mint an `rtc_…` call id, but only at SDP exchange — after the client would need it,
+   * and from a place the server cannot see. So this is ours, for the same reason
+   * `ConversationTokenResponse.conversationId` is: four writers converge on one `lesson_sessions`
+   * row keyed by this column, and a derived id silently forks a learner's history.
+   */
+  conversationId: string;
+  /** The version actually resolved (differs from the request when none was asked for). */
+  version: string;
+  /** The realtime model the session resolved to — an alias may not be what you asked for. */
+  model: string;
+  /** Unix seconds. Diagnostic: an expired credential should be readable, not mysterious. */
+  expiresAt: number;
+}
+
+/** Narrow an already-parsed realtime token response. */
+export function isRealtimeTokenResponse(body: unknown): body is RealtimeTokenResponse {
   if (typeof body !== "object" || body === null) return false;
-  const b = body as Partial<RealtimeSpikeTokenResponse>;
+  const b = body as Partial<RealtimeTokenResponse>;
   return (
     typeof b.clientSecret === "string" &&
     b.clientSecret.length > 0 &&
-    typeof b.model === "string" &&
-    b.model.length > 0 &&
-    typeof b.expiresAt === "number"
+    // Same rule as the ElevenLabs twin: a missing row key is an error, never something to invent.
+    typeof b.conversationId === "string" &&
+    b.conversationId.length > 0 &&
+    typeof b.version === "string" &&
+    typeof b.model === "string"
   );
 }
 

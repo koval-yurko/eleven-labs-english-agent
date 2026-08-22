@@ -1,5 +1,12 @@
-import type { RealtimeSpikeTokenResponse } from "@tutor/shared/api";
+import { randomUUID } from "node:crypto";
 
+import {
+  formatItemsList,
+  type TutorItem,
+} from "@tutor/shared/tutor";
+import type { RealtimeTokenRequest, RealtimeTokenResponse } from "@tutor/shared/api";
+
+import { PROMPT_VERSIONS, effectiveConfig } from "../../../../../agent/prompts";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { openAiRealtimeConfig } from "../../../../../lib/config";
 import { apiError, json, preflight } from "../../../../../lib/http";
@@ -11,50 +18,70 @@ export const dynamic = "force-dynamic";
 export const OPTIONS = preflight;
 
 /**
- * `POST /api/v2/words-agent/openai-token` — **STAGE 0 SPIKE**, the OpenAI Realtime twin of
+ * `POST /api/v2/words-agent/openai-token` — the OpenAI Realtime twin of
  * `/api/v2/words-agent/token`.
- *
- * It exists to answer the five questions in docs/2026-08-22-openai-realtime-second-provider.md §12
- * on a real device, and it is expected to be deleted or promoted once they are. Nothing in the
- * tutor session reaches it; `apps/mobile/src/app/realtime.tsx` is its only caller.
  *
  * ## Why the whole session config is baked HERE
  *
- * OpenAI has no remote agent object — unlike ElevenLabs, where `sync:agents` provisions an agent and
- * this route only resolves version → agent id. The session config *is* the agent, so whatever is
- * passed at credential-minting time is what the client gets, and anything the client could pass
- * instead is something a shipped binary could be made to lie about. Baking it here keeps the same
- * property the ElevenLabs route has: the prompt never reaches the app.
+ * OpenAI has no remote agent object. Unlike ElevenLabs — where `pnpm sync:agents` provisions an
+ * agent and the token route only resolves version → agent id — **the session config IS the agent**,
+ * so whatever is passed at credential-minting time is what the client gets. Anything the client
+ * could pass instead is something a shipped binary could be made to lie about, which is why the
+ * words arrive in the request body as DATA and the prompt they go into never leaves this process.
  *
- * The client may still send a `session` alongside its SDP offer, and any field it sets would win.
- * The spike deliberately sends none (see the screen), so this body is the whole configuration.
+ * The client may still send a `session` object alongside its SDP offer and any field it set would
+ * win. The adapter deliberately sends none (`apps/mobile/src/lib/transport/openai.ts`), so this body
+ * is the whole configuration.
  *
- * ## Why the prompt is hardcoded and short
+ * ## The row key is minted here
  *
- * It is NOT words-1.6. A spike that ran the real prompt would be measuring the prompt; this one has
- * exactly the shape needed to exercise the five questions — it teaches, so there is something to
- * interrupt (§6.1); it invites interruption, so barge-in happens without coaching; and it listens
- * for pronunciation, which is the one thing the ElevenLabs pipeline structurally cannot do (§11.1).
+ * OpenAI does mint an `rtc_…` call id, but only at SDP exchange — after the client needs one, and
+ * somewhere this route cannot see. So the conversation id is ours. That is the same conclusion
+ * `ConversationTokenResponse` reached for a different reason, and for the same stakes: four writers
+ * converge on one `lesson_sessions` row keyed by this column.
+ *
+ * ## What is STILL provisional, and where it gets fixed
+ *
+ * The prompt comes from `PROMPT_VERSIONS` — the same registry the ElevenLabs agents are built from.
+ * Two things are knowingly wrong with that and both belong to later stages of
+ * docs/2026-08-22-openai-realtime-second-provider.md:
+ *
+ *   - **§13 Q1 — a version is not yet bound to a provider.** Any words-1.x version can be asked for
+ *     here even though every one of them was written against a cascaded STT→LLM→TTS pipeline. The
+ *     discriminant lands in stage 3.
+ *   - **§11.1 — this is a PORT, and the document says not to ship one.** The reason to run OpenAI at
+ *     all is that it hears audio rather than reading a transcript, which is a different lesson and
+ *     wants its own version (stage 4). Running words-1.6 here proves the transport, not the product.
  */
-const SPIKE_INSTRUCTIONS = `You are an English tutor running a two-minute test lesson.
-
-Teach these three words, one at a time, in this order: "ephemeral", "to break the ice", "I couldn't agree more".
-
-For each one: say the word, give a one-sentence meaning, then one natural example sentence, then ask
-the learner to say it back to you.
-
-Rules that matter for this test:
-- Keep every turn short — two or three sentences, then stop and let the learner speak.
-- The learner WILL interrupt you mid-sentence. That is expected and welcome; stop immediately and
-  answer what they asked.
-- You can hear the learner's actual voice, not a transcript. When they say a word back to you,
-  comment on how they PRONOUNCED it — stress, vowel length, a sound they replaced — and model it
-  again. Be specific about the sound, not vague praise.
-- Never read lists or spell things out. This is speech.`;
-
-export const POST = withBearer(async () => {
+export const POST = withBearer(async (req) => {
   const { apiKey, model, voice } = openAiRealtimeConfig();
   if (!apiKey) return apiError(500, "config", "OPENAI_API_KEY is not set.");
+
+  let body: RealtimeTokenRequest;
+  try {
+    body = (await req.json()) as RealtimeTokenRequest;
+  } catch {
+    return apiError(400, "bad_request", "Expected a JSON body.");
+  }
+  if (typeof body?.lessonId !== "string" || body.lessonId.length === 0) {
+    return apiError(400, "bad_request", "lessonId is required.");
+  }
+  const items: TutorItem[] = Array.isArray(body.items) ? body.items : [];
+
+  // Newest version by default, matching `resolveAgent`'s rule so the two providers do not disagree
+  // about what "no version asked for" means.
+  const requested = body.version;
+  const chosen = requested
+    ? PROMPT_VERSIONS.find((v) => v.version === requested)
+    : PROMPT_VERSIONS[PROMPT_VERSIONS.length - 1];
+  if (!chosen) {
+    return apiError(400, "config", `Unknown tutor version "${requested}".`);
+  }
+  const config = effectiveConfig(chosen);
+
+  // The dynamic-variable substitution ElevenLabs does at runtime, done here instead — the whole of
+  // §8's difference between the two routes in one line.
+  const instructions = config.prompt.replaceAll("{{items_list}}", formatItemsList(items));
 
   try {
     const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
@@ -64,22 +91,24 @@ export const POST = withBearer(async () => {
         session: {
           type: "realtime",
           model,
-          instructions: SPIKE_INSTRUCTIONS,
+          instructions,
           audio: {
             input: {
               // Without this there are NO learner transcripts at all — the model hears the audio and
-              // answers, but `conversation.item.input_audio_transcription.completed` is never sent,
-              // so half the transcript this app stores would silently not exist. It is opt-in, which
-              // is the opposite of the ElevenLabs default and easy to miss.
+              // answers, but `conversation.item.input_audio_transcription.completed` never fires, so
+              // half of every stored transcript would silently not exist. Opt-in, which is the
+              // opposite of the ElevenLabs default and easy to miss.
               transcription: { model: "gpt-4o-transcribe" },
-              // `semantic_vad` + `eagerness: "low"` is the closest analogue of the `turnEagerness:
-              // "patient"` that words-1.5 pins — a classifier decides the learner is done from what
-              // they said, not from a silence timer. Question 5 of §12 is whether this is enough to
-              // reproduce podcast pacing; `server_vad` with `idle_timeout_ms` is the other candidate.
+              // The closest analogue of `turnEagerness: "patient"`: a classifier decides the learner
+              // is done from what they SAID rather than from a silence timer. Stage 0 measured this
+              // as natural for ordinary teaching; podcast pacing (words-1.5) is still open — §6.3.
               turn_detection: { type: "semantic_vad", eagerness: "low" },
             },
             output: { voice },
           },
+          // The per-version turn budget, carried across. It is a BACKSTOP for a prompt-level rule,
+          // never the rule itself — the model is cut off mid-sentence when it hits this.
+          ...(config.maxTokens === undefined ? {} : { max_output_tokens: config.maxTokens }),
         },
       }),
     });
@@ -87,7 +116,7 @@ export const POST = withBearer(async () => {
     if (!res.ok) {
       // Forwarded verbatim rather than summarised: an OpenAI refusal (quota, model name, bad field)
       // says exactly what is wrong in the body, and the ElevenLabs quota outage is the standing
-      // proof that swallowing that text costs hours. See docs/2026-08-21-quota-outage-and-pause-panel.md.
+      // proof that swallowing that text costs hours.
       const detail = (await res.text()).slice(0, 500);
       return apiError(502, "openai", `OpenAI returned HTTP ${res.status}: ${detail}`);
     }
@@ -99,14 +128,16 @@ export const POST = withBearer(async () => {
     };
     if (!data.value) return apiError(502, "openai", "OpenAI response had no client secret.");
 
-    const body: RealtimeSpikeTokenResponse = {
+    const payload: RealtimeTokenResponse = {
       clientSecret: data.value,
-      expiresAt: data.expires_at ?? 0,
-      // What the SESSION says, not what we asked for — `gpt-realtime` is an alias, and the snapshot
-      // it resolves to is the thing worth reading on screen.
+      conversationId: randomUUID(),
+      version: chosen.version,
+      // What the SESSION says, not what we asked for — `gpt-realtime` is an alias and the snapshot
+      // it resolves to is the thing worth recording.
       model: data.session?.model ?? model,
+      expiresAt: data.expires_at ?? 0,
     };
-    return json(body);
+    return json(payload);
   } catch (e) {
     return apiError(502, "openai", e instanceof Error ? e.message : String(e));
   }

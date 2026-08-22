@@ -35,7 +35,6 @@ import { AppState } from "react-native";
 import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
 
 import { apiFetch } from "@/api";
-import { applyVoiceLessonCategory } from "@/lib/audio-session";
 import { useAccessToken, useSession } from "@/lib/auth";
 import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
 import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
@@ -229,6 +228,7 @@ const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
 function useTutorTransports(events: TutorTransportEvents): Record<TutorProviderId, TutorTransport> {
   return {
     elevenlabs: TUTOR_PROVIDERS.elevenlabs(events),
+    openai: TUTOR_PROVIDERS.openai(events),
   };
 }
 
@@ -487,21 +487,6 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   const { state: transportState, controls: tx } = useTutorTransports(events)[provider];
   const { status, isMuted, isSpeaking } = transportState;
-  const capabilities = tx.capabilities;
-
-  /**
-   * Assert the iOS audio category for a transport whose SDK does not do it for us.
-   *
-   * Never runs on ElevenLabs (`managesAudioSession: true`) — this is stage 0's finding wired up
-   * ahead of the adapter that needs it: a hand-rolled `RTCPeerConnection` has no LiveKit `Room`, so
-   * nothing moves AVAudioSession off `soloAmbient` and the lesson is inaudible while every event
-   * still flows. See `lib/audio-session.ts`.
-   */
-  const managesAudioSession = capabilities.managesAudioSession;
-  useEffect(() => {
-    if (!owns || status !== "connected" || managesAudioSession) return;
-    void applyVoiceLessonCategory();
-  }, [owns, status, managesAudioSession]);
 
   /**
    * `owns` and `!starting` are both load-bearing. Ownership keeps another component's session out

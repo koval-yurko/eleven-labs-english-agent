@@ -139,16 +139,9 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.buttons}>
-        <Link href="/" style={styles.link}>
-          ← home
-        </Link>
-        {/* STAGE 0 SPIKE. Reached from here rather than from anywhere a learner goes, because it is
-            an instrument: see docs/2026-08-22-openai-realtime-second-provider.md §12. */}
-        <Link href="/realtime" style={styles.link}>
-          openai realtime spike →
-        </Link>
-      </View>
+      <Link href="/" style={styles.link}>
+        ← home
+      </Link>
 
       <View style={styles.stats}>
         <Stat label="state" value={busy ? "working" : status} />

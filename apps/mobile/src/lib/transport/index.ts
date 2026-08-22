@@ -1,5 +1,6 @@
 import type { TutorTransportHook } from "./types";
 import { useElevenLabsTransport } from "./elevenlabs";
+import { useOpenAiTransport } from "./openai";
 
 export type { TutorTransportHook } from "./types";
 
@@ -18,6 +19,7 @@ export type { TutorTransportHook } from "./types";
  */
 export const TUTOR_PROVIDERS = {
   elevenlabs: useElevenLabsTransport,
+  openai: useOpenAiTransport,
 } as const satisfies Record<string, TutorTransportHook>;
 
 export type TutorProviderId = keyof typeof TUTOR_PROVIDERS;
@@ -25,7 +27,9 @@ export type TutorProviderId = keyof typeof TUTOR_PROVIDERS;
 /**
  * The provider a session uses when nothing says otherwise.
  *
- * Stage 1 has exactly one, and this constant is where stage 3 will start disagreeing with itself —
- * so it is named rather than implied by `Object.keys()[0]`.
+ * **This is the one line to flip to run every lesson on OpenAI.** It is a constant rather than a
+ * setting on purpose: WHO chooses a provider — the learner, the prompt version, or the server — is
+ * question 2 of §13 in docs/2026-08-22-openai-realtime-second-provider.md, it is a product decision,
+ * and stage 3 is where it gets made. Until then a build runs one provider and this names which.
  */
 export const DEFAULT_TUTOR_PROVIDER: TutorProviderId = "elevenlabs";
