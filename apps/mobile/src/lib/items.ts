@@ -9,8 +9,8 @@ import {
   type AddWordResponse,
   type DeleteWordRequest,
   type DeleteWordResponse,
-  type FavoriteRequest,
-  type FavoriteResponse,
+  type PopularityRequest,
+  type PopularityResponse,
   type ItemDetailResponse,
   type ItemsResponse,
 } from "@tutor/shared/api";
@@ -23,7 +23,7 @@ import { apiFetch, type TokenSource } from "@/api";
  * Reading and writing the collection over `/api/v2/lesson-items`.
  *
  * Its own module rather than an extension of `src/lib/lessons.ts`: it is a different domain with a
- * different write path. **These writes do not go through the outbox** — add-word and favorite are
+ * different write path. **These writes do not go through the outbox** — add-word and popularity are
  * direct routes, because `MirrorItem` is keyed on a `lesson_id` a standalone word does not have, so
  * queueing them would durably store an intent no screen could render. That asymmetry exists on the
  * web too and is carried over deliberately (creation doc §5 / S6 D62).
@@ -72,30 +72,30 @@ export async function addWord(getToken: TokenSource, text: string): Promise<AddW
 }
 
 /**
- * Mark/unmark a favorite.
+ * +1 one word's popularity, returning the NEW count — "I met this word again".
  *
- * ⚠️ Keyed by **`norm_key`**, not by the word id — `setItemFavorite`'s existing signature, and the
- * odd one out among this app's writes. `ItemRow` carries both, so the mistake is easy and silent:
- * an id matches no row and comes back `ok: false`.
+ * Keyed by the word **id**, like `deleteWord` below. Its predecessor (`setFavorite`) was keyed by
+ * `norm_key` and this module carried a warning about it being the odd one out; that asymmetry is
+ * gone rather than ported.
+ *
+ * The count comes from the server rather than being incremented locally. A counter is not a toggle:
+ * an optimistic +1 that lost a race would show a number that was never true, and there would be
+ * nothing to revert it to.
  */
-export async function setFavorite(
-  getToken: TokenSource,
-  normKey: string,
-  isFavorite: boolean,
-): Promise<void> {
-  const body = await apiFetch<FavoriteResponse>(API_V2_ROUTES.itemFavorite, getToken, {
+export async function bumpPopularity(getToken: TokenSource, id: string): Promise<number> {
+  const body = await apiFetch<PopularityResponse>(API_V2_ROUTES.itemPopularity, getToken, {
     method: "POST",
-    body: JSON.stringify({ normKey, isFavorite } satisfies FavoriteRequest),
+    body: JSON.stringify({ id } satisfies PopularityRequest),
   });
-  if (!body.ok) throw new Error("That word could not be updated.");
+  // `ok: false` means no row matched — someone else's id, or a word already deleted.
+  if (!body.ok || body.popularity === null) throw new Error("That word could not be updated.");
+  return body.popularity;
 }
 
 /**
  * Delete one word for good.
  *
- * Keyed by **id**, unlike `setFavorite` above — the one place in this module where reading the
- * neighbouring function and copying its key would be wrong. `ItemRow` carries both, so the mistake
- * is silent: a `norm_key` sent here matches no row and comes back `ok: false`.
+ * Keyed by **id**, like `bumpPopularity` above.
  *
  * ⚠️ This is not the lesson’s `removeItem`. That detaches a word and keeps everything;
  * this destroys the word, its membership in every lesson, and the practice statistics derived from

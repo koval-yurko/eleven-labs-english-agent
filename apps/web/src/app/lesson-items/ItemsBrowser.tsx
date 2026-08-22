@@ -25,13 +25,12 @@ import { ensureOwner } from "../../lib/sync/mirror";
 import { formatDate } from "../../lib/format-date";
 import { useNavigationTransition } from "../nav-progress";
 import { NavLink } from "../NavLink";
-import { SortArrowIcon, StarIcon } from "../icons";
+import { SortArrowIcon } from "../icons";
 import { Select, type SelectOption } from "../Select";
 import { Checkbox } from "../Checkbox";
 import { Button } from "../Button";
 import { RefreshButton } from "../RefreshButton";
 import { AddWordForm } from "./AddWordForm";
-import { FavoriteButton } from "./FavoriteButton";
 
 /** Hoisted out of the render so <Select> gets a stable `options` identity. */
 const SORT_OPTIONS: SelectOption<SortKey>[] = sortChoices().map(({ key, label }) => ({
@@ -194,27 +193,14 @@ export function ItemsBrowser({
             ))}
           </ToggleFilters>
 
-          {/* Two independent booleans, so `multiple` — they're a labelled set, not alternatives. */}
+          {/* One boolean since the favourites filter went with the flag (0017), and still a
+              `multiple` group: it is a labelled set with one member, not a pair of alternatives. */}
           <ToggleFilters
             label="Show"
             multiple
-            value={[
-              ...(query.favoritesOnly ? ["favorites"] : []),
-              ...(query.unassignedOnly ? ["unassigned"] : []),
-            ]}
-            onValueChange={(shown) =>
-              apply({
-                favoritesOnly: shown.includes("favorites"),
-                unassignedOnly: shown.includes("unassigned"),
-              })
-            }
+            value={query.unassignedOnly ? ["unassigned"] : []}
+            onValueChange={(shown) => apply({ unassignedOnly: shown.includes("unassigned") })}
           >
-            <Chip value="favorites">
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
-                <StarIcon state={query.favoritesOnly ? "filled" : "empty"} size={14} />
-                favorites
-              </span>
-            </Chip>
             <Chip value="unassigned">in no lesson</Chip>
           </ToggleFilters>
 
@@ -381,7 +367,15 @@ function ItemLine({
           {item.level}
         </span>
       ) : null}
-      <FavoriteButton normKey={item.norm_key} text={item.text} initial={item.is_favorite} />
+      {/* A number, not a control — see `PopularityButton`, which is the one place it is tappable.
+          0 renders like any other value so the column stays aligned down the list. */}
+      <span
+        className="muted"
+        style={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}
+        title={`Met ${item.popularity} ${item.popularity === 1 ? "time" : "times"}`}
+      >
+        {item.popularity}
+      </span>
     </li>
   );
 }

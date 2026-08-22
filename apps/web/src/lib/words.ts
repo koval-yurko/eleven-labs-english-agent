@@ -11,6 +11,7 @@
  * client-minted uuid is stable only within one.
  */
 import { getServiceSupabase } from "./supabase/server";
+import { bumpWordPopularity } from "./lesson-items";
 import { wordInputKey } from "@tutor/shared/word-key";
 import type { AddWordResult } from "@tutor/shared/word-types";
 
@@ -59,18 +60,38 @@ export async function resolveWords(
  * `already-present` is a real answer, not an error: `owner_items` groups by norm_key, so a duplicate
  * add would render as nothing happening at all. The caller is expected to say so.
  *
+ * **A duplicate add BUMPS the word's popularity** (0017), and returns the new count so the caller has
+ * something true to report — "already in your collection · 4" rather than a button that appears to do
+ * nothing. Typing a word you already have is the same statement as picking it out of the suggestions:
+ * *I met this again*.
+ *
+ * That makes this the FALLBACK path rather than the common one. A learner who reaches for a word the
+ * autocomplete knows taps it in the dropdown, which bumps it and opens the word directly; this branch
+ * is what serves everything the dictionary does not have — phrases, whole sentences, and words
+ * outside the 53k lexicon — which is exactly why it has to do the same thing.
+ *
+ * A freshly created word reports `popularity: 0`: it has been met once, which is what adding it
+ * already says, and starting the count at 1 would make "added" and "added then met again" the same
+ * number.
+ *
  * Text that normalizes to nothing (punctuation only) still gets a row — `words_set_norm_key` falls
  * back to `lower(btrim(text))`, matching what lesson_items did.
  */
 export async function addWord(ownerId: string, rawText: string): Promise<AddWordResult> {
   const text = wordInputKey(rawText);
-  if (!text) return { status: "empty", id: null, text: "" };
+  if (!text) return { status: "empty", id: null, text: "", popularity: null };
 
   const resolved = await resolveWords(ownerId, [text]);
   const word = resolved.get(text);
-  if (!word) return { status: "empty", id: null, text };
+  if (!word) return { status: "empty", id: null, text, popularity: null };
 
-  return { status: word.created ? "added" : "already-present", id: word.id, text };
+  if (word.created) return { status: "added", id: word.id, text, popularity: 0 };
+
+  // The bump is the whole difference between this branch and a no-op. It must not be able to fail
+  // the add, though: the word IS in the collection either way, and reporting an error for a counter
+  // would turn a correct answer into a broken one.
+  const popularity = await bumpWordPopularity(ownerId, word.id).catch(() => null);
+  return { status: "already-present", id: word.id, text, popularity };
 }
 
 /**

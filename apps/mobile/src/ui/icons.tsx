@@ -46,26 +46,6 @@ function Icon({
   );
 }
 
-const STAR_PATH =
-  "M12 2.5l2.9 5.88 6.49.94-4.7 4.58 1.11 6.46L12 17.8l-5.8 3.05 1.11-6.46-4.7-4.58 6.49-.94L12 2.5z";
-
-/**
- * Favourite star in three states:
- *   - `empty`  — outline only (not a favourite)
- *   - `active` — translucent fill (a transient/pending highlight)
- *   - `filled` — solid (a favourite)
- */
-export function StarIcon({
-  state = "empty",
-  ...props
-}: IconProps & { state?: "empty" | "active" | "filled" }) {
-  return (
-    <Icon {...props} fill={state === "empty" ? "none" : props.color}>
-      <Path d={STAR_PATH} fillOpacity={state === "active" ? 0.35 : 1} />
-    </Icon>
-  );
-}
-
 /** Sort-direction arrow: `asc` points up, `desc` points down. */
 export function SortArrowIcon({ dir, ...props }: IconProps & { dir: "asc" | "desc" }) {
   return dir === "asc" ? (

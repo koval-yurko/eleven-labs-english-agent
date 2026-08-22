@@ -52,8 +52,8 @@ export const API_V2_ROUTES = {
   syncFlush: `${API_V2}/sync/flush`,
   /** The collection: every word the learner has, filtered and sorted server-side. */
   items: `${API_V2}/lesson-items`,
-  /** Mark/unmark one word as a favorite. */
-  itemFavorite: `${API_V2}/lesson-items/favorite`,
+  /** +1 one word's popularity — the collection's only per-word write. */
+  itemPopularity: `${API_V2}/lesson-items/popularity`,
   /**
    * Delete one word outright — it leaves every lesson and loses its practice statistics.
    *
@@ -98,7 +98,7 @@ export function itemPath(id: string): string {
  *
  * Built on `serializeItemsQuery`, which is **the only encoder of this grammar that may exist**. On
  * the web it encodes an address bar; here it encodes a request. The server decodes the result with
- * `parseItemsQuery`, and `pnpm check:shared` proves the two are inverse over 10,752 cases — a
+ * `parseItemsQuery`, and `pnpm check:shared` proves the two are inverse over 5,376 cases — a
  * property that holds only while there is one of each.
  *
  * The search term is deliberately NOT a parameter: `?q=` is not part of `ItemsQuery`, filtering by it
@@ -504,30 +504,42 @@ export function isAddWordResponse(body: unknown): body is AddWordResponse {
 }
 
 /**
- * `POST /api/v2/lesson-items/favorite` — the request body.
+ * `POST /api/v2/lesson-items/popularity` — the request body. +1, and only ever +1.
  *
- * Keyed by **`norm_key`**, not by the word id — the odd one out among this app's writes, and it is
- * `setItemFavorite`'s existing signature rather than a choice made here. `norm_key` is the identity
- * the collection groups by, and it is what `owner_items` exposes for the purpose.
+ * Keyed by the word **id**, like `delete` beside it. Its predecessor (`favorite`) was keyed by
+ * `norm_key` — "the odd one out among this app's writes", as three docblocks used to warn — because
+ * `setItemFavorite`'s signature predated the `words` table. There is no such history here: the two
+ * callers both hold a real id (the suggestion row carries `wordId`, the detail page IS an id), and
+ * naming the row by id means a stale spelling cannot resolve to a different word than the one the
+ * learner tapped.
+ *
+ * There is no amount and no direction. A counter that only ever goes up by one, from an action that
+ * means "I met this word again", needs neither — and a body that could carry `-1` or `+50` would be
+ * a hostile-input surface for no gain.
  */
-export interface FavoriteRequest {
-  normKey: string;
-  isFavorite: boolean;
+export interface PopularityRequest {
+  id: string;
 }
 
-/** `POST /api/v2/lesson-items/favorite` — 200. */
-export interface FavoriteResponse {
-  /** False when no row matched — a key that is not the caller's. */
+/** `POST /api/v2/lesson-items/popularity` — 200. */
+export interface PopularityResponse {
+  /** False when no row matched — an id that is not the caller's, or one already deleted. */
   ok: boolean;
+  /**
+   * The count AFTER the bump, straight from the RPC's `returning`. Null when `ok` is false.
+   *
+   * Returned rather than left to the client to guess: the detail page's +1 renders this, so a bump
+   * that raced another device shows the true total instead of a local increment that is one behind.
+   */
+  popularity: number | null;
 }
 
 /**
  * `POST /api/v2/lesson-items/delete` — the REQUEST body.
  *
- * Keyed by the word **id**, unlike its `favorite` sibling, which is keyed by `norm_key`. That
- * asymmetry is deliberate rather than inherited: `setItemFavorite`'s signature predates the `words`
- * table, while a delete has a real row to name, and naming it by id means a stale spelling in the
- * client cannot resolve to a different word than the one the learner ticked.
+ * Keyed by the word **id**, like its `popularity` sibling: a delete has a real row to name, and
+ * naming it by id means a stale spelling in the client cannot resolve to a different word than the
+ * one the learner ticked.
  */
 export interface DeleteWordRequest {
   id: string;
@@ -543,8 +555,9 @@ export interface DeleteWordResponse {
  * One row of the add-word dropdown.
  *
  * Not an `ItemRow`, and not a partial one: this describes a word the learner has probably NEVER
- * added, so it has no id, no `norm_key`, no favorite state and no `created_at`. Reusing the
- * collection's row type would mean four fields that are structurally meaningless here.
+ * added, so it has no `norm_key`, no statistics and no `created_at` — only a `wordId`, and only once
+ * they do have it. Reusing the collection's row type would mean four fields that are structurally
+ * meaningless here.
  */
 export interface WordSuggestion {
   /**
@@ -576,14 +589,24 @@ export interface WordSuggestion {
    */
   ru: string[];
   /**
-   * True when this word is already in the learner's collection.
+   * The learner's own `words.id` for this word, or null when they do not have it yet. **`wordId !==
+   * null` is what "already in your collection" means** — there is no separate `owned` flag, because
+   * two fields that must agree are how they stop agreeing.
    *
    * Computed server-side by joining `lexicon.key` to `words.norm_key` — the same function produces
    * both, so the match is exact. The screen does hold the whole collection in memory and could
    * match locally, but only through `clientDedupeKey`, which `CLAUDE.md` documents as deliberately
    * weaker than `norm_key`.
+   *
+   * The id (rather than the boolean this used to be) is what lets the dropdown ACT on an owned row:
+   * bump its popularity and open `/lesson-items/:id`. That route is id-addressed, and a client may
+   * not derive a word's identity from its text, so without this field the row could only ever
+   * announce ownership — never navigate to it.
+   *
+   * ⚠️ A client caching suggestions must drop the cache when a word is DELETED as well as added:
+   * this id outlives the row it names, and a stale one navigates to a word that is gone.
    */
-  owned: boolean;
+  wordId: string | null;
 }
 
 /**

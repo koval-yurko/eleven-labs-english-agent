@@ -20,8 +20,8 @@ export const OPTIONS = preflight;
  * `details` is nullable forever, and `details_at` is the ATTEMPTED flag, so the client has three
  * states to render and only one of them is "loading". See S6 §6.3.
  *
- * `favorite` is a LITERAL sibling of this dynamic segment and Next matches literals first, so
- * `/lesson-items/favorite` never resolves to a word whose id happens to be "favorite" — which uuids
+ * `popularity` is a LITERAL sibling of this dynamic segment and Next matches literals first, so
+ * `/lesson-items/popularity` never resolves to a word whose id happens to be "popularity" — which uuids
  * make unreachable anyway. Same non-collision as `/lessons/session`.
  */
 export const GET = withBearer<{ params: Promise<{ id: string }> }>(async (_req, ownerId, ctx) => {

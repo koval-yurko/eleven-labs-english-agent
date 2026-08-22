@@ -3,7 +3,7 @@
  *
  * Phase 2 of docs/2026-08-15-word-autocomplete-suggestions.md. A thin wrapper over the
  * `suggest_words` RPC (0012), which is where all the actual logic lives — normalizing the prefix,
- * escaping LIKE metacharacters, ranking, and joining the learner's collection for `owned`.
+ * escaping LIKE metacharacters, ranking, and joining the learner's collection for `word_id`.
  *
  * The service-role client, like every other module here. The `lexicon` half of the query needs no
  * owner scoping (it is shared reference data, the one table in this schema that is not owner-scoped
@@ -23,7 +23,8 @@ type SuggestRow = {
   text: string;
   level: string | null;
   ru: string[] | null;
-  owned: boolean;
+  /** The caller's own `words.id`, or null — the `owned` flag's successor (0017). */
+  word_id: string | null;
 };
 
 const LEVELS = new Set<string>(LEXICON_LEVELS);
@@ -80,6 +81,8 @@ export async function suggestWords(
     // string the client cannot handle into a typed field.
     level: row.level !== null && LEVELS.has(row.level) ? (row.level as LexiconLevel) : null,
     ru: row.ru ?? [],
-    owned: row.owned,
+    // `wordId !== null` IS "already in your collection" — the RPC's left join answers both questions
+    // with one column, and it is the id the dropdown needs to open the word.
+    wordId: row.word_id,
   }));
 }

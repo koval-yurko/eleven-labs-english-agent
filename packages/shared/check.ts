@@ -67,33 +67,31 @@ const failures: string[] = [];
 let checked = 0;
 
 for (const levels of LEVEL_SETS)
-  for (const favoritesOnly of [false, true])
-    for (const kind of [null, ...ITEM_KINDS] as ItemsQuery["kind"][])
-      for (const unassignedOnly of [false, true])
-        for (const categories of CATEGORY_SETS)
-          for (const sort of SORT_KEYS)
-            for (const dir of ["asc", "desc"] as const)
-              for (const search of SEARCHES) {
-                const query: ItemsQuery = {
-                  levels,
-                  favoritesOnly,
-                  kind,
-                  unassignedOnly,
-                  categories,
-                  sort,
-                  dir,
-                };
-                const qs = serializeItemsQuery(query, search);
-                const params = toSearchParams(qs);
-                const back = parseItemsQuery(params);
-                const backSearch = parseSearchTerm(params);
-                checked += 1;
-                if (JSON.stringify(back) !== JSON.stringify(query) || backSearch !== search) {
-                  failures.push(
-                    `?${qs}\n  sent ${JSON.stringify({ ...query, search })}\n  got  ${JSON.stringify({ ...back, search: backSearch })}`,
-                  );
-                }
+  for (const kind of [null, ...ITEM_KINDS] as ItemsQuery["kind"][])
+    for (const unassignedOnly of [false, true])
+      for (const categories of CATEGORY_SETS)
+        for (const sort of SORT_KEYS)
+          for (const dir of ["asc", "desc"] as const)
+            for (const search of SEARCHES) {
+              const query: ItemsQuery = {
+                levels,
+                kind,
+                unassignedOnly,
+                categories,
+                sort,
+                dir,
+              };
+              const qs = serializeItemsQuery(query, search);
+              const params = toSearchParams(qs);
+              const back = parseItemsQuery(params);
+              const backSearch = parseSearchTerm(params);
+              checked += 1;
+              if (JSON.stringify(back) !== JSON.stringify(query) || backSearch !== search) {
+                failures.push(
+                  `?${qs}\n  sent ${JSON.stringify({ ...query, search })}\n  got  ${JSON.stringify({ ...back, search: backSearch })}`,
+                );
               }
+            }
 
 // The specific regression, named: a non-default sort must survive being serialized and re-parsed.
 const practice = parseItemsQuery(

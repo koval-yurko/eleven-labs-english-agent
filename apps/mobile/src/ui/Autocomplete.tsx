@@ -52,7 +52,7 @@ import { radius, space, type } from "./tokens";
  * row fills the field and does NOT submit. Those are the parts that are easy to leave out and
  * invisible when you do.
  */
-export interface AutocompleteOption {
+export interface AutocompleteOption<T = undefined> {
   /** Stable identity — the React key, and what `onSelect` hands back. */
   key: string;
   /** The primary text. Selecting the row puts exactly this in the field. */
@@ -63,9 +63,18 @@ export interface AutocompleteOption {
   detail?: string;
   /** Renders the "you already have this" treatment and appends `markedLabel` to the row's name. */
   marked?: boolean;
+  /**
+   * Whatever the caller needs back in `onSelect` — handed through untouched and never rendered.
+   *
+   * It exists so a caller can ACT on a row rather than only fill the field with it: the add-word
+   * screen puts the learner's `wordId` here, which is how tapping an already-owned suggestion can
+   * bump that word and open it. Generic on purpose — this component knows about text, not
+   * vocabulary, and stringly-typed smuggling through `key` is how that stops being true.
+   */
+  data?: T;
 }
 
-export function Autocomplete({
+export function Autocomplete<T = undefined>({
   value,
   onChangeText,
   search,
@@ -81,9 +90,17 @@ export function Autocomplete({
   value: string;
   onChangeText: (next: string) => void;
   /** Resolve matches for a query. Called at most once per `debounceMs`, never below `minChars`. */
-  search: (query: string) => Promise<AutocompleteOption[]>;
-  /** Fill the field. Deliberately NOT a submit — see the note on `choose` below. */
-  onSelect?: (option: AutocompleteOption) => void;
+  search: (query: string) => Promise<AutocompleteOption<T>[]>;
+  /**
+   * Called after the field has been filled. Never a submit on its own — see the note on `choose`.
+   *
+   * A caller MAY take the row somewhere else from here (the add-word screen opens an already-owned
+   * word), which is a deliberate exception rather than a loosening of the rule: the rule guards
+   * against a mis-tap CREATING something, and a navigation is neither destructive nor irreversible.
+   * A handler that navigates is expected to clear the field itself — the fill has already happened
+   * by the time it runs, so a plain `setText("")` wins.
+   */
+  onSelect?: (option: AutocompleteOption<T>) => void;
   /** Suffix for a `marked` row's accessible name, e.g. "already in your collection". */
   markedLabel?: string;
   /** Shown when a long-enough query matched nothing. Omit to render nothing at all. */
@@ -107,7 +124,7 @@ export function Autocomplete({
    * while `result.query` still matches what is in the field, so a shortened or edited query hides
    * the old rows without anything having to erase them.
    */
-  const [result, setResult] = useState<{ query: string; options: AutocompleteOption[] } | null>(
+  const [result, setResult] = useState<{ query: string; options: AutocompleteOption<T>[] } | null>(
     null,
   );
   const [open, setOpen] = useState(false);
@@ -190,8 +207,13 @@ export function Autocomplete({
    * A dropdown that submits on tap makes a mis-tap unrecoverable, and on a phone mis-taps are the
    * common case. It also keeps the write path byte-identical — the server never learns whether the
    * learner picked a row or typed the word out. Decision D4 in the design doc.
+   *
+   * What `onSelect` then does with the row is the caller's business, and one caller does take a
+   * marked row somewhere else. That does not weaken the rule above: it is scoped to rows the server
+   * says the learner ALREADY has, so the worst a mis-tap costs is a screen they can come back from
+   * and a counter that meant "I met this again".
    */
-  function choose(option: AutocompleteOption) {
+  function choose(option: AutocompleteOption<T>) {
     suppressed.current = option.label;
     setOpen(false);
     setResult(null);

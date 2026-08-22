@@ -1,8 +1,7 @@
 /**
  * Shared SVG icon set — one home for the small glyphs the UI reuses, so every button stays visually
  * consistent instead of each island hand-rolling an emoji or inline path (which is what these
- * replaced: ★/☆ in FavoriteButton, ☀️/🌙 in ThemeToggle, ↑/↓ in ItemsBrowser, the trash SVG in
- * LessonsList).
+ * replaced: ☀️/🌙 in ThemeToggle, ↑/↓ in ItemsBrowser, the trash SVG in LessonsList).
  *
  * Each icon is a lucide-style 24×24 stroke drawing that inherits color via `currentColor` — set
  * `color` on the parent button/span — and takes an optional `size` in px (default 18). They're pure
@@ -31,27 +30,6 @@ function Icon({ size = 18, children, ...props }: IconProps & { children: ReactNo
     >
       {children}
     </svg>
-  );
-}
-
-const STAR_PATH =
-  "M12 2.5l2.9 5.88 6.49.94-4.7 4.58 1.11 6.46L12 17.8l-5.8 3.05 1.11-6.46-4.7-4.58 6.49-.94L12 2.5z";
-
-/**
- * Favorite star in three states:
- *   - `empty`  — outline only (not a favorite)
- *   - `active` — translucent fill (a transient/pending highlight, e.g. hover)
- *   - `filled` — solid (a favorite)
- */
-export function StarIcon({
-  state = "empty",
-  ...props
-}: IconProps & { state?: "empty" | "active" | "filled" }) {
-  const fill = state === "empty" ? "none" : "currentColor";
-  return (
-    <Icon fill={fill} {...props}>
-      <path d={STAR_PATH} fillOpacity={state === "active" ? 0.35 : 1} />
-    </Icon>
   );
 }
 

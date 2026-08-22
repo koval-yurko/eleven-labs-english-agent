@@ -4,7 +4,7 @@ import { getItem } from "../../../lib/lesson-items";
 import type { ItemDetail } from "@tutor/shared/word-types";
 import { NavLink } from "../../NavLink";
 import { RefreshButton } from "../../RefreshButton";
-import { FavoriteButton } from "../FavoriteButton";
+import { PopularityButton } from "../PopularityButton";
 
 // Per-request rendering: owner-scoped data that changes as the word is practiced / re-levelled.
 export const dynamic = "force-dynamic";
@@ -36,8 +36,8 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
   return (
     <>
       {/* The page stays a server component: only the button is a client island, exactly as the
-          favorite star below already is. Enrichment lands after the write, so this row is where the
-          learner asks again for the details section further down. */}
+          popularity control below already is. Enrichment lands after the write, so this row is where
+          the learner asks again for the details section further down. */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <p className="muted" style={{ flex: 1 }}>
           <NavLink href="/lesson-items">← words &amp; sentences</NavLink>
@@ -46,7 +46,9 @@ export default async function WordDetailPage({ params }: { params: Promise<{ id:
       </div>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem" }}>
-        <FavoriteButton normKey={item.norm_key} text={item.text} initial={item.is_favorite} />
+        {/* Where the favourite star stood. It counts meetings with the word instead of flagging it
+            — see `PopularityButton` for why this one is a control and the list's copy is not. */}
+        <PopularityButton id={item.id} text={item.text} initial={item.popularity} />
         <h1 style={{ margin: 0, flex: 1 }}>{item.text}</h1>
         {item.level ? (
           <span

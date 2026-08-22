@@ -37,8 +37,17 @@ export function AddWordForm() {
         setFeedback({ tone: "ok", message: `Added “${result.text}”.` });
         formRef.current?.reset();
       } else if (result.status === "already-present") {
-        // The list wouldn't change (owner_items groups by norm_key), so say it out loud.
-        setFeedback({ tone: "warn", message: `“${result.text}” is already in your collection.` });
+        // The list wouldn't change (owner_items groups by norm_key), so say it out loud — with the
+        // count, because the add DID something: a duplicate bumps the word's popularity (0017).
+        setFeedback({
+          tone: "warn",
+          message:
+            result.popularity === null
+              ? `“${result.text}” is already in your collection.`
+              : `“${result.text}” is already in your collection — met ${result.popularity} ${
+                  result.popularity === 1 ? "time" : "times"
+                }.`,
+        });
         formRef.current?.reset();
       } else {
         setFeedback({ tone: "warn", message: "Type a word first." });

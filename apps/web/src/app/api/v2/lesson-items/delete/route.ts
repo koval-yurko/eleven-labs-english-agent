@@ -17,11 +17,11 @@ export const OPTIONS = preflight;
  * phone — a React Native `fetch` sends no `Origin` and preflights nothing — and fail the preflight
  * under `expo start --web`, which is a real surface and the reason that CORS block exists at all.
  * The path is a literal sibling of the `[id]` dynamic segment, and Next matches literals first, so
- * it never resolves to a word whose id happens to be `"delete"` — the same non-collision `favorite`
+ * it never resolves to a word whose id happens to be `"delete"` — the same non-collision `popularity`
  * and `/lessons/session` already rely on.
  *
  * **A direct route, not an outbox op**, carrying the collection's asymmetry across exactly as
- * add-word and favorite do: `MirrorItem` is keyed on a `lesson_id` a standalone word does not have,
+ * add-word and popularity do: `MirrorItem` is keyed on a `lesson_id` a standalone word does not have,
  * so queueing this would durably store an intent no screen could render (creation doc §5 / S6 D62).
  *
  * `ok: false` is an ANSWER, not an error — an id that is not the caller's and an id already deleted

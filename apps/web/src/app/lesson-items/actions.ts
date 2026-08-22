@@ -3,33 +3,36 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { getOwnerId } from "../../lib/auth/session";
-import { setItemFavorite } from "../../lib/lesson-items";
+import { bumpWordPopularity } from "../../lib/lesson-items";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
 import { addWord } from "../../lib/words";
 import type { AddWordResult } from "@tutor/shared/word-types";
 
 /**
- * Mark/unmark one item as a favorite — the only mutation on `/lesson-items`. Like every action
- * here, it re-derives the owner from the session and never trusts the payload; `setItemFavorite`
- * additionally checks the key belongs to an item the caller actually has.
+ * +1 one word's popularity — the only mutation on `/lesson-items`, and the successor to the
+ * favourite star (0017). Like every action here it re-derives the owner from the session and never
+ * trusts the payload; the `owner_id` filter inside the RPC is what checks the word is the caller's.
  *
- * Online-only for now: favoriting is not an outbox op, so the page (and this write) need a
- * connection. See the phase-2 note in
- * docs/2026-07-11-lesson-items-page-search-filters-stats-favorites.md.
+ * Returns the new count so the caller renders the true total rather than a local increment. Null
+ * means no row matched — someone else's id, or a word already deleted.
+ *
+ * Online-only: this is not an outbox op, so the page (and this write) need a connection. See the
+ * phase-2 note in docs/2026-07-11-lesson-items-page-search-filters-stats-favorites.md.
  */
-export async function setItemFavoriteAction(normKey: string, isFavorite: boolean): Promise<void> {
+export async function bumpItemPopularityAction(id: string): Promise<number | null> {
   const ownerId = await getOwnerId();
-  if (!ownerId || typeof normKey !== "string" || !normKey) return;
+  if (!ownerId || typeof id !== "string" || !id) return null;
 
-  await setItemFavorite(ownerId, normKey.slice(0, 500), Boolean(isFavorite));
+  const popularity = await bumpWordPopularity(ownerId, id);
   revalidatePath("/lesson-items");
+  return popularity;
 }
 
 /**
  * Add one word to the collection, attached to no lesson.
  *
- * Online-only, deliberately, and the same call the favorite star makes rather than an outbox op:
+ * Online-only, deliberately, and a direct call rather than an outbox op:
  * `/lesson-items` is a server component with no IndexedDB read island, and `MirrorItem` is keyed on
  * a `lesson_id` that a standalone word does not have (IndexedDB cannot index null). Queuing this
  * offline would durably store an intent the page could not show. Phase 2 is a `words` store in the
@@ -41,7 +44,9 @@ export async function setItemFavoriteAction(normKey: string, isFavorite: boolean
  */
 export async function addWordAction(text: string): Promise<AddWordResult> {
   const ownerId = await getOwnerId();
-  if (!ownerId || typeof text !== "string") return { status: "empty", id: null, text: "" };
+  if (!ownerId || typeof text !== "string") {
+    return { status: "empty", id: null, text: "", popularity: null };
+  }
 
   const result = await addWord(ownerId, text);
 

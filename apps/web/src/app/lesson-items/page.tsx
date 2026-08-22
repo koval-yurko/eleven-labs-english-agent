@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Every word / phrase / sentence the learner has, across all lessons — searchable, filterable by
- * level / favorite / kind / category, sortable by how much it has actually been practiced.
+ * level / kind / category, sortable by how much it has actually been practiced.
  *
  * An item removed from a lesson is NOT deleted: it stays here with no lesson attached and keeps
  * the practice count it earned. See

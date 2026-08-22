@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 import { useAccessToken } from "@/lib/auth";
-import { deleteWord, fetchItem, setFavorite } from "@/lib/items";
+import { bumpPopularity, deleteWord, fetchItem } from "@/lib/items";
 import { useTheme } from "@/theme";
 import {
   ActionRow,
@@ -20,7 +20,6 @@ import {
   Panel,
   RefreshButton,
   Screen,
-  StarIcon,
   TrashIcon,
   radius,
   space,
@@ -50,6 +49,7 @@ export default function WordDetailScreen() {
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bumping, setBumping] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
 
   useLoadingIndicator(item === null && loadError === null);
@@ -69,15 +69,27 @@ export default function WordDetailScreen() {
     })();
   }, [load]);
 
-  /** Optimistic, and keyed on `norm_key` like everywhere else this write appears (D66). */
-  async function toggleFavorite() {
-    if (!item) return;
-    const next = !item.is_favorite;
-    setItem({ ...item, is_favorite: next });
+  /**
+   * +1 "I met this word again" — the successor to the favourite star, in its place (0017).
+   *
+   * **This screen has the control and the list does not.** A counter has no undo, and the list is
+   * fifty of them under a scrolling thumb; this is one word the learner opened on purpose.
+   *
+   * NOT optimistic, unlike the star it replaces. A counter is not a toggle: a local +1 that raced
+   * another device would show a number that was never true, and there is nothing to revert it to
+   * that would fix that. The server's `returning` is what renders, one round trip later.
+   */
+  async function bump() {
+    if (!item || bumping) return;
+    setBumping(true);
+    setWriteError(null);
     try {
-      await setFavorite(accessToken, item.norm_key, next);
-    } catch {
-      setItem((prev) => (prev ? { ...prev, is_favorite: !next } : prev));
+      const popularity = await bumpPopularity(accessToken, item.id);
+      setItem((prev) => (prev ? { ...prev, popularity } : prev));
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBumping(false);
     }
   }
 
@@ -148,16 +160,17 @@ export default function WordDetailScreen() {
       {header}
 
       <View style={styles.titleRow}>
+        {/* Where the star stood, and still the first thing in the row: it is the one control on
+            this screen a learner presses more than once. */}
         <Button
           variant="icon"
-          onPress={() => void toggleFavorite()}
-          accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
+          disabled={bumping}
+          onPress={() => void bump()}
+          accessibilityLabel={`Met ${item.text} again — seen ${item.popularity} ${
+            item.popularity === 1 ? "time" : "times"
+          }`}
         >
-          <StarIcon
-            size={20}
-            state={item.is_favorite ? "filled" : "empty"}
-            color={item.is_favorite ? theme.warn : theme.faint}
-          />
+          <Muted style={styles.popularity}>{item.popularity}</Muted>
         </Button>
         <H1 style={styles.title}>{item.text}</H1>
         {/* `level` is nullable FOREVER — "unleveled" is a real state, not a pending one, and the
@@ -304,6 +317,8 @@ function DetailsSection({
 const makeStyles = (t: Palette) =>
   StyleSheet.create({
     titleRow: { flexDirection: "row", alignItems: "center", gap: 0.6 * 16, marginTop: space.row },
+    /** The count inside its icon button — sized so 1 and 10 occupy the same slot. */
+    popularity: { ...type.body, minWidth: 20, textAlign: "center" },
     title: { flex: 1 },
     /** The web's inline pill: 1px border, fully rounded, `0.1rem 0.6rem`. */
     pill: {

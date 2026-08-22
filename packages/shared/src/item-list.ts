@@ -29,7 +29,7 @@ export const SORT_LABELS: Record<SortKey, string> = {
   lessons: "Lessons",
   created: "Date added",
   practiced: "Last practiced",
-  favorite: "Favorites",
+  popularity: "Popularity",
   level: "Level",
   text: "Alphabetical",
 };

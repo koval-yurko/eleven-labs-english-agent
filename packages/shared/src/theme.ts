@@ -58,7 +58,7 @@ export type Palette = {
   error: string;
   /** Confirmation, an "added" event, the learner's voice in a transcript. */
   ok: string;
-  /** Attention without alarm: a favourite star, a paused session, a degraded wake lock. */
+  /** Attention without alarm: a paused session, a degraded wake lock, a warning that is not an error. */
   warn: string;
 };
 

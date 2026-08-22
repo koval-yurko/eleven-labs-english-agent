@@ -26,7 +26,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { useAccessToken } from "@/lib/auth";
 import { newId } from "@/lib/ids";
-import { addWord, deleteWord, fetchItems, setFavorite } from "@/lib/items";
+import { addWord, bumpPopularity, deleteWord, fetchItems } from "@/lib/items";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { fetchLessons, postOp } from "@/lib/lessons";
 import { useTheme } from "@/theme";
@@ -51,7 +51,6 @@ import {
   Screen,
   Select,
   SortArrowIcon,
-  StarIcon,
   TextField,
   TrashIcon,
   radius,
@@ -98,7 +97,6 @@ import {
  */
 const EMPTY_QUERY: ItemsQuery = {
   levels: [],
-  favoritesOnly: false,
   kind: null,
   unassignedOnly: false,
   categories: {},
@@ -116,7 +114,6 @@ const SORT_OPTIONS: SelectOption<SortKey>[] = sortChoices().map(({ key, label })
 function activeFilterCount(query: ItemsQuery): number {
   return (
     query.levels.length +
-    (query.favoritesOnly ? 1 : 0) +
     (query.kind ? 1 : 0) +
     (query.unassignedOnly ? 1 : 0) +
     Object.keys(query.categories).length
@@ -204,31 +201,8 @@ export default function CollectionScreen() {
     setSelected(new Map());
   }
 
-  /** Optimistic favorite: flip locally, revert if the write is refused. Keyed on `norm_key` (D66). */
-  async function toggleFavorite(item: ItemRow) {
-    const next = !item.is_favorite;
-    setWriteError(null);
-    const patch = (on: boolean) =>
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: prev.items.map((i) => (i.id === item.id ? { ...i, is_favorite: on } : i)),
-            }
-          : prev,
-      );
-    patch(next);
-    try {
-      await setFavorite(accessToken, item.norm_key, next);
-    } catch (e) {
-      patch(!next);
-      setWriteError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   /**
-   * Delete a word for good — optimistic like the favorite above it, with two obligations that
-   * favouriting does not have.
+   * Delete a word for good — optimistic, with two obligations no other write on this screen has.
    *
    * **The selection is pruned.** `selected` is deliberately not pruned when the FILTER changes (see
    * its declaration), because a word scrolling out of a query is still selected. A word that no
@@ -251,6 +225,10 @@ export default function CollectionScreen() {
     });
     try {
       await deleteWord(accessToken, item.id);
+      // ⚠️ Not optional since suggestions started carrying `wordId` (0017). A cached bucket holds
+      // the id of the row just destroyed, and tapping it would open a word that no longer exists.
+      // Dropping the cache costs a ~7 KB refetch on the next word typed.
+      clearSuggestionCache();
     } catch (e) {
       setData(snapshot);
       setWriteError(e instanceof Error ? e.message : String(e));
@@ -407,19 +385,9 @@ export default function CollectionScreen() {
             ))}
           </ChipRow>
 
-          {/* Two independent booleans — a labelled set, not alternatives. */}
+          {/* One boolean since the favourites filter went with the flag (0017), and still its own
+              labelled row: it is a filter, not an alternative to the level or kind above it. */}
           <ChipRow label="Show">
-            <Chip
-              label="favorites"
-              pressed={query.favoritesOnly}
-              onPress={() => apply({ favoritesOnly: !query.favoritesOnly })}
-            >
-              <StarIcon
-                size={14}
-                state={query.favoritesOnly ? "filled" : "empty"}
-                color={query.favoritesOnly ? theme.onAccent : theme.text}
-              />
-            </Chip>
             <Chip
               label="in no lesson"
               pressed={query.unassignedOnly}
@@ -506,7 +474,6 @@ export default function CollectionScreen() {
               item={item}
               selected={selected.has(item.id)}
               onToggle={() => toggleSelect(item.id, item.text)}
-              onToggleFavorite={() => void toggleFavorite(item)}
               onDelete={() => setConfirmTarget({ id: item.id, text: item.text })}
             />
           ))
@@ -563,7 +530,12 @@ export default function CollectionScreen() {
  * a bulk paste wants a lesson to live in — that flow already exists on the lesson page.
  *
  * `already-present` is announced rather than swallowed: the collection groups by `norm_key`, so a
- * duplicate add changes nothing on screen and would otherwise read as a broken button.
+ * duplicate add changes nothing in the LIST, and the count it bumps is the thing worth saying.
+ *
+ * Two ways out of this field, and they are not the same. Tapping a suggestion the learner already
+ * owns bumps that word and opens it (`openOwned`); pressing **Add** is the fallback for everything
+ * the dictionary does not know — phrases, whole sentences, words outside the 53k lexicon — and it
+ * bumps too, on the server side of `addWord`.
  */
 function AddWordForm({
   getToken,
@@ -583,7 +555,7 @@ function AddWordForm({
   // would never fire. Safe to depend on `getToken` — the screen already builds it with
   // `useCallback` (`accessToken`, above), which is the same reason `addWord` can hold it.
   const search = useCallback(
-    async (query: string): Promise<AutocompleteOption[]> => {
+    async (query: string): Promise<AutocompleteOption<string | null>[]> => {
       const suggestions = await fetchSuggestions(getToken, query);
       return suggestions.map((s) => ({
         key: s.text,
@@ -592,11 +564,38 @@ function AddWordForm({
         // Up to three glosses come back; two is what fits at phone width. The full set is on the
         // word detail page, which renders `WordDetails.translations_ru`.
         detail: s.ru.slice(0, 2).join(", "),
-        marked: s.owned,
+        // `wordId !== null` IS "already in your collection" — one column answers both questions
+        // (0017), and the id rides along as the row's payload so the tap can act on it.
+        marked: s.wordId !== null,
+        data: s.wordId,
       }));
     },
     [getToken],
   );
+
+  /**
+   * Tapping a row the learner ALREADY has: +1 its popularity and open the word.
+   *
+   * The one place this screen departs from `Autocomplete`'s "fill the field, never submit" rule,
+   * and it is scoped to exactly the rows the server says are already owned — a mis-tap costs a
+   * screen you can come back from and a counter that means "I met this again". An unowned row is
+   * untouched: it fills the field and waits for **Add**, as it always did.
+   *
+   * The bump is AWAITED before navigating. The detail screen fetches on mount, so pushing first
+   * would show the pre-bump number and then have to either flicker or lie. A failed bump still
+   * navigates: the word exists, the learner asked to see it, and a lost increment is not worth a
+   * dead end.
+   */
+  async function openOwned(wordId: string) {
+    setFeedback(null);
+    try {
+      await bumpPopularity(getToken, wordId);
+    } catch {
+      // Deliberately silent — see above. The word is still there to open.
+    }
+    setText("");
+    router.push(`/lesson-items/${wordId}`);
+  }
 
   async function submit() {
     const value = text.trim();
@@ -614,9 +613,18 @@ function AddWordForm({
         setFeedback({ tone: "ok", message: `Added “${result.text}”.` });
         setText("");
       } else if (result.status === "already-present") {
+        // The count is the point: the add DID something (0017 bumps an already-owned word), and a
+        // message that only said "you already have this" would report a no-op that did not happen.
+        // Reached only for words the dropdown could not offer — phrases, sentences, anything
+        // outside the lexicon — since a suggested word is opened by `openOwned` instead.
         setFeedback({
           tone: "warn",
-          message: `“${result.text}” is already in your collection.`,
+          message:
+            result.popularity === null
+              ? `“${result.text}” is already in your collection.`
+              : `“${result.text}” is already in your collection — met ${result.popularity} ${
+                  result.popularity === 1 ? "time" : "times"
+                }.`,
         });
         setText("");
       } else {
@@ -641,7 +649,12 @@ function AddWordForm({
           value={text}
           onChangeText={setText}
           search={search}
-          markedLabel="Already in your collection"
+          // The row ACTS now, so its accessible name has to say so — a reader that announces only
+          // "already in your collection" describes a statement, and this is a door.
+          markedLabel="Already in your collection — opens the word"
+          onSelect={(option) => {
+            if (option.data) void openOwned(option.data);
+          }}
           // 7,226 lexicon rows are unlevelled and plenty of real words are outside it altogether,
           // so "no matches" must not read as "that is not a word". The collection also holds
           // phrases and whole sentences, which the dictionary never will.
@@ -682,25 +695,28 @@ function AddWordForm({
  * by, so the information that made them worth showing is now expressed as an ordering rather than
  * as forty characters per row.
  *
- * **Why the controls stack.** Level, favourite and delete used to sit in the row beside the text,
+ * **Why the controls stack.** Level, popularity and delete used to sit in the row beside the text,
  * which cost the word itself three controls' worth of width — on a phone that is most of it, and
  * it is why a translation could not fit. As a column they cost one control's width and the text
  * gets the rest. The order is fixed and deliberate: the level is a fact and sits at the top out of
- * the thumb's way, the favourite is the one a learner presses often and sits in the middle where
- * the thumb lands, and delete is at the bottom — the destructive control is the one the thumb
+ * the thumb's way, and delete is at the bottom — the destructive control is the one the thumb
  * should have to travel to, which is the same rule the lessons list follows left-to-right.
+ *
+ * **The middle slot is a fact now, not a control** (0017). It used to be the favourite star, the one
+ * thing a learner pressed often; it is the popularity count, which is not pressable here. A counter
+ * has no undo, and fifty of them under a scrolling thumb is where a mis-tap is likeliest — so the
+ * +1 lives on the word's own page, where the learner arrived on purpose. The slot itself stays: it
+ * is what keeps the level pill and the bin at the same height from row to row.
  */
 function ItemLine({
   item,
   selected,
   onToggle,
-  onToggleFavorite,
   onDelete,
 }: {
   item: ItemRow;
   selected: boolean;
   onToggle: () => void;
-  onToggleFavorite: () => void;
   onDelete: () => void;
 }) {
   const theme = useTheme();
@@ -756,22 +772,20 @@ function ItemLine({
           <View style={styles.levelSlot} />
         )}
 
-        <Button
-          variant="icon"
-          hitSlop={4}
-          onPress={onToggleFavorite}
-          accessibilityLabel={item.is_favorite ? `Unfavorite ${item.text}` : `Favorite ${item.text}`}
+        {/* Text, not a `Button` — see the docblock. 0 renders like any other value: a slot that is
+            sometimes empty is what `levelSlot` above exists to prevent. */}
+        <Muted
+          style={styles.popularity}
+          accessibilityLabel={`${item.text}, met ${item.popularity} ${
+            item.popularity === 1 ? "time" : "times"
+          }`}
         >
-          <StarIcon
-            size={18}
-            state={item.is_favorite ? "filled" : "empty"}
-            color={item.is_favorite ? theme.warn : theme.faint}
-          />
-        </Button>
+          {item.popularity}
+        </Muted>
 
-        {/* `hitSlop` is small on purpose: its neighbour is the favourite star, so generous slop
-            would trade a missed delete for an accidental one. Vertical neighbours now rather than
-            horizontal, which does not change the argument. */}
+        {/* `hitSlop` is small on purpose: the bin is the only control in this column and the row's
+            checkbox sits opposite it, so generous slop would trade a missed delete for an
+            accidental one. */}
         <Button
           variant="icon"
           tone="danger"
@@ -810,8 +824,14 @@ const makeStyles = (t: Palette) =>
     },
     itemText: { fontWeight: type.weightSemibold },
     translations: { color: t.text },
-    /** Level, favourite, delete — see `ItemLine` for why the order is what it is. */
+    /** Level, popularity, delete — see `ItemLine` for why the order is what it is. */
     itemActions: { alignItems: "center", gap: 0.25 * 16 },
+    /**
+     * The count, sized to sit in the 32pt icon column without being mistaken for a button.
+     * `tabular-nums` is not available in RN, so the width is held by `minWidth` instead — a 2 and a
+     * 10 must not shift the bin under them.
+     */
+    popularity: { minWidth: 22, textAlign: "center" },
     levelPill: {
       ...type.tiny,
       borderWidth: 1,

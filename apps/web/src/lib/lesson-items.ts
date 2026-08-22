@@ -9,7 +9,7 @@
  * The list is the `owner_items` view: the `words` collection, decorated with the cross-lesson
  * statistics derived from lesson_items + lesson_sessions. A word in no lesson is a normal row here
  * — either it was added directly (see `src/lib/words.ts`) or removed from every lesson it was in.
- * The only column this page writes is `is_favorite`; `level` belongs to the job in `./levels.ts`.
+ * The only column this page writes is `popularity`; `level` belongs to the job in `./levels.ts`.
  *
  * The shapes and vocabularies these queries return live in `src/shared/` (pure, client-safe); this
  * module is the shell that fetches them. See docs/2026-08-09-shareable-core-refactor.md.
@@ -30,7 +30,7 @@ const SORT_COLUMNS: Record<SortKey, string> = {
   lessons: "lesson_count",
   created: "first_added_at",
   practiced: "last_practiced_at",
-  favorite: "is_favorite",
+  popularity: "popularity", // times the learner has met the word again (0017)
   level: "level", // free ordering — cefr_level is an enum
   text: "norm_key",
 };
@@ -50,7 +50,6 @@ export async function listItems(ownerId: string, query: ItemsQuery): Promise<Ite
     const clauses = levels.map((l) => (l === UNLEVELED ? "level.is.null" : `level.eq.${l}`));
     q = q.or(clauses.join(","));
   }
-  if (query.favoritesOnly) q = q.eq("is_favorite", true);
   if (query.kind) q = q.eq("kind", query.kind);
   if (query.unassignedOnly) q = q.eq("active_lesson_count", 0);
   for (const [name, value] of Object.entries(query.categories)) {
@@ -117,23 +116,24 @@ export async function listItemFacets(ownerId: string): Promise<ItemFacet[]> {
 }
 
 /**
- * Mark/unmark a word as a favorite — the page's only write.
+ * +1 a word's popularity — the collection's only write, and the successor to the favourite star
+ * (0017). Returns the NEW count, or null when no row matched.
  *
- * A plain UPDATE since 0007 folded the attributes onto `words`: matching on `owner_id` IS the
- * ownership gate (a key the caller doesn't have updates zero rows), so the separate existence check
- * this needed against the FK-less attrs table is gone. Returns whether a row matched.
+ * An RPC rather than an update from here, for two reasons. `popularity = popularity + 1` cannot be
+ * expressed through PostgREST at all, and the read-modify-write that would replace it loses bumps
+ * whenever two of them overlap — which is precisely the case this feature creates, since a learner
+ * can tap a suggestion while an add is still in flight.
+ *
+ * The `owner_id` argument IS the ownership gate, exactly as the `.eq("owner_id", …)` filter is
+ * everywhere else in this module: an id that is not the caller's updates zero rows and comes back
+ * null. See `supabase/migrations/0017_word_popularity.sql`.
  */
-export async function setItemFavorite(
-  ownerId: string,
-  normKey: string,
-  isFavorite: boolean,
-): Promise<boolean> {
-  const { data, error } = await getServiceSupabase()
-    .from("words")
-    .update({ is_favorite: isFavorite, updated_at: new Date().toISOString() })
-    .eq("owner_id", ownerId)
-    .eq("norm_key", normKey)
-    .select("id");
-  if (error) throw new Error(`setItemFavorite: ${error.message}`);
-  return (data?.length ?? 0) > 0;
+export async function bumpWordPopularity(ownerId: string, wordId: string): Promise<number | null> {
+  const { data, error } = await getServiceSupabase().rpc("bump_word_popularity", {
+    p_owner_id: ownerId,
+    p_id: wordId,
+  });
+  if (error) throw new Error(`bumpWordPopularity: ${error.message}`);
+  // A scalar-returning function comes back as the value itself; no row matched is `null`.
+  return typeof data === "number" ? data : null;
 }

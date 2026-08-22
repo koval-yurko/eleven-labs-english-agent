@@ -2,7 +2,11 @@
  * The `/lesson-items` filter/sort grammar — its shape, its whitelists, and the ONE implementation
  * of the URL it encodes to and decodes from.
  *
- * `?level=C1&level=unleveled&fav=1&kind=sentence&unassigned=1&cat.topic=business&sort=practice&dir=asc&q=ubiq`
+ * `?level=C1&level=unleveled&kind=sentence&unassigned=1&cat.topic=business&sort=practice&dir=asc&q=ubiq`
+ *
+ * `?fav=1` used to be part of this grammar and was removed with the favourite flag itself (0017).
+ * An old link carrying it degrades to "no such filter" by construction — the decoder reads the keys
+ * it knows and ignores the rest — rather than to an error.
  *
  * The URL is the filter state: shareable, back-button-correct, no client state machine. Everything
  * here is whitelisted before it reaches the query — `isValidLevel` / `isValidSort` / `isValidKind`
@@ -28,7 +32,7 @@ export const SORT_KEYS = [
   "lessons",
   "created",
   "practiced",
-  "favorite",
+  "popularity", // how often the learner has met the word again (0017)
   "level",
   "text",
 ] as const;
@@ -39,7 +43,6 @@ export type SortDir = "asc" | "desc";
 export interface ItemsQuery {
   /** CEFR levels and/or `UNLEVELED`. Empty = no level filter. */
   levels: string[];
-  favoritesOnly: boolean;
   kind: ItemKind | null;
   /** Only items no longer in any lesson — "words I've dropped". */
   unassignedOnly: boolean;
@@ -129,7 +132,6 @@ export function parseItemsQuery(params: ItemsSearchParams): ItemsQuery {
 
   return {
     levels: all(params, "level").filter(isValidLevel),
-    favoritesOnly: one(params, "fav") === "1",
     kind: isValidKind(kind) ? kind : null,
     unassignedOnly: one(params, "unassigned") === "1",
     categories,
@@ -160,7 +162,6 @@ export function parseSearchTerm(params: ItemsSearchParams): string {
 export function serializeItemsQuery(query: ItemsQuery, search = ""): string {
   const params = new URLSearchParams();
   for (const level of query.levels) params.append("level", level);
-  if (query.favoritesOnly) params.set("fav", "1");
   if (query.kind) params.set("kind", query.kind);
   if (query.unassignedOnly) params.set("unassigned", "1");
   for (const [name, value] of Object.entries(query.categories)) {

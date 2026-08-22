@@ -73,7 +73,7 @@ export const control = {
   fieldDescenderSlack: Math.ceil(1.5 * REM - 1.23 * REM), // 5
   /**
    * `.btn--icon`: square, chrome-free, and deliberately NOT `height`. Both icon buttons in the app
-   * (the favourite star, the delete bin) sit in dense list rows next to a 20px checkbox, where a
+   * (the delete bin, the word's +1) sit in dense list rows next to a 20px checkbox, where a
    * 45px square would inflate every row.
    */
   iconSize: 2 * REM, // 32

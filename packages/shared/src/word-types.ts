@@ -74,7 +74,17 @@ export interface ItemRow {
   last_practiced_at: string | null;
   level: CefrLevel | null;
   level_source: "job" | "user" | null;
-  is_favorite: boolean;
+  /**
+   * How many times the learner has met this word again — bumped when they pick an already-owned
+   * word out of the add-word suggestions, or re-add one through the Add button.
+   *
+   * Replaces the `is_favorite` flag (0017). Never null and never absent: 0 is a first-class value
+   * that every row renders, which is what keeps the control column aligned from row to row.
+   *
+   * The one field on this row the UI writes. `level` and the enrichment payload belong to the
+   * background jobs, and everything else is derived by the view.
+   */
+  popularity: number;
   categories: Record<string, string>;
   /**
    * Up to six Russian glosses, best/most-common first — the head of `WordDetails.translations_ru`,
@@ -119,6 +129,16 @@ export interface AddWordResult {
   id: string | null;
   /** The stored spelling — trimmed, and what the list will show. */
   text: string;
+  /**
+   * The word's popularity AFTER the add: 0 for a word that was just created, the bumped count for
+   * one that was already there, and null when nothing was written (`empty`).
+   *
+   * Present because `already-present` needs something true to say. Re-adding a word the learner
+   * already has is the same statement as picking it out of the suggestions — "I met this again" —
+   * so it bumps the counter, and a message that reports the new number is the difference between
+   * an answer and a button that appears to do nothing.
+   */
+  popularity: number | null;
 }
 
 /** One (name, value) pair in use, for rendering the category filter from the data itself. */
