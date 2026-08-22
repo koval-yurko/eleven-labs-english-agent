@@ -42,6 +42,22 @@
 import type { TranscriptLine, TutorItem } from "./tutor";
 
 /**
+ * Which service is carrying the voice.
+ *
+ * **This vocabulary is shared because a prompt VERSION now names one** (§13 Q1, settled 2026-08-22:
+ * a version belongs to exactly one provider). The server resolves version → provider and says so in
+ * `AgentVersionSummary`; the client picks its transport from the answer. Two independent lists of
+ * provider names — one per side — would be a mismatch that presents as "this lesson will not start"
+ * long after the version that caused it was added.
+ *
+ * A version binds to one provider rather than being runnable on both because the versions ARE
+ * different lessons: §11.1 is that the reason to run OpenAI at all is that it hears audio rather
+ * than reading a transcript, which wants a prompt written for it. A dual config would model a
+ * flexibility nothing wants.
+ */
+export type TutorProviderId = "elevenlabs" | "openai";
+
+/**
  * The states a line can be in. **Five, and the two odd ones are load-bearing.**
  *
  * This is the UNION of two different unions the ElevenLabs SDK actually uses, because the session

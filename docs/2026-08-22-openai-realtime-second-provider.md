@@ -1,7 +1,8 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
-Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1 and 2 BUILT and green in CI but
-not yet device-verified (§14, §15). Stages 3–5 not started.**
+Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–3 BUILT and green in CI but not
+yet device-verified (§14, §15). Stage 4 (an OpenAI prompt version) is the next real work; stage 5
+(sideband observability) is untouched.**
 
 ## 1. The question
 
@@ -506,7 +507,7 @@ it is separate from stage 2.
 **Stage 2 — the OpenAI adapter. ✅ BUILT 2026-08-22 (§15).**, shaped by what stage 0 learned, with `capabilities` telling the
 truth about §6.
 
-**Stage 3 — server: provider-aware versions.** `PromptVersion.provider`, `sync:agents` skips OpenAI,
+**Stage 3 — server: provider-aware versions. ✅ BUILT 2026-08-22 (§15.3).** `PromptVersion.provider`, `sync:agents` skips OpenAI,
 the token route branches, `items_list` interpolated server-side.
 
 **Stage 4 — a pronunciation-mode prompt version** on OpenAI (§11.1). This is the payoff, and it
@@ -514,14 +515,21 @@ should be a new version, not a port.
 
 **Stage 5 (separate document) — sideband observability.** §9.
 
-## 13. Open questions to settle before stage 1
+## 13. Open questions
 
-1. **Is a prompt version bound to one provider, or runnable on both?** One-provider-per-version is far
-   simpler and matches §11.1 (the OpenAI versions will be *different lessons* anyway). Recommend the
-   discriminant, not the dual config.
-2. **Who chooses the provider — the learner, the version picker, or a server flag?** The version
-   picker already exists and already carries a `version` through the token route, so folding provider
-   into version costs nothing new in the UI. Recommend that.
+**Q1 and Q2 were settled on 2026-08-22 and built in stage 3 (§15.3).** They are kept below with
+their answers rather than deleted, because the reasoning is what the next provider will need.
+
+1. ~~**Is a prompt version bound to one provider, or runnable on both?**~~ **SETTLED: bound to one.**
+   `PromptVersion.provider`, defaulting to `"elevenlabs"` so every existing version keeps its exact
+   meaning. Not because dual configs are hard but because the versions are genuinely different
+   lessons (§11.1). The ElevenLabs-only fields — `llm`, `voiceId`, `ttsModelId`, the turn settings —
+   are ignored for an OpenAI version and `types.ts` says so; `maxTokens` is the one that carries
+   across, as `max_output_tokens`.
+2. ~~**Who chooses the provider?**~~ **SETTLED: the version picker, by implication.** Picking a
+   version IS picking a provider. `AgentVersionSummary` gained a `provider` field, the lesson screen
+   looks it up from the version it already selected, and there is no provider control anywhere in the
+   UI. No new surface, and no second piece of state that can disagree with the first.
 3. **Does the held pause stay identical across providers, or does OpenAI get the better one (§11.2)?**
    Identical is easier to reason about; better is better. Recommend better, with the capability flags
    making the difference explicit rather than accidental.
@@ -586,7 +594,7 @@ Recorded as gaps rather than quietly omitted, in the manner of
   teaching pacing, not that: its prompt is not a podcast prompt and `server_vad` was never exercised.
   Do not read Q5's pass as covering words-1.5.
 
-## 15. Stages 1 and 2 — 2026-08-22
+## 15. Stages 1–3 — 2026-08-22
 
 **Built; typecheck, lint, the shared property checks, the mobile logic checks and the iOS bundle all
 pass. NOT device-verified.** Stage 1's whole criterion is *zero behaviour change*, and no compiler
@@ -632,20 +640,64 @@ This is the argument of §12 doing its job, so it is worth being specific about.
 
 ### 15.2 What stage 2 knowingly deferred
 
-- **Nothing selects the provider.** `DEFAULT_TUTOR_PROVIDER` is `"elevenlabs"`, and flipping that one
-  line runs every lesson on OpenAI. Who *should* choose — learner, prompt version, or server — is
-  §13 Q2 and belongs to stage 3; inventing an answer here to make the adapter reachable would have
-  been the wrong kind of progress.
-- **The OpenAI route serves words-1.x prompts, which is a PORT.** §11.1 is explicit that the reason
-  to run this provider is that it hears audio rather than reading a transcript, and that this wants
-  its own version (stage 4). Running the existing prompt proves the transport, not the product. The
-  route says so where someone changing it will read it.
+- ~~**Nothing selects the provider.**~~ Resolved by stage 3: the chosen version names it.
+  `DEFAULT_TUTOR_PROVIDER` survives as the fallback for the frames before `/api/v2/agent-versions`
+  has answered, and nothing else.
+- ~~**The OpenAI route serves words-1.x prompts, which is a PORT.**~~ Resolved by stage 3 in the only
+  honest direction: the route now refuses every ElevenLabs version, so it serves nothing until a
+  version is written for it (stage 4, §15.4).
 - **The end reason is synthesised** (§6.2), so `PauseReason` is less trustworthy on this provider
   than the session's "read rather than inferred" comment claims. The asymmetry is absorbed in the
   adapter and documented there.
 - **No fake transport.** A non-React implementation would be the honest way to prove the contract is
   not React-shaped, and would make the pause machine testable without a device. It is the obvious
   next piece of infrastructure and it is not built.
+
+### 15.3 Stage 3 — provider-aware versions
+
+The server now owns version → provider the way it already owned version → agent id, and for the same
+reason: a client that inferred either would be running a copy of a rule that cannot be hot-fixed.
+
+| | |
+| --- | --- |
+| `PromptVersion.provider` | defaults to `"elevenlabs"`; changing an existing version's provider retires its agent, so bump instead |
+| `effectiveConfig` | carries `provider` — and deliberately **not** into `hashConfig` |
+| `elevenLabsVersions()` | the one answer to "which versions does ElevenLabs know about" |
+| `sync:agents` | manages only those; a version switched away becomes an orphan and is retired by the existing prune |
+| `agent-registry` | `resolveVersion` (any provider) beside `resolveAgent` (ElevenLabs only, `agentId` non-null) |
+| both token routes | resolve first, then **refuse** the other provider's version with `wrong_provider` |
+| `AgentVersionSummary.provider` | what the client picks its transport from |
+
+Two details worth keeping:
+
+- **`pnpm sync:agents --dry-run` reports seven no-ops** after the change. That is the check that
+  `provider` did not leak into the agent hash — had it, the next sync would have re-PATCHED all seven
+  agents to send a byte-identical body.
+- **The refusal is deliberate, not defensive.** Asking the ElevenLabs route for an OpenAI version is
+  a 400 rather than a redirect, because these prompts are written for different pipelines and running
+  one on the other is a different lesson (§11.1), not a fallback.
+
+On the client, `TutorProviderId` moved into `@tutor/shared` (the server names providers now too) and
+the adapter registry is typed `Record<TutorProviderId, TutorTransportHook>` — so a provider the server
+can name but this build cannot open is a compile error rather than a lesson that will not start.
+
+One thing stage 3 forced that stages 1 and 2 had not: **every adapter is instantiated on every
+render** (the rules of hooks require it), so both are live objects listening at all times while only
+one carries a lesson. Each now receives its own events object, filtered against the active provider.
+Without that, the idle transport's status changes would land in `statusRef` — which is unguarded by
+design because it tracks the transport rather than the conversation — and a `"disconnected"` from the
+provider nobody is using would read as the live session dropping.
+
+### 15.4 The state stage 3 leaves the app in
+
+**No OpenAI version exists, so the OpenAI route currently refuses everything.** That is the honest
+end state for this stage rather than a gap: §11.1 says the reason to run this provider is that it
+hears audio rather than reading a transcript, which wants a prompt written for it — stage 4. Shipping
+a port of words-1.6 to have something to select would be the wrong kind of progress, and the route
+says so where someone changing it will read it.
+
+So the app's behaviour today is unchanged: seven ElevenLabs versions in the picker, one of which is
+the default, and a whole second provider wired end to end waiting for a prompt.
 
 ## 16. Sources
 

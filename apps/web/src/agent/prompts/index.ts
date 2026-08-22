@@ -5,6 +5,7 @@
  * (it will retire the corresponding ElevenLabs agent). See ../sync-agents.ts and ../agents.lock.json.
  */
 import { MIN_TURN_TIMEOUT_SECONDS } from "@tutor/shared/tutor";
+import type { TutorProviderId } from "@tutor/shared/tutor-transport";
 
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
@@ -54,6 +55,13 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {
   version: string;
+  /**
+   * Which service runs this version. Deliberately NOT part of `hashConfig` in ../sync-agents.ts:
+   * the hash covers what is baked into an ElevenLabs agent body, and this is not — adding it would
+   * change every existing hash and make the next sync re-PATCH seven agents to send an identical
+   * body.
+   */
+  provider: TutorProviderId;
   /** EL agent display name — also how `sync` identifies a managed agent. */
   name: string;
   prompt: string;
@@ -79,6 +87,7 @@ export function effectiveConfig(
   assertTurnTimeoutFloor(v.version, turnTimeoutSeconds);
   return {
     version: v.version,
+    provider: v.provider ?? "elevenlabs",
     name: `english-words-tutor (${v.version})`,
     prompt: v.prompt,
     llm: v.llm ?? env.LIVE_STORY_LLM?.trim() ?? DEFAULT_LLM,
@@ -116,4 +125,16 @@ function assertTurnTimeoutFloor(version: string, seconds: number): void {
 
 export function findVersion(version: string): PromptVersion | undefined {
   return PROMPT_VERSIONS.find((v) => v.version === version);
+}
+
+/**
+ * The versions `pnpm sync:agents` is responsible for.
+ *
+ * Everything else in the registry runs on a provider with no remote agent object to reconcile, so
+ * the sync must not create, patch, or count it as an orphan. One helper rather than a filter at each
+ * call site, because "which versions does ElevenLabs know about" is a question the lockfile's
+ * correctness depends on and it should have exactly one answer.
+ */
+export function elevenLabsVersions(): PromptVersion[] {
+  return PROMPT_VERSIONS.filter((v) => (v.provider ?? "elevenlabs") === "elevenlabs");
 }

@@ -16,6 +16,7 @@ import {
   type TutorItem,
 } from "@tutor/shared/tutor";
 import type {
+  TutorProviderId,
   TutorStatus,
   TutorTransport,
   TutorTransportEvents,
@@ -46,11 +47,7 @@ import {
   writeJournal,
   writePauseMarker,
 } from "@/lib/session-journal";
-import {
-  DEFAULT_TUTOR_PROVIDER,
-  TUTOR_PROVIDERS,
-  type TutorProviderId,
-} from "@/lib/transport";
+import { DEFAULT_TUTOR_PROVIDER, TUTOR_PROVIDERS } from "@/lib/transport";
 
 /**
  * The live tutor session, hoisted out of the screen that used to own it.
@@ -147,9 +144,17 @@ export type LessonMeta = {
 export type StartInput = {
   lessonId: string;
   meta: LessonMeta;
-  /** The fat shape `formatItemsList` consumes — baked into `dynamicVariables` at connect. */
+  /** The fat shape `formatItemsList` consumes — what the adapter hands its provider at connect. */
   itemsDetailed: TutorItem[];
   version: string | null;
+  /**
+   * Which service to run this lesson on, taken from the chosen version's `provider`.
+   *
+   * `null` only in the window before `/api/v2/agent-versions` has answered, which is also the
+   * window in which `version` is null — the two travel together because they ARE one choice
+   * (§13 Q1/Q2). The session falls back to `DEFAULT_TUTOR_PROVIDER` rather than refusing.
+   */
+  provider: TutorProviderId | null;
 };
 
 /** Everything a lesson screen renders. One object, so a screen reads one context. */
@@ -225,10 +230,12 @@ const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
  * to `TUTOR_PROVIDERS` and forgetting this object is a COMPILE ERROR rather than a provider that
  * silently cannot be selected.
  */
-function useTutorTransports(events: TutorTransportEvents): Record<TutorProviderId, TutorTransport> {
+function useTutorTransports(
+  eventsFor: (provider: TutorProviderId) => TutorTransportEvents,
+): Record<TutorProviderId, TutorTransport> {
   return {
-    elevenlabs: TUTOR_PROVIDERS.elevenlabs(events),
-    openai: TUTOR_PROVIDERS.openai(events),
+    elevenlabs: TUTOR_PROVIDERS.elevenlabs(eventsFor("elevenlabs")),
+    openai: TUTOR_PROVIDERS.openai(eventsFor("openai")),
   };
 }
 
@@ -470,14 +477,30 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   };
 
   /**
-   * The provider this session runs on.
+   * The provider this session is running on, and the guard that keeps the idle one quiet.
    *
-   * A constant in stage 1, and named rather than implied, because it is exactly where stage 3 will
-   * start disagreeing with itself: whether a provider is chosen by the learner, implied by the
-   * prompt version, or set by the server is question 2 of §13 in
-   * docs/2026-08-22-openai-realtime-second-provider.md and is deliberately not pre-empted here.
+   * **Every adapter is instantiated on every render** — the rules of hooks require it — so both are
+   * live objects listening for their SDK's events at all times. Only one of them is carrying a
+   * lesson. Without this filter the idle transport's status changes would land in `statusRef`, which
+   * is unguarded by design because it tracks the transport rather than the conversation, and a
+   * `"disconnected"` from the provider nobody is using would read as the live session dropping.
+   *
+   * A ref rather than the state, because the wrapped handlers are called from outside a render and
+   * must see the takeover the instant `start` commits to it — not a frame later.
    */
-  const provider: TutorProviderId = DEFAULT_TUTOR_PROVIDER;
+  const [provider, setProvider] = useState<TutorProviderId>(DEFAULT_TUTOR_PROVIDER);
+  const providerRef = useRef<TutorProviderId>(DEFAULT_TUTOR_PROVIDER);
+  const eventsFor = (forProvider: TutorProviderId): TutorTransportEvents => {
+    const mine = () => providerRef.current === forProvider;
+    return {
+      onTransportId: (id) => mine() && events.onTransportId(id),
+      onTurn: (line) => mine() && events.onTurn(line),
+      onTurnCorrected: (previous, corrected) => mine() && events.onTurnCorrected(previous, corrected),
+      onStatus: (next) => mine() && events.onStatus(next),
+      onEnd: (reason) => mine() && events.onEnd(reason),
+      onError: (message) => mine() && events.onError(message),
+    };
+  };
   /**
    * `tx` is the STABLE half and the state is the volatile half — see `TutorTransportControls`.
    * Every control below is built on `tx` alone, which is what keeps `useTutorControls()` the
@@ -485,7 +508,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * `syncMeta` in effect deps, and a controls object that churned whenever `isSpeaking` flipped
    * would re-run those several times a minute for the whole of a lesson.
    */
-  const { state: transportState, controls: tx } = useTutorTransports(events)[provider];
+  const transports = useTutorTransports(eventsFor);
+  const { state: transportState, controls: tx } = transports[provider];
   const { status, isMuted, isSpeaking } = transportState;
 
   /**
@@ -1003,8 +1027,22 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       setMeta(input.meta);
       setError(null);
       setStarting(true);
+      /**
+       * The provider swap, and the order it has to happen in.
+       *
+       * The takeover above hung up on `tx` — the OUTGOING transport — which is why the swap is
+       * here and not at the top: moving it earlier would have ended the wrong session. From this
+       * line on, the incoming provider owns the events (the ref is what the wrapped handlers read),
+       * and `next` is used directly rather than through `tx`, because a state update does not
+       * change what this already-running callback closed over.
+       */
+      const nextProvider = input.provider ?? DEFAULT_TUTOR_PROVIDER;
+      providerRef.current = nextProvider;
+      setProvider(nextProvider);
+      const next = transports[nextProvider].controls;
+
       try {
-        await tx.start(
+        await next.start(
           {
             lessonId: input.lessonId,
             // The fat shape. How it reaches the agent is the adapter's business — a dynamic
@@ -1060,7 +1098,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         startingRef.current = false;
       }
     },
-    [claimSession, persistConversation, stopHeartbeat, tx],
+    [claimSession, persistConversation, stopHeartbeat, transports, tx],
   );
 
   /**

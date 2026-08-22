@@ -1,3 +1,5 @@
+import type { TutorProviderId } from "@tutor/shared/tutor-transport";
+
 /**
  * A single, self-describing version of the English-words-tutor agent. The FILESYSTEM is the
  * source of truth: each version is one module under src/agent/prompts/, aggregated in ./index.ts.
@@ -10,6 +12,29 @@
 export interface PromptVersion {
   /** Identity key, e.g. "words-1.1". Drives the agent name and the lockfile key. */
   version: string;
+  /**
+   * Which service runs this version. Defaults to `"elevenlabs"` — every version predating the
+   * second provider omits it and must keep meaning exactly what it meant.
+   *
+   * **A version belongs to ONE provider** (§13 Q1 of
+   * docs/2026-08-22-openai-realtime-second-provider.md, settled 2026-08-22). Not because dual
+   * configs are hard, but because the versions are genuinely different lessons: an ElevenLabs
+   * version is written for a cascaded STT→LLM→TTS pipeline that reads a transcript, an OpenAI one
+   * for a model that hears the learner's actual voice and can correct pronunciation (§11.1). A
+   * shared prompt would be written for neither.
+   *
+   * The knock-on effects, all of which the compiler or `sync:agents` will hold you to:
+   *   - only `"elevenlabs"` versions are provisioned as agents and appear in `agents.lock.json`;
+   *   - `llm`, `voiceId`, `ttsModelId`, `additionalLanguages`, `maxDurationSeconds`,
+   *     `turnTimeoutSeconds`, `turnEagerness` and `silenceEndCallTimeoutSeconds` are ElevenLabs
+   *     agent settings and are IGNORED for an OpenAI version — that provider's session is
+   *     configured by the token route, not baked anywhere;
+   *   - `maxTokens` is the one that carries across, as `max_output_tokens`.
+   *
+   * Changing an existing version's provider retires its ElevenLabs agent on the next sync. That is
+   * a delete-then-create in everything but name, so bump the version instead.
+   */
+  provider?: TutorProviderId;
   /** System prompt. May contain the {{items_list}} dynamic-variable placeholder. */
   prompt: string;
   /** One-line note shown in the UI version picker (defaults to `version`). */

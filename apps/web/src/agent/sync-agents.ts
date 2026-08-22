@@ -3,6 +3,9 @@
 // The FILESYSTEM (src/agent/prompts/) is the source of truth. This command makes ElevenLabs
 // match it and records the version→agent_id mapping in src/agent/agents.lock.json:
 //
+// Only versions whose `provider` is "elevenlabs" (the default) are managed here — see
+// prompts/types.ts. Everything else has no remote agent object and is invisible to this command.
+//
 //   • a new version file            → CREATE a new agent
 //   • a changed version (hash diff) → PATCH the SAME agent in place (id, URLs, analytics survive)
 //   • an unchanged version          → no-op
@@ -27,7 +30,7 @@ import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import process from "node:process";
 import dotenv from "dotenv";
-import { PROMPT_VERSIONS, effectiveConfig, type EffectiveAgentConfig } from "./prompts";
+import { effectiveConfig, elevenLabsVersions, type EffectiveAgentConfig } from "./prompts";
 
 const here = dirname(fileURLToPath(import.meta.url)); // src/agent
 const root = join(here, "..", "..");
@@ -170,7 +173,16 @@ type Action =
 
 function buildPlan(lock: Lockfile): Action[] {
   const plan: Action[] = [];
-  const desired = new Map(PROMPT_VERSIONS.map((v) => [v.version, effectiveConfig(v)] as const));
+  /**
+   * ONLY the ElevenLabs versions. A version whose `provider` is something else has no remote agent
+   * object to reconcile — that provider's session config is built per request by its token route
+   * (§8) — so creating, patching or counting it here would be inventing work.
+   *
+   * The prune loop below then does the right thing for free: a version SWITCHED to another provider
+   * drops out of `desired`, its lockfile entry becomes an orphan, and the default prune retires the
+   * agent nobody will open again.
+   */
+  const desired = new Map(elevenLabsVersions().map((v) => [v.version, effectiveConfig(v)] as const));
 
   for (const [version, cfg] of desired) {
     const hash = hashConfig(cfg);
@@ -208,7 +220,9 @@ if (!apiKey) {
   console.error("✗ Missing ELEVENLABS_API_KEY in .env / .env.local");
   process.exit(1);
 }
-if (!voiceId && PROMPT_VERSIONS.some((v) => !v.voiceId)) {
+// Only the versions that will actually be baked into an agent need a voice; an OpenAI version has
+// no `voice_id` to pin (its voice is chosen by the token route from a fixed set).
+if (!voiceId && elevenLabsVersions().some((v) => !v.voiceId)) {
   console.error("✗ Missing ELEVENLABS_TEACHER_VOICE_ID — agents need a pinned teacher voice.");
   process.exit(1);
 }

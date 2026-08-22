@@ -1,6 +1,6 @@
 import type { ConversationTokenResponse } from "@tutor/shared/api";
 
-import { resolveAgent } from "../../../../../lib/agent-registry";
+import { resolveAgent, resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { elevenLabsConfig } from "../../../../../lib/config";
 import { apiError, json, preflight } from "../../../../../lib/http";
@@ -30,6 +30,21 @@ export const POST = withBearer(async (req) => {
   if (!apiKey) return apiError(500, "config", "ELEVENLABS_API_KEY is not set.");
 
   const requested = new URL(req.url).searchParams.get("version");
+  /**
+   * Resolve first, THEN refuse — so "that version runs somewhere else" is a different answer from
+   * "no such version". Since 2026-08-22 a version names its provider (§13 Q1), and a client that
+   * asked this route for an OpenAI version has a stale build or a bug; telling it so is worth more
+   * than a generic 400, and silently redirecting would run a prompt written for one pipeline on the
+   * other, which is a different lesson (§11.1) rather than a fallback.
+   */
+  const resolved = resolveVersion(requested);
+  if (resolved && resolved.provider !== "elevenlabs") {
+    return apiError(
+      400,
+      "wrong_provider",
+      `Tutor version "${resolved.version}" runs on ${resolved.provider}, not ElevenLabs.`,
+    );
+  }
   const agent = resolveAgent(requested);
   if (!agent) {
     return apiError(

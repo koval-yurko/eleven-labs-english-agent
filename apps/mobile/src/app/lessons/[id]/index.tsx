@@ -372,6 +372,17 @@ export default function LessonScreen() {
   const lines = isOurs ? session.lines : EMPTY_LINES;
   const carried = isOurs ? session.carried : EMPTY_LINES;
   const selectedVersion = (isOurs ? session.version : null) ?? versions?.defaultVersion ?? null;
+  /**
+   * Which service the chosen version runs on. Looked up rather than stored beside the selection,
+   * because the version IS the choice (§13 Q1/Q2 of
+   * docs/2026-08-22-openai-realtime-second-provider.md) and a second piece of state would be a
+   * second thing that can disagree with it.
+   *
+   * `null` before `/api/v2/agent-versions` answers, exactly like `selectedVersion` — they are one
+   * decision and they become known together.
+   */
+  const selectedProvider =
+    versions?.versions.find((v) => v.version === selectedVersion)?.provider ?? null;
 
   /**
    * Another lesson has the microphone.
@@ -455,8 +466,9 @@ export default function LessonScreen() {
       meta: lessonMeta,
       itemsDetailed: detail.lesson.itemsDetailed,
       version: selectedVersion,
+      provider: selectedProvider,
     });
-  }, [busy, detail, lessonId, lessonMeta, selectedVersion, start]);
+  }, [busy, detail, lessonId, lessonMeta, selectedVersion, selectedProvider, start]);
 
   // ── render ─────────────────────────────────────────────────────────────────────────────────
   const transcript = useMemo(() => carried.concat(lines), [carried, lines]);

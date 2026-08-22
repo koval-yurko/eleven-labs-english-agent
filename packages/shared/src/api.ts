@@ -21,6 +21,7 @@ import type { ItemsQuery } from "./items-query";
 import { serializeItemsQuery } from "./items-query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
 import type { TranscriptLine, TutorItem } from "./tutor";
+import type { TutorProviderId } from "./tutor-transport";
 import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./word-types";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
@@ -391,6 +392,15 @@ export function isRealtimeTokenResponse(body: unknown): body is RealtimeTokenRes
 export interface AgentVersionSummary {
   version: string;
   label: string;
+  /**
+   * Which service runs this version — and therefore which transport the client must open.
+   *
+   * The server owns this mapping for the same reason it owns version → agent id: a client that
+   * inferred a provider from a naming convention would be a second implementation of a rule that
+   * cannot be hot-fixed. Picking a version IS picking a provider (§13 Q1/Q2, settled 2026-08-22),
+   * which is why there is no separate provider control anywhere in the UI.
+   */
+  provider: TutorProviderId;
 }
 
 /** `GET /api/v2/agent-versions` — 200. */

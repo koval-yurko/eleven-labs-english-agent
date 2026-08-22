@@ -30,7 +30,14 @@ export const GET = withBearer(async () => {
   }
 
   const body: AgentVersionsResponse = {
-    versions: active.map(({ version, label }) => ({ version, label: label ?? version })),
+    // `provider` rides along because picking a version IS picking a provider (§13 Q1/Q2): the
+    // client opens a different transport for each, and inferring which from a naming convention
+    // would put a copy of a server-side rule inside shipped binaries.
+    versions: active.map(({ version, label, provider }) => ({
+      version,
+      label: label ?? version,
+      provider,
+    })),
     defaultVersion: newest.version,
   };
   return json(body);

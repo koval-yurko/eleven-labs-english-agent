@@ -6,7 +6,8 @@ import {
 } from "@tutor/shared/tutor";
 import type { RealtimeTokenRequest, RealtimeTokenResponse } from "@tutor/shared/api";
 
-import { PROMPT_VERSIONS, effectiveConfig } from "../../../../../agent/prompts";
+import { effectiveConfig, findVersion } from "../../../../../agent/prompts";
+import { resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { openAiRealtimeConfig } from "../../../../../lib/config";
 import { apiError, json, preflight } from "../../../../../lib/http";
@@ -40,18 +41,17 @@ export const OPTIONS = preflight;
  * `ConversationTokenResponse` reached for a different reason, and for the same stakes: four writers
  * converge on one `lesson_sessions` row keyed by this column.
  *
- * ## What is STILL provisional, and where it gets fixed
+ * ## Which versions this route will serve
  *
- * The prompt comes from `PROMPT_VERSIONS` — the same registry the ElevenLabs agents are built from.
- * Two things are knowingly wrong with that and both belong to later stages of
- * docs/2026-08-22-openai-realtime-second-provider.md:
+ * Only versions whose `provider` is `"openai"` — the discriminant added in stage 3. Asking for an
+ * ElevenLabs version here is refused rather than honoured, because those prompts were written for a
+ * cascaded STT→LLM→TTS pipeline that reads a transcript, and this model hears the learner's voice.
+ * Running one on the other is a different lesson (§11.1), not a fallback.
  *
- *   - **§13 Q1 — a version is not yet bound to a provider.** Any words-1.x version can be asked for
- *     here even though every one of them was written against a cascaded STT→LLM→TTS pipeline. The
- *     discriminant lands in stage 3.
- *   - **§11.1 — this is a PORT, and the document says not to ship one.** The reason to run OpenAI at
- *     all is that it hears audio rather than reading a transcript, which is a different lesson and
- *     wants its own version (stage 4). Running words-1.6 here proves the transport, not the product.
+ * **There is no such version yet, so this route currently refuses everything**, which is the honest
+ * state: writing a prompt that uses what this provider can actually do — correcting pronunciation
+ * from the audio — is stage 4, and shipping a port in the meantime would be the wrong kind of
+ * progress. Add a `words-2.x` module with `provider: "openai"` and it starts serving.
  */
 export const POST = withBearer(async (req) => {
   const { apiKey, model, voice } = openAiRealtimeConfig();
@@ -68,15 +68,27 @@ export const POST = withBearer(async (req) => {
   }
   const items: TutorItem[] = Array.isArray(body.items) ? body.items : [];
 
-  // Newest version by default, matching `resolveAgent`'s rule so the two providers do not disagree
-  // about what "no version asked for" means.
+  // One resolver for both providers, so "no version asked for" cannot mean two different things.
   const requested = body.version;
-  const chosen = requested
-    ? PROMPT_VERSIONS.find((v) => v.version === requested)
-    : PROMPT_VERSIONS[PROMPT_VERSIONS.length - 1];
-  if (!chosen) {
-    return apiError(400, "config", `Unknown tutor version "${requested}".`);
+  const resolved = resolveVersion(requested);
+  if (!resolved) {
+    return apiError(
+      requested ? 400 : 500,
+      "config",
+      requested ? `Unknown or inactive tutor version "${requested}".` : "No active tutor versions.",
+    );
   }
+  if (resolved.provider !== "openai") {
+    // The mirror of the ElevenLabs route's refusal, and for the same reason: these prompts are
+    // written for different pipelines (§11.1), so running one here would be a different lesson.
+    return apiError(
+      400,
+      "wrong_provider",
+      `Tutor version "${resolved.version}" runs on ${resolved.provider}, not OpenAI.`,
+    );
+  }
+  const chosen = findVersion(resolved.version);
+  if (!chosen) return apiError(500, "config", `Version "${resolved.version}" vanished mid-request.`);
   const config = effectiveConfig(chosen);
 
   // The dynamic-variable substitution ElevenLabs does at runtime, done here instead — the whole of
