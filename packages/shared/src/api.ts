@@ -44,6 +44,14 @@ export const API_V2_ROUTES = {
   agentVersions: `${API_V2}/agent-versions`,
   /** Mint a WebRTC conversation token + its authoritative conversation id. */
   conversationToken: `${API_V2}/words-agent/token`,
+  /**
+   * STAGE 0 SPIKE — mint an OpenAI Realtime ephemeral client secret.
+   *
+   * A sibling of `conversationToken`, not a replacement: it exists to answer the five questions in
+   * docs/2026-08-22-openai-realtime-second-provider.md §12 on a real device, and it is expected to
+   * be deleted or promoted once they are answered. Nothing in the tutor session reaches it.
+   */
+  realtimeSpikeToken: `${API_V2}/words-agent/openai-token`,
   /** Save a finished conversation's transcript. Same body as the v1 beacon route. */
   lessonSession: `${API_V2}/lessons/session`,
   /** The learner's lessons, newest first. */
@@ -320,6 +328,40 @@ export function isConversationTokenResponse(body: unknown): body is Conversation
     b.conversationId.length > 0 &&
     typeof b.appEnv === "string" &&
     b.appEnv.length > 0
+  );
+}
+
+/**
+ * `POST /api/v2/words-agent/openai-token` — 200. **STAGE 0 SPIKE.**
+ *
+ * The OpenAI Realtime twin of `ConversationTokenResponse`, and shaped like it for one reason: the
+ * two routes have the same job — keep the provider's api key server-side, keep the agent's identity
+ * out of the shipped binary, and hand the client one short-lived credential.
+ *
+ * What is deliberately NOT here yet: `conversationId` and `appEnv`. Both exist on the ElevenLabs
+ * response because a transcript gets persisted against them, and this spike persists nothing. Stage
+ * 1 decides the real shape once there are two adapters to shape it — see
+ * docs/2026-08-22-openai-realtime-second-provider.md §7.
+ */
+export interface RealtimeSpikeTokenResponse {
+  /** The ephemeral key (`ek_…`). Bearer for the SDP exchange, and ONLY for that. */
+  clientSecret: string;
+  /** Unix seconds. Displayed on the spike screen so an expiry is diagnosable rather than mysterious. */
+  expiresAt: number;
+  /** Echoed so the screen reports which model actually answered, rather than which one it asked for. */
+  model: string;
+}
+
+/** Narrow an already-parsed spike token response. */
+export function isRealtimeSpikeTokenResponse(body: unknown): body is RealtimeSpikeTokenResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<RealtimeSpikeTokenResponse>;
+  return (
+    typeof b.clientSecret === "string" &&
+    b.clientSecret.length > 0 &&
+    typeof b.model === "string" &&
+    b.model.length > 0 &&
+    typeof b.expiresAt === "number"
   );
 }
 

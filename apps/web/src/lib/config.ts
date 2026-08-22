@@ -20,3 +20,25 @@ export function elevenLabsConfig(env: NodeJS.ProcessEnv = process.env): ElevenLa
     webhookForwardUrl: env.ELEVENLABS_WEBHOOK_FORWARD_URL?.trim() || undefined,
   };
 }
+
+/**
+ * STAGE 0 SPIKE — OpenAI Realtime. Same rule as above: the api key is read here and NEVER returned
+ * to a client; only an ephemeral `ek_…` client secret ever leaves the server.
+ *
+ * See docs/2026-08-22-openai-realtime-second-provider.md.
+ */
+export interface OpenAiRealtimeConfig {
+  apiKey?: string;
+  /** The realtime model. Overridable so `-mini` can be A/B'd without a deploy (§10). */
+  model: string;
+  /** One of OpenAI's fixed output voices — there is no voice catalogue here (§11.3). */
+  voice: string;
+}
+
+export function openAiRealtimeConfig(env: NodeJS.ProcessEnv = process.env): OpenAiRealtimeConfig {
+  return {
+    apiKey: env.OPENAI_API_KEY?.trim() || undefined,
+    model: env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime",
+    voice: env.OPENAI_REALTIME_VOICE?.trim() || "marin",
+  };
+}
