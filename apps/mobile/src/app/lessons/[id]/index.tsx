@@ -507,6 +507,17 @@ export default function LessonScreen() {
             // someone else's conversation.
             `“${elsewhere.title}” is using the microphone`
           : `status: ${isOurs ? session.status : "disconnected"}`;
+  /**
+   * ONE picker, and it chooses the service.
+   *
+   * A service control was briefly built beside this one and then removed, because the registry made
+   * it redundant rather than helpful: both versions run the same lesson, so the list is already a
+   * list of services and the labels say so ("1.0 · ElevenLabs", "2.0 · ChatGPT"). Two controls over
+   * one decision is a second thing that can look wrong.
+   *
+   * Picking a version IS picking a provider (§13 Q1/Q2) — `selectedProvider` above is looked up from
+   * this choice, never stored beside it.
+   */
   const versionOptions = useMemo(
     () => (versions?.versions ?? []).map((v) => ({ value: v.version, label: v.label })),
     [versions],
@@ -663,9 +674,9 @@ export default function LessonScreen() {
 
         {versionOptions.length > 1 ? (
           <View style={styles.versionRow}>
-            <Muted>Tutor version</Muted>
+            <Muted>Tutor</Muted>
             <Select
-              label="Tutor version"
+              label="Tutor"
               value={selectedVersion ?? versionOptions[0]?.value ?? ""}
               onValueChange={chooseVersion}
               options={versionOptions}

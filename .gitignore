@@ -1,6 +1,7 @@
 ### Node
 # Dependencies
 node_modules/
+.claude/worktrees
 
 # Logs
 *.log

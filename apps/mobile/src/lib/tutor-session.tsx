@@ -628,6 +628,13 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     // The timer stays here: `tutor-pause` decides WHETHER one is needed, this file owns it, because
     // an interval is a resource with a lifetime and a pure planner has no business holding one.
     if (plan.heartbeat) {
+      // Once IMMEDIATELY, then on the interval. `setInterval` first fires a whole `HEARTBEAT_MS`
+      // late, and the platform's own turn timer does not restart when the learner presses Pause —
+      // it may already be a hair from expiring. That gap is a tutor taking the floor in the first
+      // second of a pause, and on OpenAI, where the keep-alive SUSPENDS the timeout rather than
+      // pushing it out (`transport/openai.ts`), the suspension may as well be in place before the
+      // pause is announced. Harmless on ElevenLabs: one extra `user_activity` ping.
+      tx.keepAlive();
       heartbeatRef.current = setInterval(() => tx.keepAlive(), HEARTBEAT_MS);
     }
     heldRef.current = true;

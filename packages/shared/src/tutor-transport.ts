@@ -118,9 +118,16 @@ export interface TutorCapabilities {
    * Does the platform need a keep-alive to stop it re-engaging during a held pause?
    *
    * ElevenLabs: yes — `turn_timeout` makes the tutor talk into an empty room, and the held pause
-   * pings `user_activity` every `TUTOR_HEARTBEAT_MS` to stop it. OpenAI: no — with VAD on and
-   * nobody speaking the model simply waits, so `keepAlive()` is a no-op and the session must not
-   * run a timer for it.
+   * pings `user_activity` every `TUTOR_HEARTBEAT_MS` to stop it.
+   *
+   * OpenAI: **it depends on the version**, which is why this is asked of a transport rather than
+   * looked up per provider. With `semantic_vad` and nobody speaking the model simply waits, so the
+   * answer is no and the session must not run a timer. A podcast version runs `server_vad` with an
+   * `idle_timeout_ms` — the server takes the floor back into silence on purpose, because that is
+   * the only mechanism either provider has for "keep talking when nobody answers" — and then the
+   * answer is yes. Same guarantee, opposite mechanics: that adapter's `keepAlive` SUSPENDS the
+   * server-side timeout rather than pushing it out, and restores it when the pause ends. The
+   * session neither knows nor needs to.
    */
   userActivity: boolean;
   /**
@@ -313,8 +320,12 @@ export interface TutorTransportControls {
    */
   cancelTurn(): void;
   /**
-   * Reset the platform's turn timer. A no-op where `!capabilities.userActivity`, and the session
-   * does not even schedule the timer in that case.
+   * Keep the platform from taking the tutor's turn while the learner cannot hear.
+   *
+   * Called once at the moment of the hold and then every `TUTOR_HEARTBEAT_MS`, and only where
+   * `capabilities.userActivity` — the session does not even schedule the timer otherwise. WHAT it
+   * does is the adapter's business: ElevenLabs resets a server-side turn timer with each call,
+   * OpenAI suspends one on the first call and ignores the rest. Both must be idempotent.
    */
   keepAlive(): void;
 

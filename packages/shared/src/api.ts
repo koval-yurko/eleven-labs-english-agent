@@ -357,6 +357,59 @@ export interface RealtimeTokenRequest {
   version?: string;
 }
 
+/**
+ * How an OpenAI realtime session decides the learner's turn is over — and, on `server_vad`, whether
+ * the tutor takes the floor back on its own after a silence.
+ *
+ * The block is chosen server-side from the prompt version — podcast versions want `server_vad` with
+ * an idle timeout, a lesson that waits for the learner wants `semantic_vad` — and travels to the
+ * client inside `RealtimeAudioInput` because a held pause has to SUSPEND the idle timeout and put it
+ * back. Nothing here is a secret: it is pacing, not prompt or credential.
+ */
+export type RealtimeTurnDetection =
+  | {
+      /** A classifier decides the learner is done from WHAT THEY SAID. No idle timeout exists. */
+      type: "semantic_vad";
+      eagerness: "low" | "medium" | "high" | "auto";
+    }
+  | {
+      /** Silence-timed chunking — the only mode that supports `idle_timeout_ms`. */
+      type: "server_vad";
+      /** How long a gap ends the learner's turn. Longer = more patient with someone composing. */
+      silence_duration_ms: number;
+      /**
+       * How long a silence before the server commits an empty turn and PROVOKES A RESPONSE.
+       *
+       * Absent means the tutor never re-engages on its own, which is what a lesson built on waiting
+       * for the learner wants. Present is podcast pacing: it is the OpenAI equivalent of
+       * ElevenLabs' `turn_timeout`, and it is literally the gap between paragraphs of a monologue.
+       * Measured from the end of the last response's audio playback, not from `response.done`.
+       *
+       * OpenAI rejects anything below 5000 (`integer_below_min_value`), which is a longer minimum
+       * than ElevenLabs' `turn_timeout` allows, so a version's pacing is clamped up to it on the way
+       * out — see `OPENAI_MIN_IDLE_TIMEOUT_MS` in the web app's prompt registry.
+       */
+      idle_timeout_ms?: number;
+    };
+
+/**
+ * The `audio.input` block an OpenAI realtime session was minted with, reported to the client whole.
+ *
+ * **Whole, rather than just the one field the client changes, and that is the point.** A held pause
+ * suspends `turn_detection.idle_timeout_ms` by sending a `session.update`, and an update that
+ * carried only `turn_detection` would be betting on how the server merges a nested object. If it
+ * REPLACES `audio.input` — which is the reading that costs something — then `transcription` goes
+ * with it, and the lesson loses every learner transcript from the first pause onward without
+ * failing: the model still hears the audio and still answers, and only the stored record is missing
+ * half of itself. Round-tripping the block makes the question moot, and makes a field added here
+ * later survive the same way without anyone remembering this.
+ */
+export interface RealtimeAudioInput {
+  /** Opt-in on this provider, and the ONLY source of learner transcripts. */
+  transcription?: { model: string };
+  turn_detection: RealtimeTurnDetection;
+}
+
 /** `POST /api/v2/words-agent/openai-token` — 200. */
 export interface RealtimeTokenResponse {
   /** The ephemeral key (`ek_…`). Bearer for the SDP exchange, and ONLY for that. */
@@ -376,6 +429,14 @@ export interface RealtimeTokenResponse {
   model: string;
   /** Unix seconds. Diagnostic: an expired credential should be readable, not mysterious. */
   expiresAt: number;
+  /**
+   * The `audio.input` block this session was minted with — pacing and transcription.
+   *
+   * Reported rather than kept private because the transport has to send it BACK: suspending the
+   * idle timeout for a held pause is a `session.update`, and the only safe update is the whole
+   * block. See `RealtimeAudioInput`.
+   */
+  audioInput: RealtimeAudioInput;
 }
 
 /** Narrow an already-parsed realtime token response. */
@@ -390,6 +451,10 @@ export function isRealtimeTokenResponse(body: unknown): body is RealtimeTokenRes
     b.conversationId.length > 0 &&
     typeof b.version === "string" &&
     typeof b.model === "string"
+    // `audioInput` is deliberately NOT required here. It is pacing, and a response without it
+    // degrades to "no idle timeout" — a lesson that works and does not re-engage — whereas failing
+    // the guard would refuse to start one at all. The adapter reads it defensively for the same
+    // reason.
   );
 }
 
@@ -409,7 +474,8 @@ export interface AgentVersionSummary {
    * The server owns this mapping for the same reason it owns version → agent id: a client that
    * inferred a provider from a naming convention would be a second implementation of a rule that
    * cannot be hot-fixed. Picking a version IS picking a provider (§13 Q1/Q2, settled 2026-08-22),
-   * which is why there is no separate provider control anywhere in the UI.
+   * which is why there is no separate provider control anywhere in the UI — the version picker's
+   * labels name the service, because with one lesson per provider that is what the choice is.
    */
   provider: TutorProviderId;
 }

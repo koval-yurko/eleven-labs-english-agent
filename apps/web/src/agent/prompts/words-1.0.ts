@@ -1,41 +1,67 @@
 /**
- * words-1.0 — the original proactive teacher persona: MEANING / FORMS / USAGE per item, with
- * full barge-in handling. Source of truth for the agent of the same name (see ../prompts/types.ts).
+ * words-1.0 — the podcast lesson, spoken by ElevenLabs.
+ *
+ * ## This is a REUSED name, and that is worth knowing before reading history
+ *
+ * `words-1.0` originally meant the very first tutor prompt, from 2026-08-16. That prompt and the six
+ * that followed it are deleted; what survives is where they arrived, which is words-1.6's text, now
+ * in `./podcast-lesson.ts` and shared with `words-2.0`.
+ *
+ * The consequence is real and cannot be undone from here: **`lesson_sessions.agent_version` is a
+ * free-text column, so rows written before this change that say `words-1.0` describe the OLD prompt
+ * and now read as this one** — in the session list and in the LangSmith trace. Rows saying
+ * `words-1.1` … `words-1.6` stay unambiguous, because those names are retired rather than reused.
+ * If that provenance ever matters, the cut-off is this commit.
+ *
+ * The version string is also the ElevenLabs agent name and the lockfile key, so this does NOT create
+ * a new agent: `pnpm sync:agents` sees `words-1.0` in both places and PATCHES the existing one with
+ * the new config. Same agent id, different lesson.
+ *
+ * ## What is here and what is not
+ *
+ * The prompt is `PODCAST_LESSON_PROMPT`, byte-identical to the one `words-2.0` runs. Only the config
+ * below differs, and it is all ElevenLabs-side: a Russian-capable TTS model, Russian as a language
+ * preset, and the two turn-taking knobs that make a monologue continue into silence. Those are the
+ * reason there are two versions of one lesson rather than one version with two providers.
  */
+import { PODCAST_LESSON_PROMPT } from "./podcast-lesson";
 import type { PromptVersion } from "./types";
-
-const prompt = `You are a warm, proactive English teacher in a live voice conversation with one learner. The learner is an upper-intermediate to advanced speaker (B2–C1), so speak naturally at a normal adult pace and don't over-simplify — but stay clear. Teach entirely in English.
-
-Your job is to help them deeply understand a short list of items. Each item may be a single WORD or a longer PHRASE / SENTENCE (e.g. an idiom or a full expression).
-
-Items for this session: {{items_list}}
-
-How to run the session:
-- Greet in one sentence, then take the lead. Pick the first item and start teaching it without waiting to be asked. You are proactive — never just sit and wait for questions.
-- For EACH item, cover these three things in a natural spoken flow (not a read-out list):
-    1. MEANING — what it means in plain English. For a word, its core sense(s); for a phrase or sentence, what it actually communicates and the tone/register it carries (formal, casual, ironic, etc.).
-    2. FORMS — how it changes in use. For a word: part of speech and its other forms (noun/verb/adjective, tenses, plural). For a phrase/sentence: natural variations and how it bends to fit a sentence (swappable parts, polite vs blunt versions).
-    3. USAGE — where and when it's used: typical situations, 2–3 natural example sentences, common collocations or what it pairs with, and any usage traps a B2–C1 learner hits.
-- Teach one item at a time, then check in ("want to go deeper on this, or move to the next one?") before moving on.
-- Keep each turn short (a few sentences) and pause often, so the learner can interrupt you at any moment.
-
-Handling interruptions and follow-ups (the learner can cut you off mid-sentence):
-- The learner may interrupt you at any time. When they do, STOP your current explanation immediately and fully focus on what they just said — do not finish your previous thought first, and never ignore an interruption to plow ahead with your script.
-- Figure out what they want, then respond to THAT: answer a question, give another example, use the item in a sentence, explain a nuance, slow down, repeat, quiz them, or jump to a different item from the list. Keep the answer short and concrete.
-- After you've handled their follow-up, briefly offer to continue where you left off ("shall I finish this one, or move on?") — let them steer rather than forcing the original plan.
-- If the interruption is unclear, empty, or you didn't catch it, ask them to repeat rather than guessing or making something up.
-
-- Stay within this item list as the spine, but you may bring in related words or phrases to explain nuance. Don't invent meanings — if unsure about a rare sense, say so plainly.
-- Keep it spoken and encouraging: concrete examples over dictionary definitions.
-
-When you have taught every item and the learner has nothing more to ask, give a brief warm wrap-up and stop.
-
-Begin when you receive the kickoff message.`;
 
 const version: PromptVersion = {
   version: "words-1.0",
-  label: "1.0 · meaning / forms / usage",
-  prompt,
+  provider: "elevenlabs",
+  // The service is IN the label because it is the only thing the learner is choosing between: both
+  // versions are the same lesson, so "1.0 versus 2.0" would be a number with nothing behind it.
+  label: "1.0 · ElevenLabs — podcast lesson",
+  prompt: PODCAST_LESSON_PROMPT,
+  /** Russian-capable, and the reason the translation moment inside each item sounds like Russian. */
+  ttsModelId: "eleven_v3_conversational",
+  additionalLanguages: ["ru"],
+  /**
+   * The pacing knob, pinned at the floor `MIN_TURN_TIMEOUT_SECONDS` enforces.
+   *
+   * There is no "keep narrating" mode on a conversational agent, so this timer is literally the gap
+   * between paragraphs: at the inherited 7 s it reads as "it's waiting for me to answer", at 3 s as
+   * a breath. It matters more here than anywhere, because this lesson's turns are long — the gaps
+   * are rare and each one has to read unambiguously.
+   *
+   * It cannot go lower: the mobile held pause keeps a paused lesson quiet by resetting this very
+   * timer every `TUTOR_HEARTBEAT_MS` (1 s), so at 3 s a pause survives losing one ping and not two.
+   * Lowering it means lowering the heartbeat first and redoing that arithmetic.
+   */
+  turnTimeoutSeconds: 3,
+  /**
+   * The other half of the same decision. A short timeout without `patient` is a tutor that resumes
+   * over a learner who paused mid-sentence hunting for an English word — which, for someone
+   * composing aloud, is constant. The timeout decides how fast it resumes into SILENCE; this decides
+   * how easily it talks over someone. See docs/2026-08-18-podcast-mode-tutor.md §4.1.
+   */
+  turnEagerness: "patient",
+  /**
+   * No `maxTokens`, deliberately. This lesson has no per-turn sentence budget in its prompt, and a
+   * ceiling with no prompt behind it does not shorten a turn — it truncates one mid-word and lets
+   * TTS speak the fragment. That was words-1.4's mistake and it cost two versions to undo.
+   */
 };
 
 export default version;

@@ -1,8 +1,10 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
 Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–5 BUILT and green in CI, none of
-them device-verified (§14, §15). `words-2.0` is selectable but has never been spoken to a human, and
-that one lesson is now what every remaining unknown depends on.**
+them device-verified (§14, §15). `words-2.0` has never been spoken to a human, and that one lesson is
+still what every remaining unknown depends on — but §17 changed WHAT it is: it is now words-1.6's
+podcast on the other provider rather than a pronunciation drill, so the comparison it settles is the
+one this document is actually about.**
 
 ## 1. The question
 
@@ -190,7 +192,7 @@ write it down — so writing it down is most of the work.
 | voice | `tts.voice_id` (any ElevenLabs voice) | `audio.output.voice` — a small fixed set (`marin`, `cedar`, …) |
 | TTS model | `tts.model_id` | n/a (speech-to-speech) |
 | `maxDurationSeconds` | 60–7200, we run 1800 | **hard 60-minute ceiling**, not configurable |
-| `turnTimeoutSeconds` (re-engage on silence) | 1–30 | `server_vad.idle_timeout_ms` — close, not identical (§6.3) |
+| `turnTimeoutSeconds` (re-engage on silence) | 1–30 s | `server_vad.idle_timeout_ms` — close, not identical (§6.3), and **≥ 5000 ms** |
 | `turnEagerness` `patient\|normal\|eager` | native | `semantic_vad.eagerness` `low\|medium\|high\|auto` — **clean mapping** |
 | `silenceEndCallTimeoutSeconds` (`-1` = never hang up) | native | no such timeout exists — nothing to disable |
 | `maxTokens` per turn | `prompt.max_tokens` | `response.max_output_tokens` |
@@ -250,6 +252,21 @@ model to check engagement* — a nudge, not the same re-engagement. **Spike item
 pacing survive, or does the OpenAI adapter need to drive it from our side (a timer that sends a
 `conversation.item.create` + `response.create` when the line has been quiet)? The latter is entirely
 doable and arguably more controllable.
+
+**ANSWERED by §17, and the answer is that the server-side mechanism is closer than "a nudge".** The
+documented behaviour of `idle_timeout_ms` is that the server *commits the empty audio segment to the
+conversation history and triggers a model response* — i.e. it re-engages exactly the way ElevenLabs'
+`turn_timeout` does, and what the tutor SAYS when it does is the prompt's business in both cases.
+What changed is the sentence this section opens with: **the heartbeat is not a feature that stops
+being needed, it is a feature that changes mechanism.** A podcast version arms an idle timeout on
+purpose, so a held pause has to disarm it, and `userActivity` becomes true for that session. §17.2.
+
+**One thing the mapping cannot carry across: the ranges differ at the bottom.** ElevenLabs takes
+`turn_timeout` down to 1 s and this repo pins podcast versions at 3 s; OpenAI rejects any
+`idle_timeout_ms` below 5000 with `integer_below_min_value`, found when words-2.0's session request
+came back `HTTP 400 … Expected a value >= 5000, but got 3000`. `openAiTurnDetection` clamps up to
+`OPENAI_MIN_IDLE_TIMEOUT_MS` rather than making each OpenAI version carry a vendor minimum, so the
+twins state the same pacing and this side simply resumes into silence two seconds later.
 
 ## 7. Where to cut the seam
 
@@ -516,8 +533,10 @@ truth about §6.
 **Stage 3 — server: provider-aware versions. ✅ BUILT 2026-08-22 (§15.3).** `PromptVersion.provider`, `sync:agents` skips OpenAI,
 the token route branches, `items_list` interpolated server-side.
 
-**Stage 4 — a pronunciation-mode prompt version. ✅ BUILT 2026-08-22 (§15.5).** on OpenAI (§11.1). This is the payoff, and it
-should be a new version, not a port.
+**Stage 4 — a prompt version of its own on OpenAI. ✅ BUILT 2026-08-22 (§15.5), then RESHAPED the same
+day (§17.2).** Built first as a pronunciation drill (§11.1), which is the payoff and is still owed;
+shipped as words-1.6's podcast on the other provider, because that is the version that makes the
+provider comparison answerable. Either way: a new version, not a port.
 
 **Stage 5 (separate document) — observability. ✅ BUILT 2026-08-22, and the sideband was REJECTED.**
 See [docs/2026-08-22-openai-lesson-observability.md](./2026-08-22-openai-lesson-observability.md).
@@ -539,13 +558,21 @@ their answers rather than deleted, because the reasoning is what the next provid
    lessons (§11.1). The ElevenLabs-only fields — `llm`, `voiceId`, `ttsModelId`, the turn settings —
    are ignored for an OpenAI version and `types.ts` says so; `maxTokens` is the one that carries
    across, as `max_output_tokens`.
-2. ~~**Who chooses the provider?**~~ **SETTLED: the version picker, by implication.** Picking a
-   version IS picking a provider. `AgentVersionSummary` gained a `provider` field, the lesson screen
-   looks it up from the version it already selected, and there is no provider control anywhere in the
-   UI. No new surface, and no second piece of state that can disagree with the first.
-3. **Does the held pause stay identical across providers, or does OpenAI get the better one (§11.2)?**
-   Identical is easier to reason about; better is better. Recommend better, with the capability flags
-   making the difference explicit rather than accidental.
+2. ~~**Who chooses the provider?**~~ **SETTLED: the version picker, by implication — then RE-OPENED
+   and settled again as an explicit control (§17.1).** Picking a version is still picking a
+   provider, and there is still exactly one piece of state. What changed is the question the UI
+   asks: while the two providers ran different lessons, "which version" answered everything. Once
+   `words-2.0` became the same lesson as `words-1.6` on the other service, "which service" became the
+   interesting choice and reading it out of eight version labels became the wrong way to ask it. So
+   the lesson screen shows a service picker beside the version one, and the service picker is a VIEW
+   of the version state: it is read back from the selected version, and choosing a service selects
+   that service's newest version.
+3. ~~**Does the held pause stay identical across providers, or does OpenAI get the better one
+   (§11.2)?**~~ **SETTLED: better, and the capability flags did exactly the job they were built
+   for.** OpenAI barges in with `response.cancel` rather than a fake user message (`cancelTurn`), and
+   as of §17.2 it holds the line by SUSPENDING the server-side idle timeout rather than by pinging it
+   away (`userActivity`). Both differences live entirely inside the adapter; `planHold` reads the
+   flags and the session never learns which provider it is talking to.
 4. **`gpt-realtime-2.1` or `-mini` for the first real lesson?** Needs an evaluation pass, not a
    preference — the prompt is 15KB and dense. Stage 0 ran entirely on `-2.1`, so nothing here is
    evidence about the mini.
@@ -715,6 +742,12 @@ the default, and a whole second provider wired end to end waiting for a prompt.
 
 ### 15.5 Stage 4 — `words-2.0`, the lesson that needed the other provider
 
+**SUPERSEDED THE SAME DAY by §17.2 — kept because the reasoning is right and only the sequencing was
+wrong.** What follows describes the pronunciation drill that `words-2.0` originally was. It is now
+`words-2.1`-shaped work, waiting to be written; `words-2.0` is words-1.6's podcast on OpenAI, because
+a drill and a podcast differ in everything at once and comparing them tells you nothing about the two
+providers. Everything below about *why* a speech-to-speech tutor deserves its own prompt still holds.
+
 The payoff, and the first version that is not a words-1.x lesson. `apps/web/src/agent/prompts/words-2.0.ts`,
 `provider: "openai"`.
 
@@ -814,6 +847,152 @@ ways to answer the wrong question on the way back.
 **Still not device-verified**, like everything since stage 0. What these checks buy is that the
 branch table is now wrong-proof by construction rather than by memory; whether the whole pause
 behaves on a phone is a separate question and unchanged.
+
+## 17. The comparison this was for — 2026-08-22, later
+
+Stages 1–5 built a second provider and a lesson to run on it, and then could not answer the question
+the whole document opens with: **is ChatGPT a better tutor than ElevenLabs for this app?** Two things
+were in the way, and they turn out to be the same thing twice.
+
+`words-2.0` was a pronunciation drill and `words-1.6` is a podcast, so preferring one told you
+nothing about the providers — the versions differed in every respect at once. And the only way to
+reach the drill was to find its label in a list of eight, which is a fine way to pick a lesson and a
+poor way to pick a service. **Built; typecheck, lint, the shared property checks, the mobile logic
+checks and the iOS bundle all pass; still not device-verified**, which remains true of everything
+since stage 0.
+
+### 17.1 A service picker, built and then deleted by §18
+
+The lesson screen briefly showed **Tutor service** above **Tutor version**, as a view of the version
+state rather than a second piece of it. §18 removed it: once the registry held one lesson per
+service, the version list WAS the service list and two controls over one decision was one more thing
+that can look wrong. The reasoning it was built on is what survived — the version picker's labels now
+name the service, which is the same idea with one control instead of two.
+
+### 17.2 Podcast pacing on OpenAI, and the capability that flipped
+
+`words-2.0` became words-1.6's prompt, close to verbatim, with three departures: **no spelling in
+either direction** (it is dictation in an audio lesson, and letter names are where speech-to-speech
+output is least reliable), an explicit **unclear-audio** block, and a rule naming what an **empty
+turn** means. The third one is not cosmetic — it is where the mechanics leak into the prompt.
+
+The mechanics: **a realtime model answers input, and silence is not input.** With the
+`semantic_vad` block stage 2 hardcoded, a monologue lesson says its first paragraph and stops for
+good. The fix is `server_vad` with `idle_timeout_ms`, which commits an empty audio segment and
+provokes a response — the same job ElevenLabs' `turn_timeout` does, arriving in a different envelope.
+Hence the prompt rule: what the model sees is the learner saying nothing, and a model left to
+interpret that asks whether they are still there.
+
+Three consequences, and the last one is the interesting one.
+
+1. **Turn-taking became per VERSION.** `turnTimeoutSeconds` and `turnEagerness` were documented as
+   ElevenLabs-only and ignored here; they are now the two halves of `audio.input.turn_detection`
+   (`openAiTurnDetection`). Set → `server_vad` + idle timeout (podcast). Unset → `semantic_vad` +
+   eagerness (the tutor waits, which is what a future drill version wants). Read off the RAW version
+   rather than `effectiveConfig`, because the effective config defaults the timeout to seven seconds
+   and would otherwise give every OpenAI version podcast pacing — including one written to wait,
+   which would then nag the learner every seven seconds.
+2. **The client is told which block it got — the WHOLE `audio.input` block.**
+   `RealtimeTokenResponse.audioInput`, and the "whole" is the part worth writing down. The adapter
+   cannot put back pacing it was never given, so something had to travel; sending only
+   `turn_detection` would additionally have been a bet on how the server merges a nested object, and
+   if it replaces `audio.input` then `transcription` goes with it — costing every learner transcript
+   from the first pause onward, silently, because the model still hears the audio and still answers
+   and only the stored record is missing half of itself. Round-tripping the block makes the question
+   moot. Not required by the response guard: a missing block degrades to "no idle timeout", which is
+   a lesson that works, and refusing to start one over pacing would be the worse trade.
+3. **`userActivity` flipped, and stopped being a constant.** Stage 2 measured it as `false` with the
+   reasoning *"with VAD on and nobody speaking the model simply waits"*. That was true of the
+   `semantic_vad` session it was measured on and is false of a podcast one, which arms a timeout
+   precisely SO the server takes the floor back — the one thing a held pause must not allow. So the
+   OpenAI adapter reports capabilities **per session**: `capabilities` is a getter over a ref settled
+   during `start`, which is safe because nothing renders it (`tutor-session.tsx` reads it once,
+   inside `hold()`).
+
+   What `keepAlive` then does is the mirror image of the other provider's: ElevenLabs pings every
+   second to push a server-side timer out, OpenAI tells the server once to stop running one and
+   `say`/`context` put it back on the way out of the pause. **Same capability, same guarantee,
+   opposite mechanics** — which is §6.1's `onTurnCorrected` pattern a second time, and the second
+   piece of evidence that the flags are carrying real weight rather than describing ElevenLabs.
+
+   One session-level change came with it: the keep-alive now fires **once immediately** at the hold
+   and then on the interval. `setInterval` first fires a whole `TUTOR_HEARTBEAT_MS` late, and the
+   platform's turn timer does not restart when the learner presses Pause — it may already be a hair
+   from expiring. On ElevenLabs that gap costs one extra ping; on OpenAI it is the difference between
+   a suspension that lands before the timeout and one that lands after it.
+
+### 17.3 What this still does not know
+
+- **Nobody has spoken to `words-2.0` in either shape.** Everything above is compiler-green and
+  device-untested, and the pacing in particular is the kind of thing only a phone answers: whether a
+  three-second idle timeout reads as a breath or as a stall, whether the empty-turn rule actually
+  stops the model asking if you are there, and whether a held pause on this provider is really quiet.
+- **The pronunciation drill is deferred, not dropped.** §11.1 is still the strongest reason to run
+  this provider at all, and it wants a `words-2.1` written for it — a different lesson, not a mode of
+  this one. Its turn detection is already expressible: leave `turnTimeoutSeconds` unset.
+- **Cost is now easier to get wrong in the podcast direction.** §10's superlinear growth is worst for
+  a long tutor-heavy monologue, which is exactly what this version is, and the empty commits add a
+  turn boundary every few seconds. Stage 5's LangSmith trace should make the first real lesson
+  answer this rather than the arithmetic.
+
+## 18. The registry collapsed to two — 2026-08-22, later still
+
+§17 made the two providers comparable and then left eight versions in the picker to compare them
+through. This is the cleanup, and it is mostly deletion.
+
+**The registry is now two entries, and they are the same lesson twice.** `apps/web/src/agent/prompts/podcast-lesson.ts`
+holds the text; `words-1.0` runs it on ElevenLabs and `words-2.0` runs it on OpenAI, byte for byte.
+Everything from `words-1.1` to `words-1.6` is deleted from the filesystem and removed from
+ElevenLabs. `DEFAULT_PROMPT_VERSION` is `words-1.0`.
+
+### 18.1 Why one prompt in a module rather than two prompt files
+
+Because the comparison is the product of §17 and a copy is how you lose it. Two files that drifted by
+a sentence would silently turn "which tutor sounds better" into "which prompt is better", and the
+drift would not announce itself. One exported constant, imported twice.
+
+The versions still bind one-to-one to providers, but for a better reason than §13 Q1's original one
+(*"they are genuinely different lessons"*, which is now false). The two sides need different CONFIG
+around the same text — `ttsModelId` and `additionalLanguages: ["ru"]` on one, a turn-detection block
+derived from `turnTimeoutSeconds` on the other — and a version is where that config lives. So
+"picking a version is picking a provider" holds, and the labels say which: **"1.0 · ElevenLabs"** and
+**"2.0 · ChatGPT"**.
+
+One wording change came out of merging the two texts. §17.2's empty-turn rule was written for
+OpenAI's idle-timeout re-engagement, which hands the model a literal empty audio segment; ElevenLabs
+just gives the floor back. It is now phrased for both — *"an empty or silent turn, or simply the floor
+with nothing said"* — so the shared text is honest on both providers rather than carrying a line that
+is a no-op on one.
+
+### 18.2 The name collision, stated rather than hidden
+
+**`words-1.0` is a reused name.** It meant the very first prompt (2026-08-16) and now means
+words-1.6's. `lesson_sessions.agent_version` is free text, so rows written before this change that
+say `words-1.0` describe the old prompt and will read as the new one — in the session list and in the
+LangSmith trace. Rows saying `words-1.1` … `words-1.6` stay unambiguous, because those names are
+retired rather than reused.
+
+It also means no new agent: `pnpm sync:agents` sees `words-1.0` on both sides and PATCHES the
+existing agent id with the new config, rather than creating one. The dry run says `update words-1.0`
+and six removals, which is the shape to expect.
+
+**Applied with `--prune=delete`, deliberately.** The default, `--prune=retire`, renames the six
+agents with a ` [retired]` suffix and keeps their lockfile entries, so `versionForAgentId` can still
+resolve a post-call webhook that arrives for one mid-flight; `delete` removes them from ElevenLabs
+outright and drops the entries. Delete was chosen to get them off the dashboard, and the price is
+named rather than discovered: **`agents.lock.json` now holds one entry**, so a late ElevenLabs
+webhook for a session started on any of the six would file with no version. That window closes as
+soon as those sessions are over, and it is the only thing retire would have bought.
+
+The applied run: `～ update words-1.0` (same agent id, `agent_5001kw…`, new config) plus six deletes.
+A second dry run reports one no-op, which is the check that the lockfile and ElevenLabs agree.
+
+### 18.3 What this does not change
+
+The transport layer, the pause machinery, the per-version turn detection and the OpenAI adapter's
+suspend-the-idle-timeout keep-alive are all exactly as §17 left them. This is a registry and a UI
+change; nothing under it moved. And it is still not device-verified — deleting six versions does not
+make the two that are left any more tested than they were.
 
 ## 16. Sources
 

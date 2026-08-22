@@ -25,11 +25,15 @@ export interface PromptVersion {
    *
    * The knock-on effects, all of which the compiler or `sync:agents` will hold you to:
    *   - only `"elevenlabs"` versions are provisioned as agents and appear in `agents.lock.json`;
-   *   - `llm`, `voiceId`, `ttsModelId`, `additionalLanguages`, `maxDurationSeconds`,
-   *     `turnTimeoutSeconds`, `turnEagerness` and `silenceEndCallTimeoutSeconds` are ElevenLabs
-   *     agent settings and are IGNORED for an OpenAI version — that provider's session is
-   *     configured by the token route, not baked anywhere;
-   *   - `maxTokens` is the one that carries across, as `max_output_tokens`.
+   *   - `llm`, `voiceId`, `ttsModelId`, `additionalLanguages`, `maxDurationSeconds` and
+   *     `silenceEndCallTimeoutSeconds` are ElevenLabs agent settings and are IGNORED for an OpenAI
+   *     version — that provider's session is configured by the token route, not baked anywhere;
+   *   - `maxTokens` carries across as `max_output_tokens`;
+   *   - **`turnTimeoutSeconds` and `turnEagerness` carry across too**, as the two halves of
+   *     `audio.input.turn_detection` (`openAiTurnDetection` in ./index.ts). They used to be listed
+   *     above as ignored, and that stopped being true the moment an OpenAI version wanted podcast
+   *     pacing: the question each one asks — *how long a silence before the tutor takes the floor
+   *     back* and *how readily does it take it* — is about the LESSON, not about a vendor.
    *
    * Changing an existing version's provider retires its ElevenLabs agent on the next sync. That is
    * a delete-then-create in everything but name, so bump the version instead.
@@ -73,6 +77,13 @@ export interface PromptVersion {
    * a short gap instead of appearing to wait — and lowering it is what makes the coupling above
    * dangerous rather than theoretical. `MIN_TURN_TIMEOUT_SECONDS` (`@tutor/shared/tutor`) is the
    * floor, enforced in `effectiveConfig`. See docs/2026-08-18-podcast-mode-tutor.md §3.
+   *
+   * **On an OpenAI version this field means the same thing and switches the mode.** Set, it selects
+   * `server_vad` with `idle_timeout_ms` — the server commits an empty turn after that much silence
+   * and provokes a response, which is that provider's only "keep talking" mechanism. UNSET, it
+   * selects `semantic_vad`, where the tutor waits for the learner indefinitely. There is no
+   * platform default to inherit here, which is why an OpenAI version must leave it out to mean
+   * "wait" rather than pinning a number. See `openAiTurnDetection` in ./index.ts.
    */
   turnTimeoutSeconds?: number;
   /**
@@ -98,6 +109,11 @@ export interface PromptVersion {
    * decides how fast the tutor resumes into SILENCE, this decides how easily it talks over a
    * learner who is mid-sentence. A short timeout without `patient` is a tutor that interrupts.
    * See docs/2026-08-18-podcast-mode-tutor.md §4.1.
+   *
+   * **On an OpenAI version it carries across in whichever mode `turnTimeoutSeconds` selected**: as
+   * `semantic_vad.eagerness` (patient → low, normal → medium, eager → high, unset → auto) when the
+   * tutor waits, and as a `server_vad.silence_duration_ms` when it does not. Same question, two
+   * vocabularies. See `openAiTurnDetection` in ./index.ts.
    */
   turnEagerness?: "patient" | "normal" | "eager";
   /**

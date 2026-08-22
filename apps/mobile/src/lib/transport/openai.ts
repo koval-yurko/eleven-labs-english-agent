@@ -1,5 +1,10 @@
 import { MediaStreamTrack, RTCPeerConnection, mediaDevices } from "@livekit/react-native-webrtc";
-import { API_V2_ROUTES, isRealtimeTokenResponse, type RealtimeTokenRequest } from "@tutor/shared/api";
+import {
+  API_V2_ROUTES,
+  isRealtimeTokenResponse,
+  type RealtimeAudioInput,
+  type RealtimeTokenRequest,
+} from "@tutor/shared/api";
 import type {
   TutorCapabilities,
   TutorEndReason,
@@ -41,10 +46,10 @@ import { useAccessToken } from "@/lib/auth";
 /**
  * What this provider can do, measured rather than hoped.
  *
- * The two that differ from ElevenLabs are the two that were worth building it for. `cancelTurn`
- * means a held pause stops the tutor with `response.cancel` instead of spending a turn on a fake
- * user message; `userActivity: false` means a held pause runs no timer at all, because with VAD on
- * and nobody talking the model simply waits.
+ * `cancelTurn` is the one that was worth building it for: a held pause stops the tutor with
+ * `response.cancel` instead of spending a turn on a fake user message.
+ *
+ * **`userActivity` is the one value here that is NOT a constant** — see `capsFor`.
  */
 const CAPABILITIES: TutorCapabilities = {
   // A real native gain control on the remote track, handed to us by the `track` event. No reaching
@@ -55,6 +60,47 @@ const CAPABILITIES: TutorCapabilities = {
   cancelTurn: true,
   responseCorrection: true,
 };
+
+/**
+ * The capabilities of ONE session, which on this provider is not the same as the capabilities of
+ * the provider.
+ *
+ * `userActivity` asks *"does the platform need a keep-alive to stop it re-engaging during a held
+ * pause?"*, and the honest answer here depends on the VERSION rather than on OpenAI. It was `false`
+ * while every planned OpenAI lesson waited for the learner: with `semantic_vad` and nobody talking,
+ * the model simply waits, forever, and a timer would be a no-op pretending to be a safeguard.
+ *
+ * A podcast version inverts that. It runs `server_vad` with an `idle_timeout_ms` precisely SO the
+ * server takes the floor back into silence — which is exactly what a held pause must not let happen.
+ * So for those sessions the answer is `true`, and `keepAlive()` below does the stopping.
+ *
+ * Safe to vary per session because nothing renders it: `lib/tutor-session.tsx` reads
+ * `tx.capabilities` once, inside `hold()`, long after `start()` has settled this.
+ */
+function capsFor(audioInput: RealtimeAudioInput | null): TutorCapabilities {
+  return { ...CAPABILITIES, userActivity: armsIdleTimeout(audioInput) };
+}
+
+/** Does this session's pacing let the server take the tutor's turn back on its own? */
+function armsIdleTimeout(audioInput: RealtimeAudioInput | null): boolean {
+  const td = audioInput?.turn_detection;
+  return td?.type === "server_vad" && typeof td.idle_timeout_ms === "number";
+}
+
+/**
+ * The `audio.input` block off a token response, read defensively.
+ *
+ * `isRealtimeTokenResponse` deliberately does not check this field: a response without it degrades
+ * to a lesson with no idle timeout, which works, and refusing to start one over pacing would be a
+ * worse trade. So it is validated here instead, and anything unrecognised means "none".
+ */
+function readAudioInput(value: unknown): RealtimeAudioInput | null {
+  if (typeof value !== "object" || value === null) return null;
+  const td = (value as { turn_detection?: { type?: unknown } }).turn_detection;
+  return td?.type === "server_vad" || td?.type === "semantic_vad"
+    ? (value as RealtimeAudioInput)
+    : null;
+}
 
 /** Everything the model sends arrives as one of these. Fields are read defensively, never trusted. */
 type ServerEvent = Record<string, unknown> & { type?: string };
@@ -129,6 +175,17 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
    * (fetched) — and both halves are needed to raise `onTurnCorrected`.
    */
   const generatedRef = useRef<Map<string, string>>(new Map());
+  /**
+   * The `audio.input` block this session was minted with, and whether its idle timeout is armed.
+   *
+   * Both belong to the session rather than to the provider: `openAiTurnDetection` on the server
+   * picks the pacing from the prompt version, and a held pause suspends it and puts it back. The
+   * whole block is kept, not just the pacing, because that is what a `session.update` has to carry.
+   */
+  const audioInputRef = useRef<RealtimeAudioInput | null>(null);
+  const idleArmedRef = useRef(true);
+  /** Reported by `controls.capabilities`, which is a getter over this — see `capsFor`. */
+  const capsRef = useRef<TutorCapabilities>(CAPABILITIES);
 
   const eventsRef = useRef(events);
   const tokenRef = useRef(accessToken);
@@ -152,6 +209,39 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       dc.send(JSON.stringify(event));
       return true;
     },
+    /**
+     * Arm or disarm the tutor's right to take the floor back on its own.
+     *
+     * The whole of this provider's answer to `keepAlive`, and it works the opposite way round from
+     * ElevenLabs': there, a held pause PINGS every second to push a server-side turn timer out;
+     * here it tells the server ONCE to stop running one, and tells it again on the way back. Same
+     * capability, same guarantee — the tutor does not teach into a lesson the learner cannot hear —
+     * and completely different mechanics, which is the asymmetry the adapter exists to absorb.
+     *
+     * Idempotent in both directions, because the caller is a one-second interval.
+     */
+    setIdleTimeout(armed: boolean) {
+      const input = audioInputRef.current;
+      // Nothing to suspend: a `semantic_vad` session never re-engages on its own in the first place.
+      if (!input || input.turn_detection.type !== "server_vad" || !armsIdleTimeout(input)) return;
+      if (idleArmedRef.current === armed) return;
+      const { idle_timeout_ms: _idle, ...withoutIdle } = input.turn_detection;
+      // The WHOLE block goes back, not just the field that changed — `transcription` rides in it,
+      // and an update that dropped it would cost every learner transcript after the first pause
+      // without failing anything visible. See `RealtimeAudioInput`.
+      const sent = live.current.send({
+        type: "session.update",
+        session: {
+          type: "realtime",
+          audio: {
+            input: { ...input, turn_detection: armed ? input.turn_detection : withoutIdle },
+          },
+        },
+      });
+      // A closed channel means there is no session left to re-engage, so leaving the flag alone is
+      // right: the next `start` resets it anyway.
+      if (sent) idleArmedRef.current = armed;
+    },
     /** Tear everything down and report why, exactly once. */
     teardown(reason: TutorEndReason) {
       if (endedRef.current) return;
@@ -165,6 +255,9 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       pcRef.current = null;
       generatedRef.current.clear();
       hangingUpRef.current = false;
+      audioInputRef.current = null;
+      idleArmedRef.current = true;
+      capsRef.current = CAPABILITIES;
       // We started the session, so we stop it. The ElevenLabs adapter must never do this — its SDK
       // already does, globally — but nothing stops this one on our behalf. See `lib/audio-session`.
       void release();
@@ -261,7 +354,11 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
 
   const controls = useMemo<TutorTransportControls>(
     () => ({
-      capabilities: CAPABILITIES,
+      // A GETTER, not a field: `userActivity` is settled by the version this session runs (see
+      // `capsFor`), and `controls` must keep one identity for the life of the transport.
+      get capabilities() {
+        return capsRef.current;
+      },
 
       start: async (request, onIdentified) => {
         const body: RealtimeTokenRequest = {
@@ -278,6 +375,11 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         if (!isRealtimeTokenResponse(res)) {
           throw new Error("The server did not return a usable realtime credential.");
         }
+        // Settled before anything can read it: the pause reads `capabilities` from inside `hold()`,
+        // and the version — not the provider — is what decides whether a keep-alive is needed.
+        audioInputRef.current = readAudioInput((res as { audioInput?: unknown }).audioInput);
+        idleArmedRef.current = true;
+        capsRef.current = capsFor(audioInputRef.current);
 
         // The seam — see `TutorTransportControls.start`. Nothing below may run before it, because a
         // turn can arrive on the first frame after the connect and needs a row key to file under.
@@ -393,6 +495,9 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       },
 
       say: (text) => {
+        // Driving the conversation puts the tutor's own pacing back: a release always reaches here
+        // or `context` below, and this is what ends the suspension a hold started.
+        live.current.setIdleTimeout(true);
         live.current.send({
           type: "conversation.item.create",
           item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
@@ -409,6 +514,7 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
        * No `response.create` follows, which is what makes it silent.
        */
       context: (text) => {
+        live.current.setIdleTimeout(true);
         live.current.send({
           type: "conversation.item.create",
           item: { type: "message", role: "system", content: [{ type: "input_text", text }] },
@@ -422,10 +528,17 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         live.current.send({ type: "output_audio_buffer.clear" });
       },
 
-      // Nothing to do: `capabilities.userActivity` is false, so the session never schedules the
-      // timer that would call this. Present and empty rather than throwing, because unlike
-      // `cancelTurn` a keep-alive that does nothing is CORRECT here, not a bug.
-      keepAlive: () => {},
+      /**
+       * Keep the tutor quiet for as long as the pause lasts.
+       *
+       * Called every `TUTOR_HEARTBEAT_MS` while held, and only when `capabilities.userActivity` —
+       * i.e. only for a version whose pacing would otherwise make the server commit an empty turn
+       * into the silence and provoke a response the learner cannot hear. The first call does the
+       * work and the rest are no-ops; `say`/`context` undo it on the way back.
+       */
+      keepAlive: () => {
+        live.current.setIdleTimeout(false);
+      },
 
       setMicMuted: (muted) => {
         const track = localRef.current;

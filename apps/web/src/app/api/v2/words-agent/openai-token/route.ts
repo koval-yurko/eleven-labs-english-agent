@@ -4,9 +4,13 @@ import {
   formatItemsList,
   type TutorItem,
 } from "@tutor/shared/tutor";
-import type { RealtimeTokenRequest, RealtimeTokenResponse } from "@tutor/shared/api";
+import type {
+  RealtimeAudioInput,
+  RealtimeTokenRequest,
+  RealtimeTokenResponse,
+} from "@tutor/shared/api";
 
-import { effectiveConfig, findVersion } from "../../../../../agent/prompts";
+import { effectiveConfig, findVersion, openAiTurnDetection } from "../../../../../agent/prompts";
 import { resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { openAiRealtimeConfig } from "../../../../../lib/config";
@@ -48,10 +52,15 @@ export const OPTIONS = preflight;
  * cascaded STT→LLM→TTS pipeline that reads a transcript, and this model hears the learner's voice.
  * Running one on the other is a different lesson (§11.1), not a fallback.
  *
- * **There is no such version yet, so this route currently refuses everything**, which is the honest
- * state: writing a prompt that uses what this provider can actually do — correcting pronunciation
- * from the audio — is stage 4, and shipping a port in the meantime would be the wrong kind of
- * progress. Add a `words-2.x` module with `provider: "openai"` and it starts serving.
+ * Today that is `words-2.0`. Add another `words-2.x` module with `provider: "openai"` and it starts
+ * serving that one too.
+ *
+ * ## Turn-taking is per VERSION, not per provider
+ *
+ * `turn_detection` was hardcoded here until words-2.0 needed podcast pacing. It is now derived from
+ * the version (`openAiTurnDetection`), because "does the tutor take the floor back on its own after
+ * a silence" is a property of the LESSON — the same question `turnTimeoutSeconds` answers on the
+ * ElevenLabs side — and the two OpenAI modes that answer it are mutually exclusive.
  */
 export const POST = withBearer(async (req) => {
   const { apiKey, model, voice } = openAiRealtimeConfig();
@@ -94,6 +103,26 @@ export const POST = withBearer(async (req) => {
   // The dynamic-variable substitution ElevenLabs does at runtime, done here instead — the whole of
   // §8's difference between the two routes in one line.
   const instructions = config.prompt.replaceAll("{{items_list}}", formatItemsList(items));
+  /**
+   * PACING, chosen by the version rather than fixed by the provider.
+   *
+   * It used to be one hardcoded `semantic_vad` block, which was right while the only planned OpenAI
+   * lesson was a pronunciation drill and wrong the moment one was a podcast: a podcast needs the
+   * tutor to take the floor back on its own after a silence, and on this provider the ONLY thing
+   * that does that is `server_vad`'s `idle_timeout_ms`. The model answers input, and silence is not
+   * input — without it a monologue lesson says one paragraph and stops for good.
+   *
+   * Read off the raw version, not `config`, so an unset `turnTimeoutSeconds` still means "wait for
+   * the learner" rather than the effective default of seven seconds. See `openAiTurnDetection`.
+   */
+  const audioInput: RealtimeAudioInput = {
+    // Without this there are NO learner transcripts at all — the model hears the audio and answers,
+    // but `conversation.item.input_audio_transcription.completed` never fires, so half of every
+    // stored transcript would silently not exist. Opt-in, which is the opposite of the ElevenLabs
+    // default and easy to miss.
+    transcription: { model: "gpt-4o-transcribe" },
+    turn_detection: openAiTurnDetection(chosen),
+  };
 
   try {
     const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
@@ -104,20 +133,7 @@ export const POST = withBearer(async (req) => {
           type: "realtime",
           model,
           instructions,
-          audio: {
-            input: {
-              // Without this there are NO learner transcripts at all — the model hears the audio and
-              // answers, but `conversation.item.input_audio_transcription.completed` never fires, so
-              // half of every stored transcript would silently not exist. Opt-in, which is the
-              // opposite of the ElevenLabs default and easy to miss.
-              transcription: { model: "gpt-4o-transcribe" },
-              // The closest analogue of `turnEagerness: "patient"`: a classifier decides the learner
-              // is done from what they SAID rather than from a silence timer. Stage 0 measured this
-              // as natural for ordinary teaching; podcast pacing (words-1.5) is still open — §6.3.
-              turn_detection: { type: "semantic_vad", eagerness: "low" },
-            },
-            output: { voice },
-          },
+          audio: { input: audioInput, output: { voice } },
           // The per-version turn budget, carried across. It is a BACKSTOP for a prompt-level rule,
           // never the rule itself — the model is cut off mid-sentence when it hits this.
           ...(config.maxTokens === undefined ? {} : { max_output_tokens: config.maxTokens }),
@@ -148,6 +164,10 @@ export const POST = withBearer(async (req) => {
       // it resolves to is the thing worth recording.
       model: data.session?.model ?? model,
       expiresAt: data.expires_at ?? 0,
+      // Handed back WHOLE so the transport can put it back whole: a held pause suspends the idle
+      // timeout with a `session.update`, and an update carrying only `turn_detection` would bet on
+      // how the server merges a nested object — with the transcription config as the stake.
+      audioInput,
     };
     return json(payload);
   } catch (e) {
