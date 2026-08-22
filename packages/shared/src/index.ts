@@ -14,6 +14,7 @@
 export * from "./theme";
 export * from "./tutor";
 export * from "./tutor-transport";
+export * from "./tutor-pause";
 export * from "./word-types";
 export * from "./word-key";
 export * from "./lesson-types";

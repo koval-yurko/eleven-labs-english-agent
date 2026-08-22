@@ -663,9 +663,9 @@ This is the argument of §12 doing its job, so it is worth being specific about.
 - **The end reason is synthesised** (§6.2), so `PauseReason` is less trustworthy on this provider
   than the session's "read rather than inferred" comment claims. The asymmetry is absorbed in the
   adapter and documented there.
-- **No fake transport.** A non-React implementation would be the honest way to prove the contract is
-  not React-shaped, and would make the pause machine testable without a device. It is the obvious
-  next piece of infrastructure and it is not built.
+- ~~**No fake transport.**~~ **Built 2026-08-22 — see §15.8.** It did what it was supposed to: the
+  contract compiled against a plain factory with no React in it, and the held pause is now checked
+  without a device.
 
 ### 15.3 Stage 3 — provider-aware versions
 
@@ -771,6 +771,49 @@ and no agent id; `resolveVersion(null)` still answers `words-1.6` on ElevenLabs;
   transcripts could eventually answer.
 - **No evaluation.** There is no way to compare `words-2.0` against `words-1.6` other than by using
   both, and the LangSmith trace that would make that comparison durable is stage 5 (§9).
+
+### 15.8 The fake transport, and the pause finally being testable
+
+`packages/shared/src/tutor-transport-fake.ts` — a plain factory that implements
+`TutorTransportControls`, records every call in order, and simulates no provider. Two jobs:
+
+**It settles a claim that was untested.** The contract lives in `packages/shared` precisely so it is
+not shaped by whichever SDK was first, but until now both implementations were React hooks in
+`apps/mobile`, so "React-free" was an assertion about a file nobody had written. This is that file. It
+compiles against the same interface the ElevenLabs adapter does, and that is the evidence.
+
+**It made the held pause checkable.** The pause is the highest-risk logic in the app and the least
+observable: get it wrong and the tutor says a plausible wrong thing that nobody can distinguish from
+a model wandering. It lived inside a React provider that only runs on a phone against a billed
+session, so every branch was checked by hand or not at all.
+
+`packages/shared/src/tutor-pause.ts` splits DECISION from EFFECT — `planHold`/`planRelease` are pure
+and total, `applyHold`/`applyRelease` are the few lines that call a transport — and
+`pnpm check:shared` now runs **64 cases** over the full cross-product of `speaking × cancelTurn ×
+userActivity × wasMuted × what landed while held`. What is pinned:
+
+- barging in happens **iff** there was a turn to interrupt, and which mechanism is the *provider's*
+  answer rather than the rule's guess;
+- a keep-alive timer exists **iff** the platform would otherwise re-engage into the silence;
+- the learner's own mute is restored, never overridden;
+- **at most one turn is ever owed** — an unbounded resume was the bug the three messages fixed;
+- **a cut-off turn outranks an unheard one**, which is the branch most likely to be "simplified"
+  later because the two read as interchangeable;
+- output is silenced **before** the microphone is muted (between them, the whole of what a pause
+  feels like);
+- a transport that cannot silence **says so**, so a paused screen cannot claim a silence it did not
+  deliver;
+- on a provider that can `cancelTurn`, the transcript never receives the fake user message — the
+  §11.2 improvement, pinned so a refactor cannot quietly hand it back.
+
+The session now calls these rather than duplicating them, so what is checked is what runs. Four refs
+(`heldAtLineRef`, `heldSinceRef`, `abortedRef`, `wasMutedRef`) collapsed into one `HoldSnapshot` on
+the way through — they always described one moment, and four refs that can drift apart were four
+ways to answer the wrong question on the way back.
+
+**Still not device-verified**, like everything since stage 0. What these checks buy is that the
+branch table is now wrong-proof by construction rather than by memory; whether the whole pause
+behaves on a phone is a separate question and unchanged.
 
 ## 16. Sources
 

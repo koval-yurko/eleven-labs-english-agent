@@ -32,10 +32,17 @@ import { groupFacets, searchItems } from "./src/item-list";
 import { isApiError, isSignedUrlResponse, signedUrlPath } from "./src/api";
 import { CSS_VARIABLES, DARK, LIGHT, paletteFor, parseScheme, type Palette } from "./src/theme";
 import {
+  ABORTED_RESUME_MESSAGE,
   MAX_TRANSCRIPT_LINES,
   MAX_TRANSCRIPT_LINE_CHARS,
+  PAUSE_STOP_MESSAGE,
+  UNHEARD_RESUME_MESSAGE,
   sanitizeTranscript,
+  type TranscriptLine,
 } from "./src/tutor";
+import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor-pause";
+import { createFakeTransport } from "./src/tutor-transport-fake";
+import type { TutorCapabilities } from "./src/tutor-transport";
 import {
   buildAddItemsOp,
   buildCreateLessonOp,
@@ -437,6 +444,187 @@ if (JSON.stringify(LIGHT) === JSON.stringify(DARK)) {
 }
 
 console.log("checked theme properties");
+
+
+// ── the held pause ───────────────────────────────────────────────────────────────────────────
+// The highest-risk logic in the app and, until it was split into `planHold`/`planRelease`, the only
+// logic that could not be checked without a phone and a billed session. Getting it wrong is
+// invisible on screen — the tutor just says the wrong thing, plausibly.
+// See docs/2026-08-16-tutor-pause-hold-the-line.md and 2026-08-17-short-turns-and-chunked-pause.md.
+
+const CAPS = (over: Partial<TutorCapabilities> = {}): TutorCapabilities => ({
+  silenceOutput: true,
+  userActivity: true,
+  cancelTurn: true,
+  responseCorrection: true,
+  ...over,
+});
+
+let pauseCases = 0;
+const agentLine: TranscriptLine = { role: "agent", text: "…and that's ephemeral." };
+const userLine: TranscriptLine = { role: "user", text: "got it" };
+
+// 1. THE INVARIANTS, over the full cross-product of what the pause depends on.
+for (const speaking of [false, true])
+  for (const cancelTurn of [false, true])
+    for (const userActivity of [false, true])
+      for (const wasMuted of [false, true])
+        for (const after of [[], [userLine], [agentLine], [userLine, agentLine]]) {
+          const caps = CAPS({ cancelTurn, userActivity });
+          const label = `pause[speaking=${speaking} cancel=${cancelTurn} activity=${userActivity} muted=${wasMuted} after=${after.length}]`;
+          const hold = planHold(caps, { speaking, muted: wasMuted, lineCount: 2, at: 1_000 });
+
+          // Barging in happens if and only if there was a turn to interrupt. Barging into silence
+          // would only provoke one.
+          eq(`${label}: bargeIn`, hold.bargeIn !== "none", speaking);
+          // And which mechanism is the PROVIDER's answer, never this rule's guess.
+          if (speaking) eq(`${label}: mechanism`, hold.bargeIn, cancelTurn ? "cancel" : "message");
+          // A timer only where the platform would otherwise re-engage into the silence.
+          eq(`${label}: heartbeat`, hold.heartbeat, userActivity);
+          eq(`${label}: snapshot.wasMuted`, hold.snapshot.wasMuted, wasMuted);
+          eq(`${label}: snapshot.atLine`, hold.snapshot.atLine, 2);
+
+          const lines = [agentLine, userLine, ...after];
+          const rel = planRelease(hold.snapshot, { lines, at: 4_000 });
+          // The learner's own mute is restored, never overridden.
+          eq(`${label}: restores mute`, rel.micMuted, wasMuted);
+          // At most ONE turn is ever owed. An unbounded resume was the bug the three messages fixed.
+          const owed = rel.say;
+          const expected = speaking
+            ? ABORTED_RESUME_MESSAGE
+            : after.some((l) => l.role === "agent")
+              ? UNHEARD_RESUME_MESSAGE
+              : null;
+          eq(`${label}: owes`, owed, expected);
+          pauseCases += 1;
+        }
+
+// 2. A CUT-OFF TURN OUTRANKS AN UNHEARD ONE. Both conditions can hold at once — we barged in AND a
+//    later turn played into the void — and the tail of the thought the learner was mid-way through
+//    hearing is the thing they are owed. Pinned because the two branches read as interchangeable.
+{
+  const hold = planHold(CAPS(), { speaking: true, muted: false, lineCount: 0, at: 0 });
+  const rel = planRelease(hold.snapshot, { lines: [agentLine, agentLine], at: 1_000 });
+  eq("pause: aborted outranks unheard", rel.say, ABORTED_RESUME_MESSAGE);
+}
+
+// 3. THE ORDER THE LEARNER PERCEIVES. Output first, then the microphone — both instant, and between
+//    them the whole of what a pause feels like. The barge-in lands before the context update.
+{
+  const fake = createFakeTransport();
+  const hold = planHold(fake.controls.capabilities, {
+    speaking: true,
+    muted: false,
+    lineCount: 0,
+    at: 0,
+  });
+  const silenced = applyHold(fake.controls, hold);
+  eq("pause: hold order", fake.sequence(), [
+    "setOutputSilenced",
+    "setMicMuted",
+    "cancelTurn",
+    "context",
+  ]);
+  eq("pause: silenced when the transport can", silenced, true);
+  eq("pause: silences rather than unsilences", fake.argOf("setOutputSilenced"), true);
+}
+
+// 4. A PROVIDER THAT CANNOT SILENCE MUST SAY SO. This is the whole reason the method returns a
+//    boolean: a paused screen that claimed a silence it did not deliver is the false pass
+//    `lib/agent-audio.ts` was written against.
+{
+  const fake = createFakeTransport({ canSilence: false });
+  const hold = planHold(fake.controls.capabilities, {
+    speaking: false,
+    muted: false,
+    lineCount: 0,
+    at: 0,
+  });
+  eq("pause: reports a failed silence", applyHold(fake.controls, hold), false);
+}
+
+// 5. ON A PROVIDER THAT CAN CANCEL, THE TRANSCRIPT STAYS CLEAN. The fake user message costs a turn
+//    and has to be filtered back out by HIDDEN_KICKOFF_MESSAGES; `cancelTurn` costs nothing. This
+//    pins the §11.2 improvement so a later refactor cannot quietly hand it back.
+{
+  const fake = createFakeTransport({ capabilities: { cancelTurn: true } });
+  const hold = planHold(fake.controls.capabilities, {
+    speaking: true,
+    muted: false,
+    lineCount: 0,
+    at: 0,
+  });
+  applyHold(fake.controls, hold);
+  eq("pause: cancel never speaks", fake.calls.some((c) => c.method === "say"), false);
+
+  const legacy = createFakeTransport({ capabilities: { cancelTurn: false } });
+  const legacyHold = planHold(legacy.controls.capabilities, {
+    speaking: true,
+    muted: false,
+    lineCount: 0,
+    at: 0,
+  });
+  applyHold(legacy.controls, legacyHold);
+  eq("pause: fallback speaks the filtered message", legacy.argOf("say"), PAUSE_STOP_MESSAGE);
+}
+
+// 6. RELEASE ORDER, and the silent case. Nothing owed means nothing said — a resume that spoke
+//    anyway would restart a lesson the learner never left.
+{
+  const fake = createFakeTransport();
+  const hold = planHold(fake.controls.capabilities, {
+    speaking: false,
+    muted: false,
+    lineCount: 1,
+    at: 0,
+  });
+  fake.reset();
+  applyRelease(fake.controls, planRelease(hold.snapshot, { lines: [agentLine], at: 1_000 }));
+  eq("pause: release order (nothing owed)", fake.sequence(), [
+    "setMicMuted",
+    "setOutputSilenced",
+    "context",
+  ]);
+  eq("pause: release unsilences", fake.argOf("setOutputSilenced"), false);
+
+  fake.reset();
+  applyRelease(fake.controls, planRelease(hold.snapshot, { lines: [agentLine, agentLine], at: 1_000 }));
+  eq("pause: release order (a turn owed)", fake.sequence(), [
+    "setMicMuted",
+    "setOutputSilenced",
+    "context",
+    "say",
+  ]);
+  eq("pause: owes the unheard turn", fake.argOf("say"), UNHEARD_RESUME_MESSAGE);
+}
+
+// 7. THE CONTRACT IS NOT REACT-SHAPED. `tutor-transport-fake.ts` is a plain factory with no hooks
+//    and no platform, compiled against the same `TutorTransportControls` the ElevenLabs adapter
+//    implements — so this block existing at all is most of the assertion. What is checked here is
+//    the one ordering rule a fake could get wrong and a session would then pass tests it should
+//    fail: `onIdentified` is awaited BEFORE the transport is told to connect.
+{
+  const fake = createFakeTransport();
+  const seen: string[] = [];
+  await fake.controls.start({ lessonId: "L", items: [], version: null }, (descriptor) => {
+    seen.push(`identified:${descriptor.version}`);
+  });
+  eq("transport: start seam ran", seen, ["identified:fake-1.0"]);
+  eq("transport: start recorded", fake.sequence(), ["start"]);
+
+  const refusing = createFakeTransport({ startError: new Error("no credential") });
+  let threw = false;
+  try {
+    await refusing.controls.start({ lessonId: "L", items: [], version: null }, () => {
+      failures.push("transport: a refused credential must not reach the seam");
+    });
+  } catch {
+    threw = true;
+  }
+  eq("transport: a refused start throws", threw, true);
+}
+
+console.log(`checked held-pause properties (${pauseCases} cases)`);
 
 if (failures.length > 0) {
   console.error(`FAILED: ${failures.length}`);

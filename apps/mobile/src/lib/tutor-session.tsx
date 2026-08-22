@@ -1,20 +1,22 @@
 import { API_V2_ROUTES, type TutorSessionInput } from "@tutor/shared/api";
 import {
-  ABORTED_RESUME_MESSAGE,
-  formatHeldResumeContext,
   formatResumeContext,
   HIDDEN_KICKOFF_MESSAGES,
   KICKOFF_MESSAGE,
-  PAUSE_CONTEXT,
   PAUSE_RESUME_MESSAGE,
-  PAUSE_STOP_MESSAGE,
   RESUME_MESSAGE,
   TUTOR_HEARTBEAT_MS,
-  UNHEARD_RESUME_MESSAGE,
   type ResumeCause,
   type TranscriptLine,
   type TutorItem,
 } from "@tutor/shared/tutor";
+import {
+  applyHold,
+  applyRelease,
+  planHold,
+  planRelease,
+  type HoldSnapshot,
+} from "@tutor/shared/tutor-pause";
 import type {
   TutorProviderId,
   TutorStatus,
@@ -572,21 +574,14 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const [held, setHeld] = useState(false);
   const heldRef = useRef(false);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const heldSinceRef = useRef<number>(0);
   /**
-   * Where the transcript stood when the hold began, so a resume can tell whether a WHOLE turn
-   * played into the void while the line was held — one that slipped past the heartbeat.
-   */
-  const heldAtLineRef = useRef(0);
-  /**
-   * Was the tutor mid-sentence when Pause landed — i.e. did we barge in to stop it?
+   * What the current hold captured — where the transcript stood, when it began, whether we barged
+   * in, and the learner's own mute bit. One ref rather than four, because they describe one moment
+   * and four refs that can drift apart is four ways to answer the wrong question on the way back.
    *
-   * This decides which resume message is owed, and the two are different requests: a turn we cut
-   * off owes the learner the TAIL of one thought; a turn that played out unheard owes them THAT
-   * POINT restated. Both are bounded — which is the whole fix.
-   * See docs/2026-08-17-short-turns-and-chunked-pause.md §4.3.
+   * `null` whenever no pause is held, which is also how a dead line discards one.
    */
-  const abortedRef = useRef(false);
+  const snapshotRef = useRef<HoldSnapshot | null>(null);
   /** `isSpeaking`, readable from outside a render — the hold path runs from an intent drain too. */
   const speakingRef = useRef(false);
   useEffect(() => {
@@ -601,11 +596,6 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mutedRef.current = isMuted;
   });
-  /**
-   * The learner's OWN mute, remembered across a pause, so a resume does not unmute someone who had
-   * muted on purpose before pausing. §3.3 of the background-controls document.
-   */
-  const wasMutedRef = useRef(false);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current !== null) {
@@ -616,33 +606,28 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
 
   const hold = useCallback(() => {
     if (!ownsRef.current || statusRef.current !== "connected" || heldRef.current) return;
-    // Output first, then the microphone: both are instant, and between them they are the whole of
-    // what the learner can perceive. Through LiveKit, NOT through `conversation.setVolume()`, which
-    // is a silent no-op on React Native. The return value is how many agent tracks were actually
-    // reached; 0 means the escape hatch is closed, and the status line says so rather than claiming
-    // a silence we did not deliver (`@/lib/agent-audio`).
-    setSilenced(tx.setOutputSilenced(true));
-    wasMutedRef.current = mutedRef.current;
-    tx.setMicMuted(true);
+    /**
+     * Every decision the pause makes is in `planHold` — which of the three barge-in mechanisms
+     * applies, whether a keep-alive is even needed, and what has to be remembered for the way back.
+     * It is pure, it is property-checked over the full cross-product in `pnpm check:shared`, and
+     * that is the point: this branch used to be reachable only on a phone, in a billed session, and
+     * getting it wrong shows up as the tutor saying a plausible wrong thing.
+     */
+    const plan = planHold(tx.capabilities, {
+      speaking: speakingRef.current,
+      muted: mutedRef.current,
+      lineCount: linesRef.current.length,
+      at: Date.now(),
+    });
+    snapshotRef.current = plan.snapshot;
+    // `applyHold` reports whether the tutor was ACTUALLY silenced. `false` means it is still
+    // audible, and the paused status line says so rather than claiming a silence we did not
+    // deliver (`@/lib/agent-audio`).
+    setSilenced(applyHold(tx, plan));
     mutedRef.current = true;
-    heldAtLineRef.current = linesRef.current.length;
-    heldSinceRef.current = Date.now();
-    // The barge-in. Silencing the speaker is local — the platform has no idea, so without this the
-    // tutor keeps teaching to nobody for the rest of its turn, is billed for it, and comes back
-    // convinced the learner heard it. Guarded on `isSpeaking` because a pause taken while the tutor
-    // is LISTENING has nothing to interrupt, and barging into silence would only provoke a turn.
-    abortedRef.current = speakingRef.current;
-    if (abortedRef.current) {
-      // Stop the turn the cheapest way this provider allows. `cancelTurn` costs nothing and leaves
-      // no trace; the fallback spends a turn and has to be filtered back out of the transcript by
-      // `HIDDEN_KICKOFF_MESSAGES`. Which one runs is the transport's answer, not this file's guess.
-      if (tx.capabilities.cancelTurn) tx.cancelTurn();
-      else tx.say(PAUSE_STOP_MESSAGE);
-    }
-    tx.context(PAUSE_CONTEXT);
-    // Only where the platform re-engages on silence. Where it does not, a heartbeat would be a timer
-    // running for the length of every pause to call a method that does nothing.
-    if (tx.capabilities.userActivity) {
+    // The timer stays here: `tutor-pause` decides WHETHER one is needed, this file owns it, because
+    // an interval is a resource with a lifetime and a pure planner has no business holding one.
+    if (plan.heartbeat) {
       heartbeatRef.current = setInterval(() => tx.keepAlive(), HEARTBEAT_MS);
     }
     heldRef.current = true;
@@ -654,29 +639,23 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     stopHeartbeat();
     heldRef.current = false;
     setHeld(false);
-    // The line died while the pause was held: `setMuted` THROWS with no active conversation, and
+    // Spent whether or not the line survived: the turn it describes cannot be finished by whatever
+    // agent comes back next.
+    const snapshot = snapshotRef.current;
+    snapshotRef.current = null;
+    // The line died while the pause was held: `setMicMuted` throws with no active conversation, and
     // the provider has already reset its own mute state on disconnect. The drop path owns this.
-    if (!ownsRef.current || statusRef.current !== "connected") return;
-    tx.setMicMuted(wasMutedRef.current);
-    mutedRef.current = wasMutedRef.current;
-    tx.setOutputSilenced(false);
+    if (!ownsRef.current || statusRef.current !== "connected" || !snapshot) return;
+    /**
+     * What the learner is owed, in exactly three cases — and each of the two that speak is bounded
+     * to ONE turn. The tutor was listening (nothing lost), cut off (owed the tail of one thought),
+     * or talking unheard (owed that point restated). `planRelease` decides; `pnpm check:shared`
+     * pins the table, including that a cut-off turn outranks an unheard one.
+     */
+    const plan = planRelease(snapshot, { lines: linesRef.current, at: Date.now() });
+    applyRelease(tx, plan);
+    mutedRef.current = plan.micMuted;
     setSilenced(true);
-    tx.context(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
-    // What the learner is owed, in exactly three cases — and each of the two that speak is bounded
-    // to ONE turn. The tutor was:
-    //   listening → nothing was lost; say nothing and let the learner speak first
-    //   cut off   → the tail of one thought
-    //   unheard   → one whole turn, restated
-    const aborted = abortedRef.current;
-    abortedRef.current = false;
-    if (aborted) {
-      tx.say(ABORTED_RESUME_MESSAGE);
-      return;
-    }
-    const unheard = linesRef.current
-      .slice(heldAtLineRef.current)
-      .some((line) => line.role === "agent");
-    if (unheard) tx.say(UNHEARD_RESUME_MESSAGE);
   }, [tx, stopHeartbeat]);
 
   /**
@@ -688,8 +667,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     const next = !mutedRef.current;
     tx.setMicMuted(next);
     mutedRef.current = next;
-    // The learner's own choice, which a pause must restore rather than override. §3.3.
-    wasMutedRef.current = next;
+    // No second copy of this bit: the next `planHold` reads `mutedRef` and puts the learner's own
+    // choice into its snapshot, so a pause restores it rather than overriding it. §3.3.
   }, [tx]);
 
   /**
@@ -699,10 +678,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     if (status === "connected") return;
-    wasMutedRef.current = false;
     // Belongs to a conversation that no longer exists: the turn it describes cannot be finished by
     // the agent that comes back.
-    abortedRef.current = false;
+    snapshotRef.current = null;
     if (!heldRef.current) return;
     stopHeartbeat();
     heldRef.current = false;
