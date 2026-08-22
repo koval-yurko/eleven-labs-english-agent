@@ -142,6 +142,30 @@ export interface TutorCapabilities {
   responseCorrection: boolean;
 }
 
+/**
+ * What one turn cost, as the transport saw it.
+ *
+ * Every field is a plain count with `0` for "not reported", so a session total is a sum and nothing
+ * has to reason about absent values. The audio/cached splits are here rather than just a total
+ * because they are the whole of the cost story on a realtime provider: audio tokens are billed at
+ * several times the text rate, and cached input — which is most of a long lesson, since every turn
+ * re-sends the conversation — is billed at roughly a hundredth. A total alone would be a number
+ * nobody can turn back into money.
+ *
+ * NOT reported by every provider. ElevenLabs bills per minute and reports its token usage only in
+ * the post-call webhook, never through the SDK, so its adapter never raises `onUsage` and the
+ * webhook keeps supplying it. See docs/2026-08-22-openai-lesson-observability.md.
+ */
+export interface TutorUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Of the input, how many were audio. The remainder is instructions and transcript text. */
+  inputAudioTokens: number;
+  outputAudioTokens: number;
+  /** Input served from cache. The dominant term in a long session, and the cheapest. */
+  cachedInputTokens: number;
+}
+
 /** What the session asks for when it starts a lesson. Provider-neutral by construction. */
 export interface TutorStartRequest {
   lessonId: string;
@@ -207,6 +231,15 @@ export interface TutorTransportEvents {
    * `conversationId` and reported when they disagree — a tripwire, not a source.
    */
   onTransportId(id: string): void;
+  /**
+   * What a finished turn cost. Raised per completed response, summed by the session, and sent with
+   * the transcript so a lesson's cost is a fact rather than an estimate.
+   *
+   * Optional in practice, not in the type: a provider that does not report usage simply never calls
+   * it. Making it optional on the interface would push the "did this provider tell us?" question out
+   * to the session, which has nothing to do with it.
+   */
+  onUsage(usage: TutorUsage): void;
 }
 
 /**

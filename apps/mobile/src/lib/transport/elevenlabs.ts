@@ -94,6 +94,15 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
      */
     onError: (message, context) => eventsRef.current.onError(tutorErrorMessage(message, context)),
   });
+  /**
+   * `onUsage` is never raised here, and that is a fact about the platform rather than an omission.
+   *
+   * ElevenLabs bills per MINUTE, and reports its token breakdown only in the post-call webhook —
+   * which lands server-side with richer numbers than this SDK exposes (per-turn, per-model, with a
+   * cost figure) and already becomes a LangSmith trace. Synthesising a worse version here would give
+   * every lesson two sources of truth about what it cost.
+   * See docs/2026-08-22-openai-lesson-observability.md.
+   */
 
   const {
     status,

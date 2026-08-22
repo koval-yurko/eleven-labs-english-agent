@@ -1,8 +1,8 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
-Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–4 BUILT and green in CI, none of
-them device-verified (§14, §15). Stage 5 (sideband observability) is untouched. `words-2.0` is
-selectable but has never been spoken to a human.**
+Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–5 BUILT and green in CI, none of
+them device-verified (§14, §15). `words-2.0` is selectable but has never been spoken to a human, and
+that one lesson is now what every remaining unknown depends on.**
 
 ## 1. The question
 
@@ -408,6 +408,12 @@ Option 2 has three costs that must be priced in before choosing it:
 paths), and treat option 2 as its own piece of work with its own document. Do not let observability
 block the transport spike.
 
+**Outcome (2026-08-22): option 1 shipped and option 2 was rejected outright**, not deferred. The
+three costs listed above turned out to be worse on inspection — the duration ceiling is beta-gated
+and still short of OpenAI's own 60-minute limit — and the sideband is built for a server that
+participates in the call, which this one does not. Full reasoning in
+[the observability document](./2026-08-22-openai-lesson-observability.md).
+
 ## 10. Cost
 
 Modelled, not measured. Audio tokenises at roughly 10 tokens/second (600/minute).
@@ -513,7 +519,14 @@ the token route branches, `items_list` interpolated server-side.
 **Stage 4 — a pronunciation-mode prompt version. ✅ BUILT 2026-08-22 (§15.5).** on OpenAI (§11.1). This is the payoff, and it
 should be a new version, not a port.
 
-**Stage 5 (separate document) — sideband observability.** §9.
+**Stage 5 (separate document) — observability. ✅ BUILT 2026-08-22, and the sideband was REJECTED.**
+See [docs/2026-08-22-openai-lesson-observability.md](./2026-08-22-openai-lesson-observability.md).
+§9's recommendation — ship the client path first — turned out to be the whole answer rather than a
+first step: a lesson outlives a Vercel function (1800 s is beta-gated and Pro-only, and OpenAI's own
+ceiling is 60 minutes), the sideband drops on a silence that our held pause creates deliberately, and
+it bills half an hour of wall-clock to learn what the transcript write already carries. The trace now
+rides along with `POST /api/v2/lessons/session`, carrying token usage the adapter collects from
+`response.done`.
 
 ## 13. Open questions
 
@@ -572,9 +585,10 @@ Recorded as gaps rather than quietly omitted, in the manner of
 [S1 §12](./2026-08-13-expo-s1-background-audio.md):
 
 - **Device model and iOS version.** Only one handset was tested, and it is the only one.
-- **Token usage.** `response.done` carries a `usage` block and the screen logs it, but no numbers
-  were copied down — so §10's cost model is still arithmetic rather than measurement. This is the
-  cheapest outstanding measurement in the whole document and it needs no new code.
+- **Token usage.** `response.done` carries a `usage` block and the screen logged it, but no numbers
+  were copied down. **Stage 5 made this permanent rather than manual**: the adapter now collects
+  usage and every OpenAI lesson files it to LangSmith with a cost estimate, so §10 stops being
+  arithmetic the first time anyone runs `words-2.0`.
 - **The alpha–echo count.** Q2 passed on both halves, but "five of five" was not counted out the way
   S1 required. A partial uplink would have read as a pass here.
 - **Echo cancellation was judged by ear**, not by checking that no `you:` line ever contained the

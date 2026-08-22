@@ -18,6 +18,7 @@ import {
 import type {
   TutorProviderId,
   TutorStatus,
+  TutorUsage,
   TutorTransport,
   TutorTransportEvents,
 } from "@tutor/shared/tutor-transport";
@@ -283,6 +284,15 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * the wrong conversation — and this value is spoken aloud by the tutor.
    */
   const resumeContextRef = useRef<{ lines: TranscriptLine[]; cause: ResumeCause } | null>(null);
+  /**
+   * What this conversation has cost so far, summed as the turns land.
+   *
+   * A ref and not state: nothing on screen shows it, and a value that changed on every turn would
+   * redraw the transcript for a number the learner never sees. Reset wherever `linesRef` is — the
+   * two describe the same conversation and a total that outlived its transcript would be filed
+   * against the next one.
+   */
+  const usageRef = useRef<TutorUsage | null>(null);
   const kickedOffRef = useRef(false);
   const statusRef = useRef<TutorStatus>("disconnected");
   const startingRef = useRef(false);
@@ -343,8 +353,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       conversationId: string | null;
       agentVersion: string;
       lines: TranscriptLine[];
+      usage: TutorUsage | null;
     }) => {
-      const { lessonId: forLesson, conversationId, agentVersion, lines: transcript } = payload;
+      const { lessonId: forLesson, conversationId, agentVersion, lines: transcript, usage } = payload;
       if (!conversationId || !forLesson || savedForRef.current === conversationId) return;
       if (transcript.length === 0) return;
       savedForRef.current = conversationId;
@@ -354,6 +365,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         conversationId,
         agentVersion,
         lines: transcript,
+        // Omitted rather than sent as zeroes when the provider does not report it: the server treats
+        // a present-but-empty total as a real measurement of a free lesson, which it is not.
+        ...(usage ? { usage } : {}),
       };
       try {
         await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
@@ -382,6 +396,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         conversationId: conversationIdRef.current,
         agentVersion: versionRef.current,
         lines: linesRef.current,
+        usage: usageRef.current,
       }),
     [persistConversation],
   );
@@ -434,6 +449,19 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       linesRef.current = next;
       setLines(next);
       journal();
+    },
+    onUsage: (usage) => {
+      if (!ownsRef.current) return;
+      const total = usageRef.current;
+      usageRef.current = total
+        ? {
+            inputTokens: total.inputTokens + usage.inputTokens,
+            outputTokens: total.outputTokens + usage.outputTokens,
+            inputAudioTokens: total.inputAudioTokens + usage.inputAudioTokens,
+            outputAudioTokens: total.outputAudioTokens + usage.outputAudioTokens,
+            cachedInputTokens: total.cachedInputTokens + usage.cachedInputTokens,
+          }
+        : usage;
     },
     onStatus: (next) => {
       statusRef.current = next;
@@ -497,6 +525,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       onTurn: (line) => mine() && events.onTurn(line),
       onTurnCorrected: (previous, corrected) => mine() && events.onTurnCorrected(previous, corrected),
       onStatus: (next) => mine() && events.onStatus(next),
+      onUsage: (usage) => mine() && events.onUsage(usage),
       onEnd: (reason) => mine() && events.onEnd(reason),
       onError: (message) => mine() && events.onError(message),
     };
@@ -788,6 +817,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       lessonIdRef.current = next;
       const token = ++restoreTokenRef.current;
       linesRef.current = [];
+      usageRef.current = null;
       conversationIdRef.current = null;
       savedForRef.current = null;
       resumeContextRef.current = null;
@@ -975,6 +1005,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         const conversationId = conversationIdRef.current;
         const agentVersion = versionRef.current;
         const previousLines = linesRef.current;
+        const previousUsage = usageRef.current;
         const wasHeld = heldRef.current;
         stopHeartbeat();
         heldRef.current = false;
@@ -984,6 +1015,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
           conversationId,
           agentVersion,
           lines: previousLines,
+          usage: previousUsage,
         });
         // A held pause is parked rather than discarded: the learner never pressed End on THAT
         // lesson, so it should still be waiting for them on the way back.
@@ -998,6 +1030,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         conversationIdRef.current = null;
         convLessonRef.current = null;
         linesRef.current = [];
+        usageRef.current = null;
         tx.end();
       }
 
@@ -1018,6 +1051,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         restoreTokenRef.current += 1; // any restore for the lesson we are leaving is now irrelevant
         resumeContextRef.current = null;
         linesRef.current = [];
+        usageRef.current = null;
         setLessonId(input.lessonId);
         setLines([]);
         setCarried([]);
@@ -1071,6 +1105,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
             setCarried(resuming ? (prev) => [...prev, ...previous] : []);
             setLines([]);
             linesRef.current = [];
+            usageRef.current = null;
             await clearJournal(input.lessonId);
             // The pause is being spent — whether it is resumed or overridden by a fresh start, the
             // parked copy must not outlive this call.

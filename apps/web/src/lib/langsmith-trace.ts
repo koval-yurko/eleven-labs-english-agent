@@ -18,6 +18,8 @@
  * See docs/2026-06-28-langsmith-tracing-observability.md (Approach B1).
  */
 import { Client, RunTree } from "langsmith";
+import type { TranscriptLine } from "@tutor/shared/tutor";
+import type { TutorUsage } from "@tutor/shared/tutor-transport";
 
 // ── Payload types (only the fields we consume; the real payload has more) ──────
 // Mirrors ElevenLabs' `post_call_transcription` data object / Get-Conversation schema.
@@ -229,6 +231,154 @@ export async function traceConversation(
     throw err;
   } finally {
     // Force-flush: don't let the serverless function exit with batches still queued.
+    await client.awaitPendingTraceBatches();
+  }
+}
+
+// ── Client-reported lessons (OpenAI Realtime) ────────────────────────────────
+
+/**
+ * Per-1M-token list prices for `gpt-realtime-2.1`, **as of 2026-08-22**, used only to put an
+ * estimate on a trace.
+ *
+ * Overridable by env because a rate card changes and a hardcoded number that has quietly gone stale
+ * is worse than no number — the estimate is labelled as one in the trace for the same reason. There
+ * is no ElevenLabs equivalent here: that platform bills per minute and reports its own `cost` in the
+ * post-call webhook, which `traceConversation` above passes straight through.
+ */
+const RATES_PER_MTOK = {
+  input: Number(process.env.OPENAI_REALTIME_PRICE_INPUT ?? 32),
+  cachedInput: Number(process.env.OPENAI_REALTIME_PRICE_CACHED_INPUT ?? 0.4),
+  output: Number(process.env.OPENAI_REALTIME_PRICE_OUTPUT ?? 64),
+};
+
+function estimateCostUsd(usage: TutorUsage): number {
+  // `inputTokens` includes the cached ones, so the uncached remainder is what pays full price.
+  const uncachedInput = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
+  const dollars =
+    (uncachedInput * RATES_PER_MTOK.input +
+      usage.cachedInputTokens * RATES_PER_MTOK.cachedInput +
+      usage.outputTokens * RATES_PER_MTOK.output) /
+    1_000_000;
+  return Math.round(dollars * 10_000) / 10_000;
+}
+
+/** LangSmith wants a UUID for a run id; `conversationId` is one for the providers we mint it for. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface ClientLesson {
+  conversationId: string;
+  lessonId: string;
+  agentVersion: string;
+  provider: string;
+  ownerId: string;
+  lines: TranscriptLine[];
+  usage?: TutorUsage;
+}
+
+/**
+ * Push a lesson to LangSmith from the transcript the CLIENT reported.
+ *
+ * ## Why this exists beside `traceConversation`
+ *
+ * ElevenLabs POSTs a signed post-call webhook carrying the transcript, tool calls, per-turn token
+ * usage and a cost figure. **OpenAI has neither a post-call webhook nor a post-call transcript
+ * endpoint** — the request for one is still open on their forum — so the client is the only witness
+ * to a finished realtime lesson, and this is the only place its record can come from.
+ *
+ * The alternative was a SIDEBAND WebSocket: the server attaching to the live call with
+ * `wss://api.openai.com/v1/realtime?call_id=…` and watching it end to end. It was rejected, and the
+ * reasoning is in docs/2026-08-22-openai-lesson-observability.md — briefly: it needs a function that
+ * outlives a 30-minute lesson (beta-gated, Pro-plan-only, and still short of OpenAI's own 60-minute
+ * ceiling), it drops after about a minute of silence when a held pause is a long silence by
+ * construction, and it bills half an hour of function wall-clock per lesson to learn what the
+ * transcript write path already carries.
+ *
+ * ## What is weaker than the webhook, stated plainly
+ *
+ * Per-TURN usage and timing are not here — the transport contract carries neither a turn id nor a
+ * timestamp, so usage is summed onto the root instead of attached to the turn that spent it. And a
+ * client that dies before it posts leaves no trace at all, where a webhook would still have fired.
+ * The stored transcript is protected from that by the journal; the trace is not, and a missing trace
+ * is the smaller loss.
+ *
+ * Best-effort by contract: every caller runs it in `after()` and swallows failures. An observability
+ * write must never be able to fail a transcript write.
+ */
+export async function traceClientLesson(
+  lesson: ClientLesson,
+  opts: { projectName?: string } = {},
+): Promise<void> {
+  const client = new Client();
+  const root = new RunTree({
+    // Deterministic, so a retry or a journal replay PATCHES the same trace rather than filing a
+    // second one for the same lesson. Child runs still get fresh ids, so a genuine duplicate post
+    // shows as repeated turns inside one trace — visibly odd, rather than two half-records.
+    ...(UUID.test(lesson.conversationId) ? { id: lesson.conversationId } : {}),
+    name: `lesson ${lesson.conversationId}`,
+    run_type: "chain",
+    client,
+    project_name: opts.projectName ?? process.env.LANGSMITH_PROJECT,
+    inputs: clean({
+      lesson_id: lesson.lessonId,
+      agent_version: lesson.agentVersion,
+      provider: lesson.provider,
+      user_id: lesson.ownerId,
+    }),
+    extra: {
+      metadata: clean({
+        conversation_id: lesson.conversationId,
+        provider: lesson.provider,
+        agent_version: lesson.agentVersion,
+        environment: process.env.APP_ENV?.trim(),
+        // So a reader knows the transcript came from the phone rather than from the platform, and
+        // can weigh a missing tail accordingly.
+        source: "client",
+      }),
+    },
+  });
+  await root.postRun();
+
+  try {
+    for (const line of lesson.lines) {
+      const isAgent = line.role === "agent";
+      const at = line.timeInCallSecs != null ? ` @${line.timeInCallSecs}s` : "";
+      const turn = await root.createChild({
+        name: `${isAgent ? "Teacher" : "User"}${at}`,
+        run_type: isAgent ? "llm" : "chain",
+        inputs: { message: line.text },
+      });
+      await turn.postRun();
+      await turn.end({ outputs: { message: line.text } });
+      await turn.patchRun();
+    }
+
+    const usage = lesson.usage;
+    await root.end({
+      outputs: clean({
+        turns: lesson.lines.length,
+        // Summed, not per-turn — see the docblock. `usage_metadata` is the shape LangSmith reads for
+        // its own token accounting; the rest is the audio/cached split, which is where the money is.
+        usage_metadata: usage
+          ? {
+              input_tokens: usage.inputTokens,
+              output_tokens: usage.outputTokens,
+              total_tokens: usage.inputTokens + usage.outputTokens,
+            }
+          : undefined,
+        input_audio_tokens: usage?.inputAudioTokens,
+        output_audio_tokens: usage?.outputAudioTokens,
+        cached_input_tokens: usage?.cachedInputTokens,
+        // An ESTIMATE, and named one: it is our arithmetic over a rate card that can move, not a
+        // figure the platform reported.
+        estimated_cost_usd: usage ? estimateCostUsd(usage) : undefined,
+      }),
+    });
+  } catch (e) {
+    await root.end({ error: e instanceof Error ? e.message : String(e) });
+    throw e;
+  } finally {
+    await root.patchRun();
     await client.awaitPendingTraceBatches();
   }
 }

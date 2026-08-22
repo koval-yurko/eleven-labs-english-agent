@@ -21,7 +21,7 @@ import type { ItemsQuery } from "./items-query";
 import { serializeItemsQuery } from "./items-query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lesson-types";
 import type { TranscriptLine, TutorItem } from "./tutor";
-import type { TutorProviderId } from "./tutor-transport";
+import type { TutorProviderId, TutorUsage } from "./tutor-transport";
 import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./word-types";
 
 // ── paths ────────────────────────────────────────────────────────────────────────────────────
@@ -257,6 +257,17 @@ export interface TutorSessionInput {
   conversationId: string;
   agentVersion: string;
   lines: TranscriptLine[];
+  /**
+   * What the session cost, summed over its turns — present only for providers that report it live.
+   *
+   * It travels with the transcript because it has nowhere else to go: OpenAI has no post-call
+   * webhook and no post-call transcript endpoint, so the client is the only witness to a finished
+   * lesson. ElevenLabs omits it and keeps getting the richer numbers from its webhook.
+   *
+   * Advisory: a missing or wrong value costs an observability field, never a stored transcript. The
+   * server treats it exactly that way — see docs/2026-08-22-openai-lesson-observability.md.
+   */
+  usage?: TutorUsage;
 }
 
 /** `POST /api/lessons/session` — 200. */

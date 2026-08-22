@@ -4,6 +4,7 @@ import type {
   TutorCapabilities,
   TutorEndReason,
   TutorStatus,
+  TutorUsage,
   TutorTransport,
   TutorTransportControls,
   TutorTransportEvents,
@@ -60,6 +61,33 @@ type ServerEvent = Record<string, unknown> & { type?: string };
 
 function str(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * `response.done`'s usage block → the shared shape.
+ *
+ * Read defensively field by field rather than cast, because this is the ONLY witness to what a
+ * lesson cost: OpenAI has no post-call webhook and no post-call transcript endpoint, so a shape
+ * change here would silently zero the cost record instead of failing.
+ */
+function toUsage(raw: unknown): TutorUsage | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const u = raw as Record<string, unknown>;
+  const input = u.input_token_details as Record<string, unknown> | undefined;
+  const output = u.output_token_details as Record<string, unknown> | undefined;
+  const usage: TutorUsage = {
+    inputTokens: num(u.input_tokens),
+    outputTokens: num(u.output_tokens),
+    inputAudioTokens: num(input?.audio_tokens),
+    outputAudioTokens: num(output?.audio_tokens),
+    cachedInputTokens: num(input?.cached_tokens),
+  };
+  // A response that reported nothing is not worth an event; summing zeroes only adds noise.
+  return usage.inputTokens === 0 && usage.outputTokens === 0 ? null : usage;
 }
 
 /** `pc.connectionState` → the vocabulary the session branches on. */
@@ -202,6 +230,13 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         case "output_audio_buffer.cleared":
           setIsSpeaking(false);
           return;
+
+        case "response.done": {
+          const response = event.response as { usage?: unknown } | undefined;
+          const usage = toUsage(response?.usage);
+          if (usage) emit.onUsage(usage);
+          return;
+        }
 
         case "error": {
           const detail = event.error as { message?: unknown; code?: unknown } | undefined;
