@@ -13,6 +13,7 @@
  */
 export * from "./theme";
 export * from "./tutor";
+export * from "./tutor-transport";
 export * from "./word-types";
 export * from "./word-key";
 export * from "./lesson-types";

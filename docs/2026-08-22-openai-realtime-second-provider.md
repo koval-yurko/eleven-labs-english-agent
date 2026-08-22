@@ -1,6 +1,7 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
-Research, 2026-08-22. **Status: research only — nothing built.**
+Research, 2026-08-22. **Status: Stage 0 spike BUILT and PASSED on device, 2026-08-22 — all five
+questions green (§14). Stages 1–5 not started.**
 
 ## 1. The question
 
@@ -11,11 +12,18 @@ implementation also fits?
 Two sub-questions, and they have very different answers:
 
 1. **Can it run at all on the client we ship?** (Expo SDK 57, `apps/mobile`, iOS, background audio,
-   lock-screen controls.) — **Yes, and with no new native module.** §4.
-2. **Does the app's session model survive the swap?** — **Mostly, with two real losses and one real
-   gain.** §5, §10, §11.
+   lock-screen controls.) — **Yes, with no new native module, and it survives a screen lock.**
+   Demonstrated on a device, not argued: §4, §14.
+2. **Does the app's session model survive the swap?** — **Yes, with three losses and two gains.**
+   The one feared gap (barge-in transcripts) was measured and withdrawn. §5, §6, §10, §11.
 
 ## 2. Verdict
+
+**Confirmed on a device.** The Stage 0 spike was built the same day this was written and answered all
+five of §12's questions green, including the screen lock — the one that gates whether this can ship at
+all. Two findings changed the document rather than confirming it: the barge-in transcript is **not**
+the gap §6.1 feared (it is trimmed, not deleted), and the iOS audio session turned out to be a real,
+non-obvious integration cost that no amount of reading would have surfaced (§4.1). Record in §14.
 
 **Worth doing, and the abstraction is worth building even if OpenAI is never shipped to a learner** —
 because the exercise of naming the seam is what makes the tutor session testable without a network.
@@ -95,7 +103,45 @@ against a file in this repo rather than assumed:
 - **Muting the learner.** `localTrack.enabled = false`. (ElevenLabs `setMuted` throws with no active
   conversation — `release()` guards for that at `tutor-session.tsx:551`; a raw track does not throw.)
 
-Caveats worth naming now: we would be hand-rolling the transport. The **OpenAI Agents SDK
+### 4.1 The one real cost: the iOS audio session is not ours by default
+
+**Found by the spike on 2026-08-22, and it would not have been found by reading anything.** The first
+run produced a flawless event stream and total silence — transcripts arriving, `output_audio_buffer.started`
+firing, nothing audible. It became audible only if an **ElevenLabs lesson had been started first**,
+which is the entire diagnosis.
+
+`AudioSession.configureAudio()` and `startAudioSession()` do **not** set the Apple category or mode.
+That is done by `useIOSAudioManagement`, which watches a LiveKit **`Room`**'s track state and applies
+`getDefaultAppleAudioConfigurationForMode(state)` as tracks appear and vanish. Its table:
+
+| track state | category | mode |
+| --- | --- | --- |
+| `none` | `soloAmbient` | `default` ← **cannot render a WebRTC audio unit** |
+| `remoteOnly` | `playback` | `spokenAudio` |
+| `localOnly` / `localAndRemote` | `playAndRecord` | `videoChat` |
+
+A raw `RTCPeerConnection` has no `Room`, so nothing ever moves the session off `soloAmbient`. An
+ElevenLabs lesson moves it to `playAndRecord` and **leaves it there** — so the spike was silently
+free-riding on the other provider's setup, and "it works if you run a lesson first" is exactly the
+shape that bug takes.
+
+The fix is three lines: call `setAppleAudioConfiguration(getDefaultAppleAudioConfigurationForMode("localAndRemote", true))`
+when the local track opens and **again** when the remote track arrives, because the WebRTC audio unit
+reconfigures the session as it starts and iOS resets the category on some route changes. LiveKit
+re-applies on every track-state change; this is the same answer with two states.
+
+**The consequence is bigger than the fix, and it lands on §7.** AVAudioSession is one process-wide
+resource that no provider can own privately: whichever adapter configures it last wins. Today the
+ElevenLabs SDK owns it invisibly and that is fine because it is the only provider. With two, the
+session cannot live inside the adapters at all.
+
+It also generalises into a testing rule: **every spike or comparison run starts from a cold launch
+with no prior lesson.** Otherwise you are measuring the other provider's audio session, and that false
+pass looks exactly like a pass.
+
+### 4.2 Remaining caveats
+
+We would be hand-rolling the transport. The **OpenAI Agents SDK
 (`@openai/agents-realtime`) does not work in React Native** (openai/agents-js#133) — it assumes Node
 or a browser. Community reports of RN voice agents hearing themselves in a loop are echo-cancellation
 problems, i.e. the AVAudioSession mode; using LiveKit's `AudioSession` configuration (the one
@@ -149,23 +195,35 @@ write it down — so writing it down is most of the work.
 | `maxTokens` per turn | `prompt.max_tokens` | `response.max_output_tokens` |
 | extra languages | `language_presets` | prompt-level only |
 
-## 6. The three places the model does not line up
+## 6. Where the model does not line up
 
-### 6.1 Barge-in transcript correction — a partial loss
+Three candidates went into the spike. **One turned out not to be a gap at all** (§6.1); the other
+two stand.
+
+### 6.1 Barge-in transcript correction — RESOLVED, and it is parity
 
 `onAgentResponseCorrection` exists because *"the record claims the teacher finished sentences the
 learner cut off — in an app whose whole premise is interrupting freely"* (`tutor-session.tsx:373`).
 
-OpenAI's WebRTC transport does hold the output-audio buffer server-side and *"knows how much audio has
-been played at a given moment"*, and *"the server will automatically truncate unplayed audio when
-there's a user interruption"*. So the mechanism exists. What is **not** confirmed from the docs is
-whether the *stored item's transcript text* is trimmed to match, i.e. whether we can read a corrected
-string the way `onAgentResponseCorrection` hands us one. **This is spike item #1** — it is the one
-gap that silently corrupts stored history rather than failing loudly.
+**Measured on the device, 2026-08-22: the retained transcript is a PREFIX of what was generated.** On
+a barge-in the server clears its output buffer, emits `conversation.item.truncated` carrying the
+played `audio_end_ms`, and the item's transcript is **trimmed to what was actually heard** — not
+deleted. Reading it back with `conversation.item.retrieve` returns the opening of the sentence, cut
+where the learner cut in. That is full parity with `onAgentResponseCorrection`, and this section's
+original worry is withdrawn.
 
-Fallback if the text is not trimmed: send `conversation.item.truncate` with the played `audio_end_ms`
-ourselves and trim our own line proportionally. That is an approximation, and it should be labelled
-as one in the code rather than pretended otherwise.
+The docs sentence that caused the worry — *"truncating audio will delete the server-side text
+transcript to ensure there is not text in the context that hasn't been heard by the user"* — is
+ambiguous, and the pessimistic reading was the wrong one: it deletes the text that was **not heard**,
+it does not wipe the item. Only the device settled that, which is §12's ordering argument in one
+sentence.
+
+**What still differs is the SHAPE, and it is a design note for the adapter.** ElevenLabs *pushes* a
+correction; OpenAI expects you to *ask*. There is no corrected-transcript callback — the adapter has
+to notice `conversation.item.truncated`, send `conversation.item.retrieve`, and reconcile the answer
+against the line it already appended. So `TutorTransport.onTurnCorrected` (§7) is a genuinely shared
+event with two very different implementations behind it: a subscription on one side, a request /
+response round trip on the other.
 
 ### 6.2 `onDisconnect(reason)` — we must synthesise it
 
@@ -273,6 +331,27 @@ Two design notes that matter more than the shape:
   paused screen must not claim a silence it did not deliver. Generalise that: the session asks the
   transport what it can do and renders accordingly, rather than calling a method that quietly does
   nothing.
+- **The audio session is NOT part of the transport — but it cannot be taken away from one either.**
+  §4.1 is the reason it must be hoisted: AVAudioSession is one process-wide resource, and an adapter
+  that configures it privately fights the other one — last writer wins, and the loser fails as
+  *silence* rather than as an error.
+
+  An earlier draft of this bullet said the ElevenLabs adapter's job is to *stop* owning it. **That is
+  not achievable, and the correction matters.** `@elevenlabs/react-native/src/index.react-native.ts`
+  calls `AudioSession.configureAudio()` and `startAudioSession()` inside its own session setup and
+  `stopAudioSession()` on detach, with no option to disable any of it. So the design is not
+  *ownership transfer*, it is **policy ownership plus re-assertion**: one module above both adapters
+  decides the category and re-applies it after any transport starts or any track changes, and the
+  ElevenLabs adapter tolerates the SDK's internal calls rather than preventing them.
+
+  The sharp end is that `stopAudioSession()` on detach is **global**. Today it is harmless because
+  there is one provider. With two, ending an ElevenLabs session tears the audio session out from
+  under a live OpenAI one — and per §4.1 that failure presents as silence, not as an error. This is
+  why `lib/audio-session.ts` is part of stage 1 rather than a later tidy-up: it is what stops stage 2
+  from reproducing the exact bug stage 0 already hit.
+- **`onTurnCorrected` hides a round trip on one side.** §6.1: ElevenLabs pushes the correction,
+  OpenAI has to be asked for it. The event is genuinely shared; the work behind it is not, and the
+  adapter — not the session — is where that asymmetry gets absorbed.
 
 ## 8. Server side
 
@@ -378,6 +457,11 @@ costs a turn and pollutes the transcript enough that `HIDDEN_KICKOFF_MESSAGES` h
 OpenAI has first-class `response.cancel` + `output_audio_buffer.clear`. And silencing output stops
 being a documented hack against a `protected` field.
 
+**Confirmed on the device (§14).** `_setVolume(0)` silenced the tutor instantly and mid-word, on a
+track handed straight to us by the `track` event — no `useRawConversation()`, no reach through a
+`protected` `connection.getRoom()`, and no need for `agent-audio.ts`'s "how many tracks did I actually
+reach" defensiveness, which exists only because the ElevenLabs path cannot promise it.
+
 ### 11.3 Loss: the voice
 
 ElevenLabs' voice catalogue and per-version `voiceId` is a real product asset for a language tutor —
@@ -402,7 +486,7 @@ manages its own context. For a 30-minute lesson over 20 words this probably neve
 Deliberately transport-first. Writing the interface before the second implementation exists produces
 an interface shaped like ElevenLabs with OpenAI-shaped holes.
 
-**Stage 0 — the spike (throwaway, one screen, no abstraction).** A dev-only screen in `apps/mobile`
+**Stage 0 — the spike (throwaway, one screen, no abstraction). ✅ DONE 2026-08-22 — all five green, §14.** A dev-only screen in `apps/mobile`
 that mints a client secret from a new dev route, opens an `RTCPeerConnection` against
 `/v1/realtime/calls`, opens `oai-events`, and holds a spoken conversation with a hardcoded prompt.
 Answers, on a device:
@@ -412,7 +496,7 @@ Answers, on a device:
 4. does `_setVolume(0)` silence the remote track?
 5. what does `idle_timeout_ms` actually do to pacing? (§6.3)
 
-Nothing else starts until 1 and 2 are yes.
+Nothing else starts until 1 and 2 are yes. **Both are yes.**
 
 **Stage 1 — extract the interface from ElevenLabs alone.** Write `tutor-transport.ts`, wrap the
 existing SDK in `transport/elevenlabs.ts`, and rewrite `tutor-session.tsx` against the contract with
@@ -442,10 +526,67 @@ should be a new version, not a port.
    Identical is easier to reason about; better is better. Recommend better, with the capability flags
    making the difference explicit rather than accidental.
 4. **`gpt-realtime-2.1` or `-mini` for the first real lesson?** Needs an evaluation pass, not a
-   preference — the prompt is 15KB and dense.
+   preference — the prompt is 15KB and dense. Stage 0 ran entirely on `-2.1`, so nothing here is
+   evidence about the mini.
 5. **Sideband or client-only transcripts (§9)?** Recommend client-only first.
 
-## 14. Sources
+## 14. Stage 0 results — 2026-08-22
+
+**PASSED. All five questions green.** Run on a physical iPhone against the deployed backend
+(`/api/v2/words-agent/openai-token` on production), model `gpt-realtime-2.1`, voice `marin`, session
+pinned to `semantic_vad` / `eagerness: "low"`. The instrument is `apps/mobile/src/app/realtime.tsx`
+and the scrollback is S1's (`hooks/use-event-log`), newest-first and wall-clock stamped.
+
+| # | Question | Result |
+| --- | --- | --- |
+| 1 | remote audio plays, with echo cancellation, on the AudioSession we already configure | **PASS**, but only after §4.1's fix — see below |
+| 2 | survives a screen lock | **PASS** on a **Release** build: `alive` heartbeats unbroken across the locked window, and `you:` lines timestamped inside it |
+| 3 | is there a corrected transcript after a barge-in | **PASS — a prefix of what was generated.** §6.1 rewritten; the feared gap does not exist |
+| 4 | does `_setVolume(0)` silence the remote track | **PASS** — instant, mid-word, and reversible |
+| 5 | what semantic VAD does to pacing | **PASS** — turn-taking felt natural; the tutor waited rather than cutting in |
+
+### 14.1 What the spike changed in this document
+
+Two things, and neither was predictable from the documentation:
+
+1. **§4.1 — the iOS audio session.** The headline finding, and the only genuine integration cost
+   discovered. It also produced a constraint on §7 (the session cannot live inside the adapters) and
+   a standing testing rule (cold launch, no prior lesson).
+2. **§6.1 — barge-in.** Went in as *"the one gap that silently corrupts stored history rather than
+   failing loudly"* and came out as parity. What remains is a shape difference — push versus ask —
+   which is an adapter concern, not a product one.
+
+Everything else in §5's tables held as written.
+
+### 14.2 Not captured
+
+Recorded as gaps rather than quietly omitted, in the manner of
+[S1 §12](./2026-08-13-expo-s1-background-audio.md):
+
+- **Device model and iOS version.** Only one handset was tested, and it is the only one.
+- **Token usage.** `response.done` carries a `usage` block and the screen logs it, but no numbers
+  were copied down — so §10's cost model is still arithmetic rather than measurement. This is the
+  cheapest outstanding measurement in the whole document and it needs no new code.
+- **The alpha–echo count.** Q2 passed on both halves, but "five of five" was not counted out the way
+  S1 required. A partial uplink would have read as a pass here.
+- **Echo cancellation was judged by ear**, not by checking that no `you:` line ever contained the
+  tutor's own words — which is the criterion the screen actually makes checkable.
+
+### 14.3 What Stage 1 inherits
+
+- The transport works, hand-rolled, on the WebRTC stack the app already ships. **No native module was
+  added and no prebuild was run** — §4's central claim, now demonstrated rather than argued.
+- The spike screen and `/api/v2/words-agent/openai-token` are throwaway and marked as such. They exist
+  to be deleted when the interface lands, not to be grown into it.
+- Three of `TutorCapabilities`' four flags now have measured values for OpenAI: `silenceOutput: true`,
+  `cancelTurn: true`, `responseCorrection: true` (via a round trip). `userActivity: false` follows
+  from §6.3 and is still inference, not measurement.
+- **`turnEagerness` / podcast mode is still open.** §6.3's question was whether `idle_timeout_ms` can
+  reproduce a tutor that continues on its own after a 3-second gap. The spike answered ordinary
+  teaching pacing, not that: its prompt is not a podcast prompt and `server_vad` was never exercised.
+  Do not read Q5's pass as covering words-1.5.
+
+## 15. Sources
 
 - OpenAI, *Realtime API with WebRTC* — https://developers.openai.com/api/docs/guides/realtime-webrtc
 - OpenAI, *Realtime and audio* — https://developers.openai.com/api/docs/guides/realtime

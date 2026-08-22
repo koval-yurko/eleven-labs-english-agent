@@ -1,14 +1,7 @@
-import { useConversation, useRawConversation } from "@elevenlabs/react-native";
-import {
-  API_V2_ROUTES,
-  conversationTokenPath,
-  isConversationTokenResponse,
-  type TutorSessionInput,
-} from "@tutor/shared/api";
+import { API_V2_ROUTES, type TutorSessionInput } from "@tutor/shared/api";
 import {
   ABORTED_RESUME_MESSAGE,
   formatHeldResumeContext,
-  formatItemsList,
   formatResumeContext,
   HIDDEN_KICKOFF_MESSAGES,
   KICKOFF_MESSAGE,
@@ -22,6 +15,11 @@ import {
   type TranscriptLine,
   type TutorItem,
 } from "@tutor/shared/tutor";
+import type {
+  TutorStatus,
+  TutorTransport,
+  TutorTransportEvents,
+} from "@tutor/shared/tutor-transport";
 import {
   createContext,
   useCallback,
@@ -37,8 +35,8 @@ import { AppState } from "react-native";
 import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
 
 import { apiFetch } from "@/api";
+import { applyVoiceLessonCategory } from "@/lib/audio-session";
 import { useAccessToken, useSession } from "@/lib/auth";
-import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
 import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
 import {
@@ -49,7 +47,11 @@ import {
   writeJournal,
   writePauseMarker,
 } from "@/lib/session-journal";
-import { tutorErrorMessage } from "@/lib/tutor-error";
+import {
+  DEFAULT_TUTOR_PROVIDER,
+  TUTOR_PROVIDERS,
+  type TutorProviderId,
+} from "@/lib/transport";
 
 /**
  * The live tutor session, hoisted out of the screen that used to own it.
@@ -75,9 +77,19 @@ import { tutorErrorMessage } from "@/lib/tutor-error";
  * Inside `ConversationProvider` and **above** the router (`app/_layout.tsx`). The SDK's provider was
  * already above the router, so the transport always survived a screen change; what did not was
  * everything the screen held around it — the transcript, the conversation id, the pause machine,
- * the callbacks themselves. `useConversation` registers its callbacks with the provider and
- * **unregisters them on unmount**, so a screen-owned `onMessage` stops collecting the moment the
+ * the callbacks themselves. A transport registers its callbacks with the provider and
+ * **unregisters them on unmount**, so a screen-owned turn handler stops collecting the moment the
  * learner navigates: the call would have kept running and the transcript would have stopped.
+ *
+ * ## What carries the voice is no longer this file's business
+ *
+ * Since stage 1 (docs/2026-08-22-openai-realtime-second-provider.md §7) everything vendor-shaped —
+ * the SDK callbacks, the token mint, the `startSession` argument, the error wording, the volume
+ * escape hatch — lives behind `@tutor/shared/tutor-transport` in `lib/transport/`. This file names
+ * no provider. Where the two disagree it ASKS (`capabilities`) rather than assuming: whether a turn
+ * can be cancelled without spending one, whether a held pause needs a keep-alive, whether the iOS
+ * audio session is already owned. Adding a provider is a file beside `transport/elevenlabs.ts` and
+ * a line in `transport/index.ts`; it is not an edit here.
  *
  * ## One session, one lesson
  *
@@ -202,6 +214,24 @@ const ActiveContext = createContext<ActiveSession>(null);
 /** How often a held pause pings `user_activity` — see `TUTOR_HEARTBEAT_MS` for the reasoning. */
 const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
 
+/**
+ * Every provider this build can run, all of them, on every render.
+ *
+ * The rules of hooks are why this is written out by hand instead of looping over `TUTOR_PROVIDERS`:
+ * a hook call sequence has to be the same on every render, and an adapter is inert until `start()`
+ * is called, so instantiating all of them costs nothing and calling one conditionally would cost
+ * correctness.
+ *
+ * The return type is the safety net. `Record<TutorProviderId, TutorTransport>` means adding an entry
+ * to `TUTOR_PROVIDERS` and forgetting this object is a COMPILE ERROR rather than a provider that
+ * silently cannot be selected.
+ */
+function useTutorTransports(events: TutorTransportEvents): Record<TutorProviderId, TutorTransport> {
+  return {
+    elevenlabs: TUTOR_PROVIDERS.elevenlabs(events),
+  };
+}
+
 export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const accessToken = useAccessToken();
 
@@ -237,7 +267,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   // Mirrors for the SDK callbacks (they close over the render they were created in).
   const linesRef = useRef<TranscriptLine[]>([]);
   const versionRef = useRef("");
-  /** THE ROW KEY. Seeded from the token response before `startSession`, never by a callback (S3 D23). */
+  /** THE ROW KEY. Seeded in `start`'s `onIdentified` seam, never by a callback (S3 D23). */
   const conversationIdRef = useRef<string | null>(null);
   const savedForRef = useRef<string | null>(null);
   /**
@@ -247,7 +277,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   const resumeContextRef = useRef<{ lines: TranscriptLine[]; cause: ResumeCause } | null>(null);
   const kickedOffRef = useRef(false);
-  const statusRef = useRef<string>("disconnected");
+  const statusRef = useRef<TutorStatus>("disconnected");
   const startingRef = useRef(false);
   /**
    * Is the conversation the SDK is running **ours**?
@@ -349,54 +379,65 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     [persistConversation],
   );
 
-  const conversation = useConversation({
-    onConnect: ({ conversationId: sdkId }) => {
+  /**
+   * What the transport tells this session.
+   *
+   * Rebuilt every render — the adapter holds it in a ref and reads the latest, which is its
+   * contract, not this file's problem. What this file still owns is the OWNERSHIP GUARD on every
+   * handler, and that stays here rather than moving into the adapter because what it defends
+   * against is a session-level fact: `ConversationProvider` composes every registered set of
+   * callbacks, so any other component running a conversation would otherwise push turns into a
+   * lesson's transcript, raise a lock-screen card for a lesson nobody opened, and get a second
+   * kickoff sent into its own conversation.
+   */
+  const events: TutorTransportEvents = {
+    onTransportId: (transportId) => {
       if (!ownsRef.current) return;
-      // ADVISORY ONLY — compared, never written to the ref. The SDK derives this from the LiveKit
+      // ADVISORY ONLY — compared, never written to the ref. ElevenLabs derives this from the LiveKit
       // room name and falls back to `room_<timestamp>` when that name is empty, which no other
       // writer would ever produce. S3 measured them agreeing; this is the tripwire for the day they
       // stop.
       const authoritative = conversationIdRef.current;
-      if (authoritative && sdkId !== authoritative) {
-        setError(`Session id mismatch (${sdkId}). The transcript is still saved correctly.`);
+      if (authoritative && transportId !== authoritative) {
+        setError(`Session id mismatch (${transportId}). The transcript is still saved correctly.`);
       }
     },
-    onMessage: ({ message, role }) => {
+    onTurn: ({ role, text }) => {
       if (!ownsRef.current) return;
       // The kickoff is the trigger, not something the learner said — every other writer filters it
       // out of the stored history, so it must not be collected here either.
-      if (role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(message)) return;
-      linesRef.current = [...linesRef.current, { role, text: message }];
+      if (role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(text)) return;
+      linesRef.current = [...linesRef.current, { role, text }];
       setLines(linesRef.current);
-      // Journal as we go: a crash or a force-quit never runs `onDisconnect`.
+      // Journal as we go: a crash or a force-quit never runs the disconnect path.
       journal();
     },
     /**
      * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
      * in an app whose whole premise is interrupting freely.
      */
-    onAgentResponseCorrection: ({ original_agent_response, corrected_agent_response }) => {
+    onTurnCorrected: (previous, corrected) => {
       if (!ownsRef.current) return;
       const index = linesRef.current.findLastIndex(
-        (l) => l.role === "agent" && l.text === original_agent_response,
+        (l) => l.role === "agent" && l.text === previous,
       );
       if (index === -1) return;
-      const corrected = [...linesRef.current];
-      corrected[index] = { role: "agent", text: corrected_agent_response };
-      linesRef.current = corrected;
-      setLines(corrected);
+      const next = [...linesRef.current];
+      next[index] = { role: "agent", text: corrected };
+      linesRef.current = next;
+      setLines(next);
       journal();
     },
-    onStatusChange: ({ status: next }) => {
+    onStatus: (next) => {
       statusRef.current = next;
     },
-    onDisconnect: (details) => {
+    onEnd: (reason) => {
       if (!ownsRef.current) return;
       kickedOffRef.current = false;
       const forLesson = convLessonRef.current;
       void persistSession();
       /**
-       * Why the line went down, read rather than inferred — the SDK says so.
+       * Why the line went down, read rather than inferred — the transport says so.
        *
        * There is no "the learner meant this" branch here any more, and its absence is the shape of
        * the change. It existed because leaving the screen hung up a held pause, so a teardown had
@@ -409,43 +450,59 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
        */
       const stillFocused = forLesson !== null && forLesson === lessonIdRef.current;
       if (!stillFocused) return;
-      if (details.reason === "error") setPause("dropped");
-      else if (details.reason === "agent") setPause("ended");
+      if (reason === "error") setPause("dropped");
+      else if (reason === "agent") setPause("ended");
       // "user" — the learner pressed End and knows it. No card, and nothing carried: End is a full
       // stop, and continuing is what Pause/Resume is for.
-      if (details.reason !== "user" && linesRef.current.length > 0) {
+      if (reason !== "user" && linesRef.current.length > 0) {
         resumeContextRef.current = { lines: linesRef.current, cause: "interrupted" };
       }
     },
     /**
-     * The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so a
-     * DENIED microphone arrives here — as does everything else, which is why `context` is not
-     * dropped: it carries the `error_event`'s `errorType` / `code` / `debugMessage` straight off
-     * the wire. `tutorErrorMessage` owns the wording and the branching.
+     * Already one sentence, worded by the adapter — see `TutorTransportEvents.onError` for why the
+     * branching cannot be shared. A denied microphone arrives here like everything else, because the
+     * transport raises the OS prompt itself rather than pre-flighting it.
      */
-    onError: (message, context) => {
+    onError: (message) => {
       if (!ownsRef.current) return;
-      setError(tutorErrorMessage(message, context));
+      setError(message);
     },
-  });
+  };
 
-  const {
-    status,
-    isMuted,
-    isSpeaking,
-    startSession,
-    endSession,
-    sendUserMessage,
-    sendContextualUpdate,
-    sendUserActivity,
-    setMuted,
-  } = conversation;
   /**
-   * The escape hatch, for exactly one job: silencing the tutor. `conversation.setVolume()` is a
-   * NO-OP on React Native — the SDK only registers an audio adapter in its web entrypoint — so a
-   * pause that called it left the tutor audible. See `@/lib/agent-audio`.
+   * The provider this session runs on.
+   *
+   * A constant in stage 1, and named rather than implied, because it is exactly where stage 3 will
+   * start disagreeing with itself: whether a provider is chosen by the learner, implied by the
+   * prompt version, or set by the server is question 2 of §13 in
+   * docs/2026-08-22-openai-realtime-second-provider.md and is deliberately not pre-empted here.
    */
-  const rawConversation = useRawConversation();
+  const provider: TutorProviderId = DEFAULT_TUTOR_PROVIDER;
+  /**
+   * `tx` is the STABLE half and the state is the volatile half — see `TutorTransportControls`.
+   * Every control below is built on `tx` alone, which is what keeps `useTutorControls()` the
+   * "stable object, safe in a dependency array" it advertises: a screen puts `focusLesson` and
+   * `syncMeta` in effect deps, and a controls object that churned whenever `isSpeaking` flipped
+   * would re-run those several times a minute for the whole of a lesson.
+   */
+  const { state: transportState, controls: tx } = useTutorTransports(events)[provider];
+  const { status, isMuted, isSpeaking } = transportState;
+  const capabilities = tx.capabilities;
+
+  /**
+   * Assert the iOS audio category for a transport whose SDK does not do it for us.
+   *
+   * Never runs on ElevenLabs (`managesAudioSession: true`) — this is stage 0's finding wired up
+   * ahead of the adapter that needs it: a hand-rolled `RTCPeerConnection` has no LiveKit `Room`, so
+   * nothing moves AVAudioSession off `soloAmbient` and the lesson is inaudible while every event
+   * still flows. See `lib/audio-session.ts`.
+   */
+  const managesAudioSession = capabilities.managesAudioSession;
+  useEffect(() => {
+    if (!owns || status !== "connected" || managesAudioSession) return;
+    void applyVoiceLessonCategory();
+  }, [owns, status, managesAudioSession]);
+
   /**
    * `owns` and `!starting` are both load-bearing. Ownership keeps another component's session out
    * of this state machine; `!starting` covers the half-beat of a takeover, where the
@@ -526,9 +583,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     // is a silent no-op on React Native. The return value is how many agent tracks were actually
     // reached; 0 means the escape hatch is closed, and the status line says so rather than claiming
     // a silence we did not deliver (`@/lib/agent-audio`).
-    setSilenced(setAgentAudioVolume(rawConversation, 0) > 0);
+    setSilenced(tx.setOutputSilenced(true));
     wasMutedRef.current = mutedRef.current;
-    setMuted(true);
+    tx.setMicMuted(true);
     mutedRef.current = true;
     heldAtLineRef.current = linesRef.current.length;
     heldSinceRef.current = Date.now();
@@ -537,12 +594,22 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     // convinced the learner heard it. Guarded on `isSpeaking` because a pause taken while the tutor
     // is LISTENING has nothing to interrupt, and barging into silence would only provoke a turn.
     abortedRef.current = speakingRef.current;
-    if (abortedRef.current) sendUserMessage(PAUSE_STOP_MESSAGE);
-    sendContextualUpdate(PAUSE_CONTEXT);
-    heartbeatRef.current = setInterval(() => sendUserActivity(), HEARTBEAT_MS);
+    if (abortedRef.current) {
+      // Stop the turn the cheapest way this provider allows. `cancelTurn` costs nothing and leaves
+      // no trace; the fallback spends a turn and has to be filtered back out of the transcript by
+      // `HIDDEN_KICKOFF_MESSAGES`. Which one runs is the transport's answer, not this file's guess.
+      if (tx.capabilities.cancelTurn) tx.cancelTurn();
+      else tx.say(PAUSE_STOP_MESSAGE);
+    }
+    tx.context(PAUSE_CONTEXT);
+    // Only where the platform re-engages on silence. Where it does not, a heartbeat would be a timer
+    // running for the length of every pause to call a method that does nothing.
+    if (tx.capabilities.userActivity) {
+      heartbeatRef.current = setInterval(() => tx.keepAlive(), HEARTBEAT_MS);
+    }
     heldRef.current = true;
     setHeld(true);
-  }, [rawConversation, sendContextualUpdate, sendUserActivity, sendUserMessage, setMuted]);
+  }, [tx]);
 
   const release = useCallback(() => {
     if (!heldRef.current) return;
@@ -552,11 +619,11 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     // The line died while the pause was held: `setMuted` THROWS with no active conversation, and
     // the provider has already reset its own mute state on disconnect. The drop path owns this.
     if (!ownsRef.current || statusRef.current !== "connected") return;
-    setMuted(wasMutedRef.current);
+    tx.setMicMuted(wasMutedRef.current);
     mutedRef.current = wasMutedRef.current;
-    setAgentAudioVolume(rawConversation, 1);
+    tx.setOutputSilenced(false);
     setSilenced(true);
-    sendContextualUpdate(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
+    tx.context(formatHeldResumeContext((Date.now() - heldSinceRef.current) / 1000));
     // What the learner is owed, in exactly three cases — and each of the two that speak is bounded
     // to ONE turn. The tutor was:
     //   listening → nothing was lost; say nothing and let the learner speak first
@@ -565,14 +632,14 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     const aborted = abortedRef.current;
     abortedRef.current = false;
     if (aborted) {
-      sendUserMessage(ABORTED_RESUME_MESSAGE);
+      tx.say(ABORTED_RESUME_MESSAGE);
       return;
     }
     const unheard = linesRef.current
       .slice(heldAtLineRef.current)
       .some((line) => line.role === "agent");
-    if (unheard) sendUserMessage(UNHEARD_RESUME_MESSAGE);
-  }, [rawConversation, sendContextualUpdate, sendUserMessage, setMuted, stopHeartbeat]);
+    if (unheard) tx.say(UNHEARD_RESUME_MESSAGE);
+  }, [tx, stopHeartbeat]);
 
   /**
    * Mute on its own. Not reachable while held: the pause owns the microphone for as long as it
@@ -581,11 +648,11 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const toggleMute = useCallback(() => {
     if (!ownsRef.current || statusRef.current !== "connected" || heldRef.current) return;
     const next = !mutedRef.current;
-    setMuted(next);
+    tx.setMicMuted(next);
     mutedRef.current = next;
     // The learner's own choice, which a pause must restore rather than override. §3.3.
     wasMutedRef.current = next;
-  }, [setMuted]);
+  }, [tx]);
 
   /**
    * A held pause cannot outlive its connection. Anything that takes the line — a network drop, the
@@ -621,9 +688,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     resumeContextRef.current = null;
     const forLesson = convLessonRef.current;
     if (forLesson) void clearPauseMarker(forLesson);
-    endSession();
+    tx.end();
     void persistSession();
-  }, [endSession, persistSession]);
+  }, [tx, persistSession]);
 
   /**
    * A session that ends takes the conversation with it.
@@ -871,12 +938,12 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     const resumeFrom = resumeContextRef.current;
     resumeContextRef.current = null;
     if (resumeFrom && resumeFrom.lines.length > 0) {
-      sendContextualUpdate(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
-      sendUserMessage(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);
+      tx.context(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
+      tx.say(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);
     } else {
-      sendUserMessage(KICKOFF_MESSAGE);
+      tx.say(KICKOFF_MESSAGE);
     }
-  }, [status, sendUserMessage, sendContextualUpdate]);
+  }, [status, tx]);
 
   const start = useCallback(
     async (input: StartInput) => {
@@ -922,7 +989,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         conversationIdRef.current = null;
         convLessonRef.current = null;
         linesRef.current = [];
-        endSession();
+        tx.end();
       }
 
       /**
@@ -952,60 +1019,54 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       setError(null);
       setStarting(true);
       try {
-        // No microphone pre-flight: the SDK's audio session raises the prompt itself, so a denial
-        // arrives through `onError` rather than here.
-        const res = await apiFetch<unknown>(
-          conversationTokenPath(input.version ?? undefined),
-          accessToken,
-          { method: "POST" },
-        );
-        if (!isConversationTokenResponse(res)) {
-          throw new Error("The server did not return a usable conversation token.");
-        }
-
-        // Either way the next conversation starts with a transcript of its own; resuming moves what
-        // was already said into the read-only carried block above it. (A lesson that has just taken
-        // the session from another one has already been emptied above, so both branches are `[]`
-        // for it.)
-        const resuming = (resumeContextRef.current?.lines.length ?? 0) > 0;
-        const previous = linesRef.current;
-        setCarried(resuming ? (prev) => [...prev, ...previous] : []);
-        setLines([]);
-        linesRef.current = [];
-        await clearJournal(input.lessonId);
-        // The pause is being spent — whether it is resumed or overridden by a fresh start, the
-        // parked copy must not outlive this call, or the next focus offers a resume into a
-        // conversation the learner has already moved past.
-        await clearPauseMarker(input.lessonId);
-        savedForRef.current = null;
-        kickedOffRef.current = false;
-        setPause(null);
-        setEnding(false);
-
-        // Seeded BEFORE startSession. From here on this is the row key, whatever the transport says.
-        claimSession(true);
-        conversationIdRef.current = res.conversationId;
-        convLessonRef.current = input.lessonId;
-        versionRef.current = res.version;
-        setVersion(res.version);
-
-        startSession({
-          conversationToken: res.token,
-          connectionType: "webrtc", // the only transport the RN SDK supports; websocket throws
-          // The screen is never held awake (D40): S1 proved a locked session keeps talking, and the
-          // web's wake lock was an apology for a browser limitation that does not exist here.
-          useWakeLock: false,
-          dynamicVariables: {
-            items_list: formatItemsList(input.itemsDetailed),
-            // Ties the post-call webhook payload back to this lesson's history.
-            lesson_id: input.lessonId,
-            // Required, never defaulted: the webhook routes on it, and a missing one would file
-            // this session under the wrong environment.
-            app_env: res.appEnv,
+        await tx.start(
+          {
+            lessonId: input.lessonId,
+            // The fat shape. How it reaches the agent is the adapter's business — a dynamic
+            // variable on one provider, server-side interpolation on another.
+            items: input.itemsDetailed,
+            version: input.version,
           },
-        });
+          /**
+           * The window between "we have a row key" and "the line is up". Everything here used to sit
+           * inline between the token mint and `startSession`, and each line is here for a reason
+           * spelled out in `TutorTransportControls.start`:
+           *
+           *   - the disk clears run AFTER the mint, so a refused mint leaves the journal and the
+           *     pause marker where they are, and BEFORE the connect, so the next focus cannot offer
+           *     a resume into a conversation this start has already superseded;
+           *   - ownership is claimed before a callback can fire;
+           *   - the row key is seeded before a turn can arrive.
+           */
+          async (descriptor) => {
+            // Either way the next conversation starts with a transcript of its own; resuming moves
+            // what was already said into the read-only carried block above it. (A lesson that has
+            // just taken the session from another one has already been emptied above, so both
+            // branches are `[]` for it.)
+            const resuming = (resumeContextRef.current?.lines.length ?? 0) > 0;
+            const previous = linesRef.current;
+            setCarried(resuming ? (prev) => [...prev, ...previous] : []);
+            setLines([]);
+            linesRef.current = [];
+            await clearJournal(input.lessonId);
+            // The pause is being spent — whether it is resumed or overridden by a fresh start, the
+            // parked copy must not outlive this call.
+            await clearPauseMarker(input.lessonId);
+            savedForRef.current = null;
+            kickedOffRef.current = false;
+            setPause(null);
+            setEnding(false);
+
+            // From here on this is the row key, whatever the transport says its own id is.
+            claimSession(true);
+            conversationIdRef.current = descriptor.conversationId;
+            convLessonRef.current = input.lessonId;
+            versionRef.current = descriptor.version;
+            setVersion(descriptor.version);
+          },
+        );
       } catch (e) {
-        // `startSession` was never reached, so there is no conversation of ours to own — and the
+        // The transport never connected, so there is no conversation of ours to own — and the
         // ownership effect cannot notice, because the transport never left "disconnected".
         claimSession(false);
         setError(e instanceof Error ? e.message : String(e));
@@ -1014,16 +1075,16 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         startingRef.current = false;
       }
     },
-    [accessToken, claimSession, endSession, persistConversation, startSession, stopHeartbeat],
+    [claimSession, persistConversation, stopHeartbeat, tx],
   );
 
   /**
    * The app is going away. This provider is mounted once per process, so this cleanup runs when the
    * runtime is torn down — not on navigation, which is the entire point of the file.
    */
-  const latest = useRef({ persistSession, endSession, stopHeartbeat });
+  const latest = useRef({ persistSession, end: tx.end, stopHeartbeat });
   useEffect(() => {
-    latest.current = { persistSession, endSession, stopHeartbeat };
+    latest.current = { persistSession, end: tx.end, stopHeartbeat };
   });
   useEffect(
     () => () => {
@@ -1031,7 +1092,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       void dismissCard();
       if (ownsRef.current && statusRef.current === "connected") {
         void latest.current.persistSession();
-        latest.current.endSession();
+        latest.current.end();
       }
     },
     [],
