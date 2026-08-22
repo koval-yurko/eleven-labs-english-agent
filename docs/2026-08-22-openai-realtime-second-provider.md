@@ -1,8 +1,8 @@
 # Two voice providers behind one interface: ElevenLabs and the OpenAI Realtime API
 
-Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–3 BUILT and green in CI but not
-yet device-verified (§14, §15). Stage 4 (an OpenAI prompt version) is the next real work; stage 5
-(sideband observability) is untouched.**
+Research, 2026-08-22. **Status: Stage 0 PASSED on device; stages 1–4 BUILT and green in CI, none of
+them device-verified (§14, §15). Stage 5 (sideband observability) is untouched. `words-2.0` is
+selectable but has never been spoken to a human.**
 
 ## 1. The question
 
@@ -510,7 +510,7 @@ truth about §6.
 **Stage 3 — server: provider-aware versions. ✅ BUILT 2026-08-22 (§15.3).** `PromptVersion.provider`, `sync:agents` skips OpenAI,
 the token route branches, `items_list` interpolated server-side.
 
-**Stage 4 — a pronunciation-mode prompt version** on OpenAI (§11.1). This is the payoff, and it
+**Stage 4 — a pronunciation-mode prompt version. ✅ BUILT 2026-08-22 (§15.5).** on OpenAI (§11.1). This is the payoff, and it
 should be a new version, not a port.
 
 **Stage 5 (separate document) — sideband observability.** §9.
@@ -594,7 +594,7 @@ Recorded as gaps rather than quietly omitted, in the manner of
   teaching pacing, not that: its prompt is not a podcast prompt and `server_vad` was never exercised.
   Do not read Q5's pass as covering words-1.5.
 
-## 15. Stages 1–3 — 2026-08-22
+## 15. Stages 1–4 — 2026-08-22
 
 **Built; typecheck, lint, the shared property checks, the mobile logic checks and the iOS bundle all
 pass. NOT device-verified.** Stage 1's whole criterion is *zero behaviour change*, and no compiler
@@ -698,6 +698,65 @@ says so where someone changing it will read it.
 
 So the app's behaviour today is unchanged: seven ElevenLabs versions in the picker, one of which is
 the default, and a whole second provider wired end to end waiting for a prompt.
+
+### 15.5 Stage 4 — `words-2.0`, the lesson that needed the other provider
+
+The payoff, and the first version that is not a words-1.x lesson. `apps/web/src/agent/prompts/words-2.0.ts`,
+`provider: "openai"`.
+
+**It inverts almost every rule words-1.6 is built on**, which is the clearest evidence that §11.1 was
+right to say "a new version, not a port":
+
+| words-1.6 (cascaded) | words-2.0 (speech-to-speech) |
+| --- | --- |
+| *NEVER ask a question you expect an answer to* | asking is the lesson |
+| *NEVER ask the learner to SPEAK, REPEAT or PRODUCE anything* | that is the one thing it is for |
+| *SILENCE IS NORMAL AND MEANS NOTHING* | silence is the learner thinking; the tutor waits, models the answer, moves on |
+| a podcast for a locked phone with the mic off | a conversation with the mic open |
+
+What carries across unchanged is the DATA — the same `{{items_list}}`, the same curated
+`words.details` block, the same rule never to read the labels aloud or contradict the provided
+Russian. That is the shareable core doing its job.
+
+The prompt is sectioned the way OpenAI's realtime prompting guide recommends (Role & Objective,
+Personality & Tone, Context, Reference Pronunciations, Rules, Conversation Flow) and carries the two
+things that guide singles out as what realtime prompts get wrong: an **unclear-audio** block that
+says never to guess and to stop asking after two failures, and a **variety** rule so corrections and
+praise do not come out identically every time.
+
+The Reference Pronunciations section is the part with real content: final-consonant devoicing,
+unstressed vowels given full value, word stress across a family, TH, W/V, ship–sheep, the /æ/ gap, NG,
+aspiration. It is framed as *what to listen for*, with **CORRECT WHAT YOU HEARD, NEVER WHAT YOU
+EXPECTED** above it, because a model handed a list of likely faults will otherwise find them whether
+or not they happened.
+
+### 15.6 The default stopped being positional, and had to
+
+`PROMPT_VERSIONS` was documented as *"the last entry is the UI default"*. Appending `words-2.0` would
+therefore have moved **every learner who never opens the picker** onto a second provider, a different
+lesson format, and a code path nobody has spoken to — as a side effect of adding to a list.
+
+Positional defaults are fine while every entry is interchangeable. These are not, so the default is
+now a name: `DEFAULT_PROMPT_VERSION = "words-1.6"`, read by `resolveVersion(null)` and echoed by
+`/api/v2/agent-versions` so no client re-derives it. Promoting a version is a deliberate one-line
+edit. `resolveVersion` still falls back to the newest active version if the name is ever wrong, so a
+mistake degrades instead of breaking.
+
+Verified: `activeVersions()` lists eight versions, `words-2.0` among them with `provider: "openai"`
+and no agent id; `resolveVersion(null)` still answers `words-1.6` on ElevenLabs; and
+`pnpm sync:agents --dry-run` reports the same seven no-ops, because `words-2.0` is invisible to it.
+
+### 15.7 What stage 4 did NOT do
+
+- **Nobody has spoken to `words-2.0`.** It compiles, it resolves, the route will mint a credential for
+  it. Whether the lesson is any good — whether the model actually corrects pronunciation instead of
+  agreeing that everything sounded fine, whether it hears a devoiced ending, whether the loop paces
+  well — is unknown, and is exactly the kind of thing only a device answers.
+- **The pronunciation list is from linguistics, not from this learner.** The traps are the standard
+  L1-Russian set. Which ones matter for the person using this app is a different question and one the
+  transcripts could eventually answer.
+- **No evaluation.** There is no way to compare `words-2.0` against `words-1.6` other than by using
+  both, and the LangSmith trace that would make that comparison durable is stage 5 (§9).
 
 ## 16. Sources
 

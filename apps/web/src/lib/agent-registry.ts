@@ -18,7 +18,7 @@
 import type { TutorProviderId } from "@tutor/shared/tutor-transport";
 
 import lockfile from "../agent/agents.lock.json";
-import { PROMPT_VERSIONS } from "../agent/prompts";
+import { DEFAULT_PROMPT_VERSION, PROMPT_VERSIONS } from "../agent/prompts";
 
 interface LockAgent {
   agentId: string;
@@ -66,7 +66,10 @@ export function activeVersions(): ActiveVersion[] {
 export function resolveVersion(version?: string | null): ActiveVersion | null {
   const all = activeVersions();
   if (version) return all.find((v) => v.version === version) ?? null;
-  return all[all.length - 1] ?? null;
+  // NAMED, not positional — see `DEFAULT_PROMPT_VERSION` for why appending to the registry must not
+  // be able to move every learner onto a different provider. The fallback keeps a bad name from
+  // taking the app down: it degrades to the newest active version instead.
+  return all.find((v) => v.version === DEFAULT_PROMPT_VERSION) ?? all[all.length - 1] ?? null;
 }
 
 /**

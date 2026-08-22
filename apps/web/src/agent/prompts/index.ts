@@ -15,6 +15,7 @@ import words13 from "./words-1.3";
 import words14 from "./words-1.4";
 import words15 from "./words-1.5";
 import words16 from "./words-1.6";
+import words20 from "./words-2.0";
 
 export type { PromptVersion } from "./types";
 
@@ -39,8 +40,10 @@ export const DEFAULT_TURN_TIMEOUT_SECONDS = 7;
 export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
 
 /**
- * All prompt versions, OLDEST → NEWEST. The last entry is the UI default. The order here also
- * drives the version picker; it is the canonical ordering (the lockfile is an unordered map).
+ * All prompt versions, OLDEST → NEWEST. The order drives the version picker and is the canonical
+ * ordering (the lockfile is an unordered map).
+ *
+ * **The last entry is no longer automatically the default** — see `DEFAULT_PROMPT_VERSION`.
  */
 export const PROMPT_VERSIONS: PromptVersion[] = [
   words10,
@@ -50,7 +53,24 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words14,
   words15,
   words16,
+  words20,
 ];
+
+/**
+ * The version a session runs when none was asked for.
+ *
+ * **This used to be "the last entry in PROMPT_VERSIONS", and that stopped being safe the moment a
+ * version could name a different provider.** Adding words-2.0 to the end of the array would
+ * otherwise have moved every learner who never touches the picker onto a second provider, a
+ * different lesson format, and a code path that has not been in front of anyone — as a side effect
+ * of appending to a list. Positional defaults are fine while every entry is interchangeable; these
+ * are not.
+ *
+ * So the default is now a NAME, and promoting a version is a deliberate one-line edit here.
+ * `resolveVersion` falls back to the newest active version if this one is ever missing or retired,
+ * so a mistake here degrades rather than breaks.
+ */
+export const DEFAULT_PROMPT_VERSION = "words-1.6";
 
 /** The full agent config baked into ElevenLabs for one version (after applying defaults). */
 export interface EffectiveAgentConfig {

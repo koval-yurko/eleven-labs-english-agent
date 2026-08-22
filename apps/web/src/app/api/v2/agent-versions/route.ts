@@ -1,6 +1,6 @@
 import type { AgentVersionsResponse } from "@tutor/shared/api";
 
-import { activeVersions } from "../../../../lib/agent-registry";
+import { activeVersions, resolveVersion } from "../../../../lib/agent-registry";
 import { withBearer } from "../../../../lib/auth/bearer";
 import { apiError, json, preflight } from "../../../../lib/http";
 
@@ -22,10 +22,11 @@ export const OPTIONS = preflight;
  */
 export const GET = withBearer(async () => {
   const active = activeVersions();
-  // The newest active version IS the default (`resolveAgent` with no argument). Taking it first
-  // means one check covers both "nothing provisioned" and the index access.
-  const newest = active[active.length - 1];
-  if (!newest) {
+  // Asked for rather than derived: the default is a NAME now (`DEFAULT_PROMPT_VERSION`), not the
+  // last array entry, so a client re-deriving "newest" would disagree with the token routes about
+  // which version — and therefore which PROVIDER — a session with no explicit choice runs on.
+  const fallback = resolveVersion(null);
+  if (!fallback) {
     return apiError(500, "config", "No active tutor agents — run `pnpm sync:agents`.");
   }
 
@@ -38,7 +39,7 @@ export const GET = withBearer(async () => {
       label: label ?? version,
       provider,
     })),
-    defaultVersion: newest.version,
+    defaultVersion: fallback.version,
   };
   return json(body);
 });
