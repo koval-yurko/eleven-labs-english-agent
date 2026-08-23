@@ -42,3 +42,37 @@ export function openAiRealtimeConfig(env: NodeJS.ProcessEnv = process.env): Open
     voice: env.OPENAI_REALTIME_VOICE?.trim() || "marin",
   };
 }
+
+/**
+ * Vapi — the third provider. Same rule as the two above: the PRIVATE key is read here and never
+ * reaches a client.
+ *
+ * Vapi issues two keys and the distinction matters more than usual, because unlike ElevenLabs and
+ * OpenAI this platform has one that is *meant* to ship:
+ *
+ *   - **private** — provisions assistants (`pnpm sync:agents`) and mints calls. Server only.
+ *   - **public**  — what a client SDK is constructed with. Safe to ship, and better replaced by a
+ *     short-lived public-scope JWT signed with the private key, which can be restricted to specific
+ *     assistant ids and can forbid transient assistants (§6.2 of
+ *     docs/2026-08-27-vapi-third-voice-provider.md).
+ *
+ * `orgId` exists only to sign those JWTs; it is an identifier, not a secret.
+ *
+ * There is no voice or model default here on purpose. Unlike OpenAI Realtime — where the session
+ * config IS the agent and the token route has to supply one — a Vapi assistant is a remote object
+ * provisioned from the prompt registry, so its model and voice come from the version. See
+ * `vapiAssistantBody` in ../agent/sync-agents.ts.
+ */
+export interface VapiConfig {
+  privateKey?: string;
+  publicKey?: string;
+  orgId?: string;
+}
+
+export function vapiConfig(env: NodeJS.ProcessEnv = process.env): VapiConfig {
+  return {
+    privateKey: env.VAPI_PRIVATE_KEY?.trim() || undefined,
+    publicKey: env.VAPI_PUBLIC_KEY?.trim() || undefined,
+    orgId: env.VAPI_ORG_ID?.trim() || undefined,
+  };
+}

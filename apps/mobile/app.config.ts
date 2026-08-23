@@ -178,6 +178,15 @@ const config: ExpoConfig = {
     // are kept for fidelity with the reference configuration rather than for what they do.
     "@livekit/react-native-expo-plugin",
     "@config-plugins/react-native-webrtc",
+    // SPIKE ONLY — path A of docs/2026-08-27-vapi-third-voice-provider.md. Daily's plugin, which
+    // @vapi-ai/react-native needs because its SDK is a Daily wrapper.
+    //
+    // Note what sits directly above it: `@config-plugins/react-native-webrtc` is already here for
+    // LiveKit. Two WebRTC config plugins in one list is the shape of the whole problem — see §12.
+    // This plugin peers `expo: ^55` and we are on 57, which is its own smell.
+    //
+    // NEVER MERGE. This branch exists to be built once and thrown away.
+    "@daily-co/config-plugin-rn-daily-js",
     // S2. `domain` only — NO customScheme, deliberately. Without one the plugin registers
     // `{bundleIdentifier}.auth0` as the callback scheme, which is already unique per variant (the
     // bundle id is) and keeps OAuth callbacks out of the same namespace as the app's own
@@ -198,6 +207,25 @@ const config: ExpoConfig = {
     // The whole per-variant object, never spread key by key — src/env.ts reads it back as one
     // shape. See docs/2026-08-13-expo-s2-auth0-bearer.md §3.2.
     env: readEnv(key),
+    // SPIKE ONLY — path A of docs/2026-08-27-vapi-third-voice-provider.md. NEVER MERGE.
+    //
+    // Deliberately NOT in `env` above: that object is the app's typed contract (MobileEnv /
+    // ENV_VARS / src/env.ts), and adding throwaway keys to it would put spike scaffolding in the
+    // shape every screen depends on.
+    //
+    // But it does have to go through `extra`, because reading `process.env.EXPO_PUBLIC_*` in a
+    // component does NOT survive Metro's cache. Those reads are inlined by babel-preset-expo at
+    // TRANSFORM time, and Metro caches transforms per file — so editing .env leaves a stale
+    // `undefined` compiled into the bundle until someone remembers `--clear`. That is exactly the
+    // "EXPO_PUBLIC_VAPI_PUBLIC_KEY not defined" symptom, and it is invisible: the build succeeds.
+    //
+    // `extra` is immune, because app.config.ts is re-evaluated on every start / prebuild / build
+    // and lands in the manifest rather than in transformed source. It is also the path the app's
+    // four real variables already take, i.e. the one proven to work in this project.
+    spikeVapi: {
+      publicKey: process.env.EXPO_PUBLIC_VAPI_PUBLIC_KEY ?? "",
+      assistantId: process.env.EXPO_PUBLIC_VAPI_ASSISTANT_ID ?? "",
+    },
   },
 };
 

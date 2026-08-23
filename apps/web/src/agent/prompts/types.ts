@@ -23,8 +23,21 @@ export interface PromptVersion {
    * for a model that hears the learner's actual voice and can correct pronunciation (§11.1). A
    * shared prompt would be written for neither.
    *
+   * A third provider, `"vapi"`, was added on 2026-08-27 and sits between the other two: it HAS a
+   * remote object that `sync:agents` provisions (unlike OpenAI), but its fields carry different
+   * names and some have no counterpart at all (unlike ElevenLabs). What applies to a Vapi version:
+   *   - `prompt`, `llm`, `maxTokens`, `maxDurationSeconds` and `turnEagerness` all carry across;
+   *   - `voiceId` and `ttsModelId` are IGNORED — we are deliberately not linking our ElevenLabs
+   *     account to Vapi, so Vapi speaks in its own default voice;
+   *   - `silenceEndCallTimeoutSeconds` carries across, with `-1` becoming Vapi's maximum, since that
+   *     platform has no "disabled";
+   *   - **`turnTimeoutSeconds` is IGNORED and has no equivalent at all** — Vapi's only silence timer
+   *     ends the call rather than re-engaging the learner. A Vapi version that wants podcast pacing
+   *     needs a client-side timer, not a field here.
+   * See ../vapi-assistant.ts, which is the one place that mapping lives.
+   *
    * The knock-on effects, all of which the compiler or `sync:agents` will hold you to:
-   *   - only `"elevenlabs"` versions are provisioned as agents and appear in `agents.lock.json`;
+   *   - only `"elevenlabs"` and `"vapi"` versions are provisioned and appear in `agents.lock.json`;
    *   - `llm`, `voiceId`, `ttsModelId`, `additionalLanguages`, `maxDurationSeconds` and
    *     `silenceEndCallTimeoutSeconds` are ElevenLabs agent settings and are IGNORED for an OpenAI
    *     version — that provider's session is configured by the token route, not baked anywhere;

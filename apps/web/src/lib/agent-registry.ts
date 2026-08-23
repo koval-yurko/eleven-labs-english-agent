@@ -14,6 +14,12 @@
  *
  * That asymmetry is the whole reason `agentId` is nullable here rather than two separate lists:
  * every caller that needs an id is already the caller that knows it is talking to ElevenLabs.
+ *
+ * ## And a third kind since 2026-08-27
+ *
+ * A **Vapi** version has a remote assistant like an ElevenLabs one — `sync:agents` provisions it and
+ * records the id — but no client that can open it yet. It is therefore deliberately WITHHELD here
+ * rather than listed with a null id: see `CLIENT_READY`.
  */
 import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
@@ -39,11 +45,32 @@ export interface ActiveVersion {
   label?: string;
 }
 
+/**
+ * Providers a shipped client can actually carry a lesson on.
+ *
+ * **Not the same set as `TutorProviderId`, and that gap is the point.** A version can be fully
+ * provisioned — `words-3.0` has a real Vapi assistant, created and kept current by
+ * `pnpm sync:agents` — and still have no `TutorTransport` on the phone. Offering such a version
+ * would put an entry in the learner's picker that cannot start, which is exactly the failure the
+ * lockfile check below prevents for ElevenLabs.
+ *
+ * So this is the second half of that same guarantee: the lockfile answers *"is there something to
+ * connect to"*, and this answers *"can this build connect to it"*. `sync:agents` reads
+ * `PROMPT_VERSIONS` directly and is unaffected, which is what lets an assistant be provisioned and
+ * evaluated before any client work starts.
+ *
+ * Delete `"vapi"` from the withheld set the moment `apps/mobile/src/lib/transport/vapi.ts` is a real
+ * adapter — and not before.
+ */
+const CLIENT_READY: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>(["elevenlabs", "openai"]);
+
 /** Active versions, in canonical PROMPT_VERSIONS order (oldest → newest). */
 export function activeVersions(): ActiveVersion[] {
   return PROMPT_VERSIONS.flatMap<ActiveVersion>((v) => {
     const provider: TutorProviderId = v.provider ?? "elevenlabs";
     const label = v.label ?? v.version;
+    // Provisioned but un-offerable. See CLIENT_READY.
+    if (!CLIENT_READY.has(provider)) return [];
     if (provider !== "elevenlabs") {
       return [{ version: v.version, provider, agentId: null, label }];
     }

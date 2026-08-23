@@ -3,6 +3,7 @@ import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 import type { TutorTransportHook } from "./types";
 import { useElevenLabsTransport } from "./elevenlabs";
 import { useOpenAiTransport } from "./openai";
+import { useVapiTransport } from "./vapi";
 
 export type { TutorTransportHook } from "./types";
 
@@ -22,6 +23,12 @@ export type { TutorTransportHook } from "./types";
 export const TUTOR_PROVIDERS = {
   elevenlabs: useElevenLabsTransport,
   openai: useOpenAiTransport,
+  // Registered, not implemented — and that is the `satisfies` above working as designed. Adding
+  // "vapi" to the shared union broke this line until the phone had an answer, and the answer is
+  // written down in ./vapi.ts rather than hidden by relaxing the type. Nothing routes here: the
+  // server withholds every Vapi version from the picker (`CLIENT_READY` in
+  // apps/web/src/lib/agent-registry.ts), so this is a second lock on a door that is already shut.
+  vapi: useVapiTransport,
 } as const satisfies Record<TutorProviderId, TutorTransportHook>;
 
 /**

@@ -5,7 +5,10 @@
     "paths": {
       "@/*": ["./src/*"],
       "@/assets/*": ["./assets/*"],
-      "@/modules/*": ["./modules/*"]
+      "@/modules/*": ["./modules/*"],
+
+      "@daily-co/react-native-webrtc": ["./node_modules/@livekit/react-native-webrtc"],
+      "@daily-co/react-native-webrtc/*": ["./node_modules/@livekit/react-native-webrtc/*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]

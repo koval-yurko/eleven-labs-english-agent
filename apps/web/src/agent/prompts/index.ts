@@ -11,6 +11,7 @@ import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
 import words20 from "./words-2.0";
+import words30 from "./words-3.0";
 
 export type { PromptVersion } from "./types";
 
@@ -40,18 +41,23 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  *
  * **The last entry is no longer automatically the default** — see `DEFAULT_PROMPT_VERSION`.
  *
- * ## Two entries, one lesson
+ * ## Three entries, one lesson
  *
  * There used to be eight, seven of which were the trail of getting the lesson right. They are gone,
- * and what is left is the destination twice: `PODCAST_LESSON_PROMPT` on ElevenLabs and the same text
- * on OpenAI. The picker is therefore a choice of SERVICE wearing a version number, which is why both
- * labels name the service.
+ * and what is left is the destination three times: `PODCAST_LESSON_PROMPT` on ElevenLabs, the same
+ * text on OpenAI, and the same text again on Vapi. The picker is therefore a choice of SERVICE
+ * wearing a version number, which is why every label names the service.
+ *
+ * `words-3.0` is in this list but NOT in the picker: it has a provisioned assistant and no mobile
+ * adapter, so `activeVersions()` withholds it (../../lib/agent-registry.ts). This list is what
+ * `sync:agents` reconciles; `activeVersions()` is what a learner can be handed. Those are different
+ * questions and this is the first version where the answers differ.
  *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words20];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words20, words30];
 
 /**
  * The version a session runs when none was asked for — and therefore the SERVICE it runs on.
@@ -238,5 +244,26 @@ export function findVersion(version: string): PromptVersion | undefined {
  * correctness depends on and it should have exactly one answer.
  */
 export function elevenLabsVersions(): PromptVersion[] {
-  return PROMPT_VERSIONS.filter((v) => (v.provider ?? "elevenlabs") === "elevenlabs");
+  return versionsFor("elevenlabs");
+}
+
+/**
+ * The versions `pnpm sync:agents` provisions on Vapi.
+ *
+ * Vapi sits between the other two providers and this helper is where that shows: like ElevenLabs it
+ * HAS a remote object to reconcile, so it cannot be skipped the way OpenAI is; unlike ElevenLabs its
+ * object is an "assistant" with a different field vocabulary, so it cannot share the ElevenLabs
+ * body. Two lists, one loop — see `DRIVERS` in ../sync-agents.ts.
+ */
+export function vapiVersions(): PromptVersion[] {
+  return versionsFor("vapi");
+}
+
+/**
+ * One filter, so "which versions belong to provider X" has a single answer and the
+ * `provider ?? "elevenlabs"` default is written once. That default is not cosmetic: every version
+ * predating the second provider omits the field and must keep meaning ElevenLabs forever.
+ */
+function versionsFor(provider: TutorProviderId): PromptVersion[] {
+  return PROMPT_VERSIONS.filter((v) => (v.provider ?? "elevenlabs") === provider);
 }

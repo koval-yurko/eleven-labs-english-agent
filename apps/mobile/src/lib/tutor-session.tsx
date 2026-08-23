@@ -239,6 +239,11 @@ function useTutorTransports(
   return {
     elevenlabs: TUTOR_PROVIDERS.elevenlabs(eventsFor("elevenlabs")),
     openai: TUTOR_PROVIDERS.openai(eventsFor("openai")),
+    // Instantiated like the others even though it cannot run a lesson — see transport/vapi.ts. The
+    // rule above applies to a placeholder exactly as it does to a real adapter: skipping it here
+    // because "it does nothing anyway" would make the hook sequence depend on which providers
+    // happen to be implemented, which is the failure the fixed call order exists to prevent.
+    vapi: TUTOR_PROVIDERS.vapi(eventsFor("vapi")),
   };
 }
 
