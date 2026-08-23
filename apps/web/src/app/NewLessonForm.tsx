@@ -11,7 +11,7 @@ import {
   flushOutboxNow,
   requestFlush,
 } from "../lib/sync/engine";
-import { MAX_ITEMS } from "@tutor/shared/sync-ops";
+import { MAX_ITEMS } from "@tutor/shared/offline/ops";
 import { useNavigationTransition } from "./nav-progress";
 
 /**

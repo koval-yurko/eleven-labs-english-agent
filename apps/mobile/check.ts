@@ -19,7 +19,7 @@ import {
   windowWords,
   ACTIVITY_WORD_WINDOW,
 } from "./src/lib/lesson-activity-state";
-import { itemLine } from "@tutor/shared/lesson-types";
+import { itemLine } from "@tutor/shared/lessons/types";
 import { tutorErrorMessage } from "./src/lib/tutor-error";
 
 let failures = 0;

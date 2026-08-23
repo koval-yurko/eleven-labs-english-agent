@@ -1,7 +1,7 @@
 import { json, apiError, unauthorized } from "../../../../lib/http";
 import type { LessonSessionResponse } from "@tutor/shared/api";
 import { persistTutorSession } from "../../../../lib/tutor-session";
-import type { TranscriptLine } from "@tutor/shared/tutor";
+import type { TranscriptLine } from "@tutor/shared/tutor/session";
 
 // Owner-scoped write; never cached.
 export const dynamic = "force-dynamic";

@@ -9,21 +9,21 @@ import {
   type ResumeCause,
   type TranscriptLine,
   type TutorItem,
-} from "@tutor/shared/tutor";
+} from "@tutor/shared/tutor/session";
 import {
   applyHold,
   applyRelease,
   planHold,
   planRelease,
   type HoldSnapshot,
-} from "@tutor/shared/tutor-pause";
+} from "@tutor/shared/tutor/pause";
 import type {
   TutorProviderId,
   TutorStatus,
   TutorUsage,
   TutorTransport,
   TutorTransportEvents,
-} from "@tutor/shared/tutor-transport";
+} from "@tutor/shared/tutor/transport";
 import {
   createContext,
   useCallback,
@@ -84,7 +84,7 @@ import { DEFAULT_TUTOR_PROVIDER, TUTOR_PROVIDERS } from "@/lib/transport";
  *
  * Since stage 1 (docs/2026-08-22-openai-realtime-second-provider.md §7) everything vendor-shaped —
  * the SDK callbacks, the token mint, the `startSession` argument, the error wording, the volume
- * escape hatch — lives behind `@tutor/shared/tutor-transport` in `lib/transport/`. This file names
+ * escape hatch — lives behind `@tutor/shared/tutor/transport` in `lib/transport/`. This file names
  * no provider. Where the two disagree it ASKS (`capabilities`) rather than assuming: whether a turn
  * can be cancelled without spending one, whether a held pause needs a keep-alive, whether the iOS
  * audio session is already owned. Adding a provider is a file beside `transport/elevenlabs.ts` and

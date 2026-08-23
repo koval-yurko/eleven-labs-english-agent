@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getOwnerId } from "../../lib/auth/session";
 import { applyOps, scheduleWordJobs } from "../../lib/sync-flush";
 import { persistTutorSession, type TutorSessionInput } from "../../lib/tutor-session";
-import type { FlushResult, OutboxRecord } from "@tutor/shared/sync-ops";
+import type { FlushResult, OutboxRecord } from "@tutor/shared/offline/ops";
 
 // Lesson create/add/remove now flow through the offline outbox → `flushOutbox` below (the UI
 // writes to the IndexedDB mirror optimistically). The former FormData actions

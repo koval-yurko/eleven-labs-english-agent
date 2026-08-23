@@ -8,7 +8,7 @@
  * Editing this only affects items levelled from now on — the job skips anything with a `level_at`.
  * Run `pnpm level:items --force` to re-level what's already there.
  */
-import type { ItemKind } from "@tutor/shared/word-types";
+import type { ItemKind } from "@tutor/shared/words/types";
 
 const KIND_GUIDANCE: Record<ItemKind, string> = {
   word: "a single word — level the word itself",

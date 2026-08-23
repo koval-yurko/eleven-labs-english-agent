@@ -13,7 +13,7 @@ import type {
   TutorTransport,
   TutorTransportControls,
   TutorTransportEvents,
-} from "@tutor/shared/tutor-transport";
+} from "@tutor/shared/tutor/transport";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiFetch } from "@/api";

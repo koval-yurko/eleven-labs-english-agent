@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMirrorLessons } from "../lib/sync/live";
-import type { MirrorLesson } from "@tutor/shared/mirror-store";
+import type { MirrorLesson } from "@tutor/shared/offline/mirror";
 import { ensureOwner, seedLessons } from "../lib/sync/mirror";
 import { deleteLessonLocal, requestFlush } from "../lib/sync/engine";
 import { formatDate } from "../lib/format-date";

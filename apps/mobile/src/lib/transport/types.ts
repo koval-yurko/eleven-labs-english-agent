@@ -1,9 +1,9 @@
-import type { TutorTransport, TutorTransportEvents } from "@tutor/shared/tutor-transport";
+import type { TutorTransport, TutorTransportEvents } from "@tutor/shared/tutor/transport";
 
 /**
  * A transport, as React Native has to express one.
  *
- * The contract in `@tutor/shared/tutor-transport` is deliberately free of React — a transport need
+ * The contract in `@tutor/shared/tutor/transport` is deliberately free of React — a transport need
  * not be a hook anywhere else. Here it must be: `@elevenlabs/react-native`'s `useConversation`
  * registers its callbacks with `ConversationProvider` and unregisters them on unmount, so the
  * transport has to live at the same place in the tree as the session that owns it.

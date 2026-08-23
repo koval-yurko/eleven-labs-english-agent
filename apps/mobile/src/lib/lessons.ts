@@ -6,8 +6,8 @@ import {
   type LessonItemsResponse,
   type LessonListResponse,
 } from "@tutor/shared/api";
-import type { LessonItem, LessonListItem } from "@tutor/shared/lesson-types";
-import type { FlushResult, OutboxOp, OutboxRecord } from "@tutor/shared/sync-ops";
+import type { LessonItem, LessonListItem } from "@tutor/shared/lessons/types";
+import type { FlushResult, OutboxOp, OutboxRecord } from "@tutor/shared/offline/ops";
 
 import { apiFetch, type TokenSource } from "@/api";
 import { newId } from "@/lib/ids";

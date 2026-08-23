@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
 import { getItem } from "../../../lib/lesson-items";
-import type { ItemDetail } from "@tutor/shared/word-types";
+import type { ItemDetail } from "@tutor/shared/words/types";
 import { NavLink } from "../../NavLink";
 import { RefreshButton } from "../../RefreshButton";
 import { PopularityButton } from "../PopularityButton";

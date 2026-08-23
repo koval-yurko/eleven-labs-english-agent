@@ -7,7 +7,7 @@ import {
   suggestPath,
   type WordSuggestion,
 } from "@tutor/shared/api";
-import { lexiconPrefixFold } from "@tutor/shared/word-key";
+import { lexiconPrefixFold } from "@tutor/shared/words/key";
 
 import { apiFetch, type TokenSource } from "@/api";
 

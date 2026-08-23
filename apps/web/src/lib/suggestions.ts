@@ -16,7 +16,7 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { SUGGEST_LIMIT, SUGGEST_MIN_PREFIX, type WordSuggestion } from "@tutor/shared/api";
-import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/word-types";
+import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/words/types";
 
 type SuggestRow = {
   key: string;

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
 import { getLesson, listLessonSessions, listLessonItemHistory } from "../../../lib/lessons";
-import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
+import type { LessonItem, LessonSession } from "@tutor/shared/lessons/types";
 import { activeVersions } from "../../../lib/agent-registry";
 import { NavLink } from "../../NavLink";
 import { Disclosure } from "../../Disclosure";

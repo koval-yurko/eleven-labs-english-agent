@@ -12,8 +12,8 @@
  * robust across browsers (notably iOS Safari) than enumerating `indexedDB.databases()`.
  */
 import Dexie, { type Table } from "dexie";
-import type { OutboxRecord } from "@tutor/shared/sync-ops";
-import type { MirrorItem, MirrorLesson, SessionJournalEntry } from "@tutor/shared/mirror-store";
+import type { OutboxRecord } from "@tutor/shared/offline/ops";
+import type { MirrorItem, MirrorLesson, SessionJournalEntry } from "@tutor/shared/offline/mirror";
 
 interface MetaRow {
   key: string;

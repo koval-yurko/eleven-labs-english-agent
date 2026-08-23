@@ -15,7 +15,7 @@
  * That asymmetry is the whole reason `agentId` is nullable here rather than two separate lists:
  * every caller that needs an id is already the caller that knows it is talking to ElevenLabs.
  */
-import type { TutorProviderId } from "@tutor/shared/tutor-transport";
+import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import lockfile from "../agent/agents.lock.json";
 import { DEFAULT_PROMPT_VERSION, PROMPT_VERSIONS } from "../agent/prompts";

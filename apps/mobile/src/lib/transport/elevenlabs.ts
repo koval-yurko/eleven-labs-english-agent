@@ -3,13 +3,13 @@ import {
   conversationTokenPath,
   isConversationTokenResponse,
 } from "@tutor/shared/api";
-import { formatItemsList } from "@tutor/shared/tutor";
+import { formatItemsList } from "@tutor/shared/tutor/session";
 import type {
   TutorCapabilities,
   TutorTransport,
   TutorTransportControls,
   TutorTransportEvents,
-} from "@tutor/shared/tutor-transport";
+} from "@tutor/shared/tutor/transport";
 import { useEffect, useMemo, useRef } from "react";
 
 import { apiFetch } from "@/api";

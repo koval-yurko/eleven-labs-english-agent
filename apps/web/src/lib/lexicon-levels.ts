@@ -37,7 +37,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import type pg from "pg";
-import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/word-types";
+import { LEXICON_LEVELS, type LexiconLevel } from "@tutor/shared/words/types";
 import {
   LEXICON_LEVEL_SYSTEM_PROMPT,
   buildLexiconLevelPrompt,

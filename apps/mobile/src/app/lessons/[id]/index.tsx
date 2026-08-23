@@ -6,12 +6,12 @@ import {
   type AgentVersionsResponse,
   type LessonDetailResponse,
 } from "@tutor/shared/api";
-import { itemLine } from "@tutor/shared/lesson-types";
-import type { LessonItem, LessonSession } from "@tutor/shared/lesson-types";
-import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/sync-ops";
-import { clientDedupeKey } from "@tutor/shared/word-key";
+import { itemLine } from "@tutor/shared/lessons/types";
+import type { LessonItem, LessonSession } from "@tutor/shared/lessons/types";
+import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/offline/ops";
+import { clientDedupeKey } from "@tutor/shared/words/key";
 import { type Palette } from "@tutor/shared/theme";
-import type { TranscriptLine } from "@tutor/shared/tutor";
+import type { TranscriptLine } from "@tutor/shared/tutor/session";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";

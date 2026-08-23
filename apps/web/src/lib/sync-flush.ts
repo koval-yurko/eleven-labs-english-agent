@@ -27,7 +27,7 @@ import {
   opLessonId,
   type OutboxOp,
   type OutboxRecord,
-} from "@tutor/shared/sync-ops";
+} from "@tutor/shared/offline/ops";
 
 /** Apply one queued op idempotently. Throws only on a real fault; an owner-gate rejection is a no-op. */
 async function applyOp(ownerId: string, op: OutboxOp): Promise<void> {

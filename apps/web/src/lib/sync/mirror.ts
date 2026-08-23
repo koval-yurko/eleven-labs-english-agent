@@ -6,7 +6,7 @@
  * (`src/shared/mirror-store.ts`). Call from client-island effects.
  */
 import { getStore } from "./dexie-store";
-import type { MirrorItem, MirrorLesson, MirrorStore } from "@tutor/shared/mirror-store";
+import type { MirrorItem, MirrorLesson, MirrorStore } from "@tutor/shared/offline/mirror";
 
 const OWNER_KEY = "owner";
 

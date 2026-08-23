@@ -1,4 +1,4 @@
-import type { TutorProviderId } from "@tutor/shared/tutor-transport";
+import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 /**
  * A single, self-describing version of the English-words-tutor agent. The FILESYSTEM is the
@@ -75,7 +75,7 @@ export interface PromptVersion {
    *
    * It is ALSO the podcast pacing knob — words-1.5 pins 3 s so the tutor continues on its own after
    * a short gap instead of appearing to wait — and lowering it is what makes the coupling above
-   * dangerous rather than theoretical. `MIN_TURN_TIMEOUT_SECONDS` (`@tutor/shared/tutor`) is the
+   * dangerous rather than theoretical. `MIN_TURN_TIMEOUT_SECONDS` (`@tutor/shared/tutor/session`) is the
    * floor, enforced in `effectiveConfig`. See docs/2026-08-18-podcast-mode-tutor.md §3.
    *
    * **On an OpenAI version this field means the same thing and switches the mode.** Set, it selects

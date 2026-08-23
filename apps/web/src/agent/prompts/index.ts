@@ -5,8 +5,8 @@
  * (it will retire the corresponding ElevenLabs agent). See ../sync-agents.ts and ../agents.lock.json.
  */
 import type { RealtimeTurnDetection } from "@tutor/shared/api";
-import { MIN_TURN_TIMEOUT_SECONDS } from "@tutor/shared/tutor";
-import type { TutorProviderId } from "@tutor/shared/tutor-transport";
+import { MIN_TURN_TIMEOUT_SECONDS } from "@tutor/shared/tutor/session";
+import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
@@ -135,7 +135,7 @@ function assertTurnTimeoutFloor(version: string, seconds: number): void {
   if (seconds >= MIN_TURN_TIMEOUT_SECONDS) return;
   throw new Error(
     `${version}: turnTimeoutSeconds is ${seconds}s, below the ${MIN_TURN_TIMEOUT_SECONDS}s floor ` +
-      `that keeps the mobile held pause quiet (@tutor/shared/tutor). Raise it, or lower ` +
+      `that keeps the mobile held pause quiet (@tutor/shared/tutor/session). Raise it, or lower ` +
       `TUTOR_HEARTBEAT_MS first and re-reason about the margin.`,
   );
 }

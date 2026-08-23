@@ -14,8 +14,8 @@ import {
   type ItemDetailResponse,
   type ItemsResponse,
 } from "@tutor/shared/api";
-import type { ItemsQuery } from "@tutor/shared/items-query";
-import type { ItemDetail } from "@tutor/shared/word-types";
+import type { ItemsQuery } from "@tutor/shared/words/query";
+import type { ItemDetail } from "@tutor/shared/words/types";
 
 import { apiFetch, type TokenSource } from "@/api";
 

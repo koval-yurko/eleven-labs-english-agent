@@ -1,17 +1,17 @@
 import type { ItemsResponse } from "@tutor/shared/api";
-import { groupFacets, searchItems, sortChoices } from "@tutor/shared/item-list";
+import { groupFacets, searchItems, sortChoices } from "@tutor/shared/words/list";
 import {
   DEFAULT_DIR,
   DEFAULT_SORT,
   type ItemsQuery,
   type SortKey,
-} from "@tutor/shared/items-query";
+} from "@tutor/shared/words/query";
 import {
   buildCreateLessonOp,
   MAX_ITEMS,
   MAX_LESSON_TITLE,
   nextLessonTitle,
-} from "@tutor/shared/sync-ops";
+} from "@tutor/shared/offline/ops";
 import { type Palette } from "@tutor/shared/theme";
 import {
   CEFR_LEVELS,
@@ -19,7 +19,7 @@ import {
   UNLEVELED,
   type ItemKind,
   type ItemRow,
-} from "@tutor/shared/word-types";
+} from "@tutor/shared/words/types";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
@@ -91,7 +91,7 @@ import {
  * collapsed filter panel takes on.
  * See docs/2026-08-15-web-design-parity-on-mobile.md §8.3, §10.3.
  *
- * **Search is typo-tolerant** (`searchItems`, `@tutor/shared/item-list`): it folds the way the
+ * **Search is typo-tolerant** (`searchItems`, `@tutor/shared/words/list`): it folds the way the
  * add-word autocomplete folds its prefixes, so `cafe` finds `café`, and it allows a bounded number
  * of edits, so `ubiqutous` finds `ubiquitous`. Still in memory, still not on the wire.
  */

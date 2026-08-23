@@ -8,13 +8,13 @@
  *
  * BROWSER-ONLY (`getDb()`).
  */
-import type { OutboxRecord } from "@tutor/shared/sync-ops";
+import type { OutboxRecord } from "@tutor/shared/offline/ops";
 import type {
   MirrorOps,
   MirrorStore,
   SessionJournalEntry,
   SessionJournalOps,
-} from "@tutor/shared/mirror-store";
+} from "@tutor/shared/offline/mirror";
 import { getDb, type MirrorDB } from "./db";
 
 /** The operation set, over either the live DB or an open transaction (Dexie exposes both as `db`). */

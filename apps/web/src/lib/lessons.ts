@@ -5,11 +5,11 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { resolveWords } from "./words";
-import { wordInputKey } from "@tutor/shared/word-key";
-import { nextLessonTitle, normalizeLessonTitle } from "@tutor/shared/sync-ops";
-import type { TranscriptLine, TutorItem } from "@tutor/shared/tutor";
-import type { WordDetails } from "@tutor/shared/word-types";
-import { ITEM_TRANSLATION_LIMIT } from "@tutor/shared/lesson-types";
+import { wordInputKey } from "@tutor/shared/words/key";
+import { nextLessonTitle, normalizeLessonTitle } from "@tutor/shared/offline/ops";
+import type { TranscriptLine, TutorItem } from "@tutor/shared/tutor/session";
+import type { WordDetails } from "@tutor/shared/words/types";
+import { ITEM_TRANSLATION_LIMIT } from "@tutor/shared/lessons/types";
 import type {
   Lesson,
   LessonDetail,
@@ -17,7 +17,7 @@ import type {
   LessonListItem,
   LessonSession,
   NewLesson,
-} from "@tutor/shared/lesson-types";
+} from "@tutor/shared/lessons/types";
 
 // Shape of the embedded lesson_items rows in a lesson select. Since 0007 the text lives on `words`
 // and lesson_items is a join table, so the spelling comes one level deeper.

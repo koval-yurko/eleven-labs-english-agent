@@ -1,8 +1,8 @@
 "use client";
 
 import { getStore } from "../../../lib/sync/dexie-store";
-import type { SessionJournalEntry } from "@tutor/shared/mirror-store";
-import { sanitizeTranscript, type TranscriptLine } from "@tutor/shared/tutor";
+import type { SessionJournalEntry } from "@tutor/shared/offline/mirror";
+import { sanitizeTranscript, type TranscriptLine } from "@tutor/shared/tutor/session";
 import { API_ROUTES } from "@tutor/shared/api";
 
 /**

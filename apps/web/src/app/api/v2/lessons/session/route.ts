@@ -1,7 +1,7 @@
 import { after } from "next/server";
 
 import type { LessonSessionResponse, TutorSessionInput } from "@tutor/shared/api";
-import type { TranscriptLine } from "@tutor/shared/tutor";
+import type { TranscriptLine } from "@tutor/shared/tutor/session";
 
 import { resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";

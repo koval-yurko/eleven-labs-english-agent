@@ -1,5 +1,5 @@
 import type { AddWordRequest, AddWordResponse, ItemsResponse } from "@tutor/shared/api";
-import { parseItemsQuery, searchParamsToBag } from "@tutor/shared/items-query";
+import { parseItemsQuery, searchParamsToBag } from "@tutor/shared/words/query";
 
 import { withBearer } from "../../../../lib/auth/bearer";
 import { apiError, json, preflight } from "../../../../lib/http";

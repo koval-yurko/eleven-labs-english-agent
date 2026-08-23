@@ -7,7 +7,7 @@ import { bumpWordPopularity } from "../../lib/lesson-items";
 import { LEVEL_AFTER_LIMIT, levelItems } from "../../lib/levels";
 import { DETAILS_AFTER_LIMIT, enrichWords } from "../../lib/word-details";
 import { addWord } from "../../lib/words";
-import type { AddWordResult } from "@tutor/shared/word-types";
+import type { AddWordResult } from "@tutor/shared/words/types";
 
 /**
  * +1 one word's popularity — the only mutation on `/lesson-items`, and the successor to the

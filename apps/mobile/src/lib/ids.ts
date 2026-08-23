@@ -3,7 +3,7 @@ import { randomUUID } from "expo-crypto";
 /**
  * The app's one source of client-minted ids.
  *
- * Every op in `@tutor/shared/sync-ops` takes a `newId` parameter rather than reaching for a global,
+ * Every op in `@tutor/shared/offline/ops` takes a `newId` parameter rather than reaching for a global,
  * and this is what gets passed. Lesson and item ids are PRIMARY KEYS the learner keeps forever, and
  * both write paths upsert `ON CONFLICT (id) DO NOTHING` — so a collision with another owner's row
  * does not error, it silently makes the lesson or the word not exist.

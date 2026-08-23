@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { getOwnerId } from "./auth/session";
 import { getLesson, upsertLessonSession } from "./lessons";
-import { sanitizeTranscript } from "@tutor/shared/tutor";
+import { sanitizeTranscript } from "@tutor/shared/tutor/session";
 import type { TutorSessionInput } from "@tutor/shared/api";
 
 /**

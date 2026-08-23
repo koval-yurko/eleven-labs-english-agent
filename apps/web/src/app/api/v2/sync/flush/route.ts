@@ -1,4 +1,4 @@
-import { parseOutboxRecords, type FlushResult } from "@tutor/shared/sync-ops";
+import { parseOutboxRecords, type FlushResult } from "@tutor/shared/offline/ops";
 
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { apiError, json, preflight } from "../../../../../lib/http";

@@ -1,6 +1,6 @@
 import Storage from "expo-sqlite/kv-store";
-import type { SessionJournalEntry } from "@tutor/shared/mirror-store";
-import type { TranscriptLine } from "@tutor/shared/tutor";
+import type { SessionJournalEntry } from "@tutor/shared/offline/mirror";
+import type { TranscriptLine } from "@tutor/shared/tutor/session";
 
 /**
  * Crash insurance for a live tutor session: every transcript line is written to the device as it

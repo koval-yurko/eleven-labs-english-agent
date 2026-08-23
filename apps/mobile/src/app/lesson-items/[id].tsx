@@ -1,5 +1,5 @@
 import { type Palette } from "@tutor/shared/theme";
-import type { ItemDetail, WordDetails } from "@tutor/shared/word-types";
+import type { ItemDetail, WordDetails } from "@tutor/shared/words/types";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";

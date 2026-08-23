@@ -1,10 +1,10 @@
-import type { LessonListItem } from "@tutor/shared/lesson-types";
+import type { LessonListItem } from "@tutor/shared/lessons/types";
 import {
   buildCreateLessonOp,
   MAX_ITEMS,
   MAX_LESSON_TITLE,
   nextLessonTitle,
-} from "@tutor/shared/sync-ops";
+} from "@tutor/shared/offline/ops";
 import { type Palette } from "@tutor/shared/theme";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";

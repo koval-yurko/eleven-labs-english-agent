@@ -11,7 +11,7 @@ import {
   formatResumeContext,
   type TranscriptLine,
   type TutorItem,
-} from "@tutor/shared/tutor";
+} from "@tutor/shared/tutor/session";
 import { isApiError, isSignedUrlResponse, signedUrlPath } from "@tutor/shared/api";
 import { saveLessonSessionAction } from "../actions";
 import { Select } from "../../Select";

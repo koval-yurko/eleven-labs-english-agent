@@ -15,7 +15,7 @@ import {
   HIDDEN_KICKOFF_MESSAGES,
   sanitizeTranscript,
   type TranscriptLine,
-} from "@tutor/shared/tutor";
+} from "@tutor/shared/tutor/session";
 
 // Must run per-request (reads secrets, verifies a signature, calls out to LangSmith).
 export const dynamic = "force-dynamic";

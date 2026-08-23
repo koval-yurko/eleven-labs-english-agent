@@ -4,10 +4,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Field } from "@base-ui/react/field";
 import { Button } from "../../Button";
 import { useMirrorItems } from "../../../lib/sync/live";
-import type { MirrorItem } from "@tutor/shared/mirror-store";
+import type { MirrorItem } from "@tutor/shared/offline/mirror";
 import { ensureOwner, seedLessonItems } from "../../../lib/sync/mirror";
 import { addItemsLocal, removeItemLocal, requestFlush } from "../../../lib/sync/engine";
-import { MAX_ITEMS } from "@tutor/shared/sync-ops";
+import { MAX_ITEMS } from "@tutor/shared/offline/ops";
 
 /**
  * "Words in this lesson", backed by the IndexedDB mirror. The server passes the active items as

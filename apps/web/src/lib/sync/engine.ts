@@ -13,14 +13,14 @@
  * `new Date()`, `navigator.onLine`, and the `getStore()` binding at the bottom of this file.
  */
 import { getStore } from "./dexie-store";
-import type { MirrorItem, MirrorOps, MirrorStore } from "@tutor/shared/mirror-store";
+import type { MirrorItem, MirrorOps, MirrorStore } from "@tutor/shared/offline/mirror";
 import {
   buildAddItemsOp,
   buildCreateLessonOp,
   nextLessonTitle,
   type OutboxOp,
   type OutboxRecord,
-} from "@tutor/shared/sync-ops";
+} from "@tutor/shared/offline/ops";
 import { flushOutbox } from "../../app/lessons/actions";
 
 /** The mirror this engine writes to. One line to change for a different device database. */

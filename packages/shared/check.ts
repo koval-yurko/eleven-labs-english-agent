@@ -1,22 +1,5 @@
-/**
- * Property checks for `src/shared` — the pure core. Covers the behaviours with a history of
- * breaking or a subtlety worth pinning, not every function.
- *
- * 1. The `/lesson-items` URL grammar round-trips exactly: `parseItemsQuery ∘ serializeItemsQuery`
- *    is the identity over an exhaustive cross-product of every field. This exists because the two
- *    halves used to live in two files and drifted — the encoder omitted `sort` when it equalled
- *    `"practice"` while the decoder defaulted to `"created"`, so choosing "Times practiced"
- *    silently round-tripped back to "Date added". Both directions now read `DEFAULT_SORT` /
- *    `DEFAULT_DIR`; this fails loudly (1500+ cases) if a second default is reintroduced.
- * 2. `searchItems` returns the input array *identity* for an empty term (a no-op search must not
- *    allocate or break `useMemo` referential equality), and matches case-insensitively.
- * 3. `groupFacets` preserves the server's ordering.
- *
- * Run: `pnpm check:shared`
- *
- * NOTE: a stopgap, not a test suite — the repo has no test runner yet. When one is added, these
- * become normal test files and the script goes away. See docs/2026-08-09-shareable-core-refactor.md.
- */
+/** Property checks for the pure core — the behaviours with a history of breaking.
+ *  Run with `pnpm check:shared`. See README.md#testing. */
 import process from "node:process";
 import {
   parseItemsQuery,
@@ -26,9 +9,9 @@ import {
   SORT_KEYS,
   type ItemsQuery,
   type ItemsSearchParams,
-} from "./src/items-query";
-import { CEFR_LEVELS, ITEM_KINDS, UNLEVELED, type ItemFacet } from "./src/word-types";
-import { groupFacets, searchItems } from "./src/item-list";
+} from "./src/words/query";
+import { CEFR_LEVELS, ITEM_KINDS, UNLEVELED, type ItemFacet } from "./src/words/types";
+import { groupFacets, searchItems } from "./src/words/list";
 import { isApiError, isSignedUrlResponse, signedUrlPath } from "./src/api";
 import { CSS_VARIABLES, DARK, LIGHT, paletteFor, parseScheme, type Palette } from "./src/theme";
 import {
@@ -39,10 +22,10 @@ import {
   UNHEARD_RESUME_MESSAGE,
   sanitizeTranscript,
   type TranscriptLine,
-} from "./src/tutor";
-import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor-pause";
-import { createFakeTransport } from "./src/tutor-transport-fake";
-import type { TutorCapabilities } from "./src/tutor-transport";
+} from "./src/tutor/session";
+import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor/pause";
+import { createFakeTransport } from "./src/testing/fake-transport";
+import type { TutorCapabilities } from "./src/tutor/transport";
 import {
   buildAddItemsOp,
   buildCreateLessonOp,
@@ -51,7 +34,7 @@ import {
   opLessonId,
   parseOutboxRecords,
   planNewItems,
-} from "./src/sync-ops";
+} from "./src/offline/ops";
 
 /**
  * Query string → the bag Next hands a page. Now a THIN wrapper over the shared

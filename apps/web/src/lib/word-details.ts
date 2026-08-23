@@ -20,7 +20,7 @@
 import { z } from "zod";
 import { getChatModel } from "./llm";
 import { getServiceSupabase } from "./supabase/server";
-import type { ItemKind, WordDetails } from "@tutor/shared/word-types";
+import type { ItemKind, WordDetails } from "@tutor/shared/words/types";
 import { DETAILS_SYSTEM_PROMPT, buildDetailsPrompt } from "./word-details-prompt";
 
 /** The schema/prompt version stamped onto every enriched row, so `--force --stale` can re-run only

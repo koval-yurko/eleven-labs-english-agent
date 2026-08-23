@@ -11,16 +11,16 @@ import {
   type ItemFacet,
   type ItemKind,
   type ItemRow,
-} from "@tutor/shared/word-types";
-import { serializeItemsQuery, type ItemsQuery, type SortKey } from "@tutor/shared/items-query";
-import { groupFacets, searchItems, sortChoices } from "@tutor/shared/item-list";
+} from "@tutor/shared/words/types";
+import { serializeItemsQuery, type ItemsQuery, type SortKey } from "@tutor/shared/words/query";
+import { groupFacets, searchItems, sortChoices } from "@tutor/shared/words/list";
 import {
   createLessonLocal,
   defaultLessonTitle,
   flushOutboxNow,
   requestFlush,
 } from "../../lib/sync/engine";
-import { MAX_ITEMS } from "@tutor/shared/sync-ops";
+import { MAX_ITEMS } from "@tutor/shared/offline/ops";
 import { ensureOwner } from "../../lib/sync/mirror";
 import { formatDate } from "../../lib/format-date";
 import { useNavigationTransition } from "../nav-progress";

@@ -18,8 +18,8 @@
  * See docs/2026-06-28-langsmith-tracing-observability.md (Approach B1).
  */
 import { Client, RunTree } from "langsmith";
-import type { TranscriptLine } from "@tutor/shared/tutor";
-import type { TutorUsage } from "@tutor/shared/tutor-transport";
+import type { TranscriptLine } from "@tutor/shared/tutor/session";
+import type { TutorUsage } from "@tutor/shared/tutor/transport";
 
 // ── Payload types (only the fields we consume; the real payload has more) ──────
 // Mirrors ElevenLabs' `post_call_transcription` data object / Get-Conversation schema.

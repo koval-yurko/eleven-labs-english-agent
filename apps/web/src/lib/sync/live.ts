@@ -19,7 +19,7 @@
  */
 import { useLiveQuery } from "dexie-react-hooks";
 import { getDb } from "./db";
-import type { MirrorItem, MirrorLesson } from "@tutor/shared/mirror-store";
+import type { MirrorItem, MirrorLesson } from "@tutor/shared/offline/mirror";
 
 /** Every mirrored lesson, newest first. */
 export function useMirrorLessons(initial?: MirrorLesson[]): MirrorLesson[] {

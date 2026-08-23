@@ -1,4 +1,4 @@
-import type { TutorProviderId } from "@tutor/shared/tutor-transport";
+import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import type { TutorTransportHook } from "./types";
 import { useElevenLabsTransport } from "./elevenlabs";

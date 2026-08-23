@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   formatItemsList,
   type TutorItem,
-} from "@tutor/shared/tutor";
+} from "@tutor/shared/tutor/session";
 import type {
   RealtimeAudioInput,
   RealtimeTokenRequest,

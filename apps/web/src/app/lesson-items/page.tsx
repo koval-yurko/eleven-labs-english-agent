@@ -4,7 +4,7 @@ import {
   parseItemsQuery,
   parseSearchTerm,
   type ItemsSearchParams,
-} from "@tutor/shared/items-query";
+} from "@tutor/shared/words/query";
 import { ItemsBrowser } from "./ItemsBrowser";
 
 // Per-request rendering: owner-scoped data driven by the URL's filter/sort params.

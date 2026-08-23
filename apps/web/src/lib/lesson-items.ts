@@ -15,9 +15,9 @@
  * module is the shell that fetches them. See docs/2026-08-09-shareable-core-refactor.md.
  */
 import { getServiceSupabase } from "./supabase/server";
-import { CEFR_LEVELS, UNLEVELED } from "@tutor/shared/word-types";
-import type { ItemDetail, ItemFacet, ItemRow, WordDetails } from "@tutor/shared/word-types";
-import type { ItemsQuery, SortKey } from "@tutor/shared/items-query";
+import { CEFR_LEVELS, UNLEVELED } from "@tutor/shared/words/types";
+import type { ItemDetail, ItemFacet, ItemRow, WordDetails } from "@tutor/shared/words/types";
+import type { ItemsQuery, SortKey } from "@tutor/shared/words/query";
 
 /**
  * Sort key → the column it orders by. SERVER-ONLY: the keys are the page's public grammar (and live

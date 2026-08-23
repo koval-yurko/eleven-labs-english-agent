@@ -12,8 +12,8 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { bumpWordPopularity } from "./lesson-items";
-import { wordInputKey } from "@tutor/shared/word-key";
-import type { AddWordResult } from "@tutor/shared/word-types";
+import { wordInputKey } from "@tutor/shared/words/key";
+import type { AddWordResult } from "@tutor/shared/words/types";
 
 export interface ResolvedWord {
   id: string;
