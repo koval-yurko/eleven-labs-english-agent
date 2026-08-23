@@ -207,10 +207,11 @@ GET /.well-known/oauth-protected-resource/api/mcp
 `mcp-handler` exports `protectedResourceHandler` for the GET and `metadataCorsOptionsRequestHandler`
 for the OPTIONS preflight (browser-based MCP clients preflight it).
 
-**Serving a `.well-known` path from the App Router needs a five-minute check before it is designed
-around.** `app/.well-known/oauth-protected-resource/api/mcp/route.ts` is used in the wild and should
-work, but dot-prefixed directories are a corner of Next's file conventions with no explicit
-documentation. The guaranteed-portable alternative is a normal route plus a rewrite:
+**Serving a `.well-known` path from the App Router: the dot-folder works.** Confirmed in S1 —
+`app/.well-known/oauth-protected-resource/api/mcp/route.ts` serves and the rewrite below is not
+needed. What *did* bite, and would not have been guessed, is one layer up: see §9's S1 entry. The
+rewrite remains the portable fallback if a future Next version stops resolving dot-prefixed
+directories:
 
 ```ts
 // next.config.ts
@@ -222,7 +223,7 @@ rewrites: async () => [
 ],
 ```
 
-Decide this by trying the folder first and falling back; do not spend an hour on it either way.
+Tried the folder first, as planned; it worked on the first request.
 
 ## 4. Auth0 — what actually has to change
 
@@ -338,10 +339,14 @@ apps/web/src/lib/mcp/metadata.ts                     new   protectedResourceHand
 apps/web/src/app/.well-known/oauth-protected-resource/api/mcp/route.ts
                                                      new   (or a rewrite to /api/oauth-protected-resource/*)
 apps/web/src/lib/words.ts                            edit  + addWords(ownerId, texts[])
-apps/web/src/lib/config.ts                           edit  + mcpConfig(): { audience, resourceUrl }
-apps/web/package.json                                edit  + mcp-handler, @modelcontextprotocol/server
-apps/web/.env.example / deployment env               edit  + AUTH0_MCP_AUDIENCE, MCP_RESOURCE_URL
+apps/web/src/proxy.ts                                edit  exempt /.well-known/* from the auth gate
+apps/web/package.json                                edit  + mcp-handler, @modelcontextprotocol/server, zod4
 ```
+
+**Two corrections after building it.** `lib/config.ts` and the new env vars are NOT needed: Option B
+reuses `AUTH0_API_AUDIENCE`, and the canonical resource URL is derived from the request's public
+origin (`getPublicUrl`), so dev and production are both correct with nothing to configure. And
+`proxy.ts` — absent from the plan — turned out to be load-bearing; see §9's S1 entry.
 
 Nine files, one of them a `package.json`. The tool body itself is about thirty lines.
 
@@ -403,7 +408,8 @@ exactly this tool.
 - ~~**`zod/v4` against `@modelcontextprotocol/server@2`.**~~ **Resolved in S0: it does not work.**
   See the correction in §3.1 — the SDK needs `~standard.jsonSchema`, which `zod@3.25`'s subpath does
   not implement. Fixed with a `zod4` alias.
-- **The `.well-known` folder in the App Router** (§3.3).
+- ~~**The `.well-known` folder in the App Router**~~ **Resolved in S1: it works.** The
+  unforeseen obstacle was the app's own auth gate, not Next — §9, S1.
 - **Tenant toggles are tenant-wide.** The compatibility profile is documented as `audience`-wins when
   both are present, and web/mobile never send `resource` — so existing logins should be untouched.
   Confirm a mobile login still works immediately after flipping it, rather than discovering it later.
@@ -431,10 +437,63 @@ Also settled here: `after()` fires (§8.3), the `zod/v4` plan does not (§3.1), 
 `mcpDevOwnerId()` gate returns **404** with the variable unset — the same branch production takes,
 so the unauthenticated stage cannot be deployed.
 
-**S1 — Auth0 verification, token pasted by hand.** `verifyMcpToken` + `withMcpAuth` + the PRM
-document + the 401 challenge. Test with a real access token copied from the mobile app (Option B
-audience) or from the new API's test tab (Option A). No tenant toggles yet. At the end of S1 the
-server is correct and spec-shaped; it just cannot be connected zero-config.
+**S1 — Auth0 verification, token pasted by hand. ✅ DONE 2026-08-24.** `verifyMcpToken` +
+`withMcpAuth` + the PRM document + the 401 challenge, no tenant toggles. Verified:
+
+```
+POST /api/mcp                    (no token)  → 401
+  www-authenticate: Bearer error="invalid_token",
+    resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource/api/mcp"
+GET  /.well-known/oauth-protected-resource/api/mcp → 200
+  { "resource": "http://localhost:3000/api/mcp",
+    "authorization_servers": ["https://yurko-kovalchuk.eu.auth0.com/"],
+    "scopes_supported": ["words:write"], "bearer_methods_supported": ["header"] }
+OPTIONS (browser preflight)      → 200
+Bearer <garbage> / <alg:none>    → 401         (the RS256 pin holds)
+Bearer <real Auth0 token>        → 200         tools/list, then tools/call wrote a row whose
+                                               owner_id was the token's `sub`, byte for byte
+```
+
+The accepted token came from a throwaway **M2M application** authorized for the existing API — the
+tenant had none, and neither the mobile app (public client, Auth0 forces `token_endpoint_auth_method
+= none`) nor the web app has the client-credentials grant. Its `sub` is `<client_id>@clients`, so
+the probe row landed under a machine owner and was deleted after; what it proves is the chain
+token → `verifyMcpToken` → `AuthInfo.extra.ownerId` → `ctx.http.authInfo` → `mcpOwnerId` →
+`owner_id` stamp. Delete that app at the end of S2 — while it exists its secret mints tokens
+`/api/v2` accepts, bounded to that machine owner's own rows.
+
+**The S2 scope one-liner is not a guess — it was run.** Temporarily passing
+`requiredScopes: [WORDS_WRITE_SCOPE]` against that scope-less token gives exactly the right answer,
+and the challenge names the missing scope so a client can ask for it:
+
+```
+403 www-authenticate: Bearer error="insufficient_scope", scope="words:write",
+      resource_metadata="…/.well-known/oauth-protected-resource/api/mcp"
+```
+
+(Reverted immediately. Note for anyone repeating it: Turbopack did not hot-reload the route handler
+on an external write — the check appears to do nothing until the dev server is restarted, which
+looks exactly like a broken scope gate.)
+
+`resource` matches the dialled URL byte for byte, which is the check §11.1 says clients discard the
+document over. Auth0's RFC 8414 metadata — the client's next hop — reports the same issuer string
+including the trailing slash, and already advertises `registration_endpoint: /oidc/register`, which
+is the DCR endpoint §8.1 says to leave switched off.
+
+**The one thing that broke, and it was not Next.** `apps/web/src/proxy.ts` — the Auth0 auth gate —
+redirects every unauthenticated non-`/api/` path to `/auth/login`, so the metadata document answered
+**307 → /auth/login**. `/api/mcp` looked perfectly healthy the whole time; only discovery was dead.
+`/.well-known/*` is now exempt beside `/auth` and the PWA files. Worth knowing because the symptom in
+S2 would have been "Claude can't connect" with a working-looking server.
+
+**Two things deliberately deferred, both one-liners:**
+
+- `requiredScopes: [WORDS_WRITE_SCOPE]` is written up in the route but not passed. No obtainable
+  token can carry `words:write` until S2 defines it as a permission on the Auth0 API, so enforcing
+  it now would 403 every token in existence. It is advertised in the PRM already, which is how a
+  client learns to ask.
+- The S0 dev-owner fallback is **deleted**, not kept behind a flag. Under `required: true` it is
+  unreachable in the normal case and a silent mis-write in the abnormal one.
 
 **S2 — the tenant.** New Auth0 API with the canonical URL as identifier, `words:write` scope, default
 third-party permissions, compatibility profile + issuer-in-response on, DCR (or CIMD) resolved per
@@ -603,9 +662,7 @@ identical for one tool or six.
 
 **S0 — the tool, unauthenticated, local. ✅ Done** — see §9.
 
-**S1 — Auth0 verification, pasted token.** Unchanged in substance, but note that with Option B the
-token to paste is one the **mobile app already holds** — no new API's test tab needed. This is also
-now the standing dev workflow (§11.3), so it is worth making pleasant.
+**S1 — Auth0 verification, pasted token. ✅ Done** — see §9.
 
 **S2 — the tenant, and it is a shorter list than §4.2 implied.** Set **Default Audience**; leave the
 compatibility profile **OFF**; turn on Include Issuer; leave **DCR OFF** and hand-register one Auth0

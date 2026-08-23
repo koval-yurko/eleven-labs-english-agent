@@ -10,19 +10,17 @@
  * MCP spec forbids passing a received token to a downstream service, and an internal fetch would be
  * exactly that plus a second network hop for nothing.
  *
- * ⚠️ **S0: this endpoint is UNAUTHENTICATED and refuses to exist unless `MCP_DEV_OWNER_ID` is set
- * outside production.** S1 replaces the guard below with `withMcpAuth(handler, verifyMcpToken, …)`
- * and the RFC 9728 metadata document; nothing else in this file changes. Until then the two lines
- * marked S0 are the only thing standing between this and an open write endpoint, which is why the
- * gate is `mcpDevOwnerId()` — the same function the tool resolves its owner through, so the route
- * cannot be reachable in a state where the tool has no owner.
+ * `withMcpAuth` is what makes the 401 spec-shaped: it answers an unauthenticated request with
+ * `WWW-Authenticate: Bearer resource_metadata="…"`, which is the thread a client pulls to discover
+ * Auth0 and start the OAuth flow. `required: true` — there is no anonymous mode.
  *
  * See docs/2026-08-23-mcp-server-add-words.md §3.2 and §9.
  */
-import { createMcpHandler } from "mcp-handler";
+import { createMcpHandler, withMcpAuth } from "mcp-handler";
 
 import { registerAddWords } from "../../../lib/mcp/add-words";
-import { mcpDevOwnerId } from "../../../lib/mcp/owner";
+import { verifyMcpToken } from "../../../lib/mcp/auth";
+import { MCP_RESOURCE_METADATA_PATH } from "../../../lib/mcp/metadata";
 
 // Owner-scoped writes against live data; never cached, and never prerendered.
 export const dynamic = "force-dynamic";
@@ -35,10 +33,14 @@ const handler = createMcpHandler(
   { serverInfo: { name: "tutor-collection", version: "0.1.0" } },
 );
 
-// S0 gate — delete with the `withMcpAuth` wrap in S1.
-async function guarded(req: Request): Promise<Response> {
-  if (!mcpDevOwnerId()) return new Response("Not found", { status: 404 });
-  return handler(req);
-}
+/**
+ * `requiredScopes: [WORDS_WRITE_SCOPE]` belongs here and is deliberately absent until S2 — the
+ * tenant defines no such permission yet, so every obtainable token would be rejected with a 403.
+ * Adding it is the one-line change that completes §11.2's asymmetry.
+ */
+const authed = withMcpAuth(handler, verifyMcpToken, {
+  required: true,
+  resourceMetadataPath: MCP_RESOURCE_METADATA_PATH,
+});
 
-export { guarded as GET, guarded as POST, guarded as DELETE };
+export { authed as GET, authed as POST, authed as DELETE };
