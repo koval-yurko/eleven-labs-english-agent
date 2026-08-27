@@ -19,7 +19,7 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 
 import { registerAddWords } from "../../../lib/mcp/add-words";
-import { verifyMcpToken } from "../../../lib/mcp/auth";
+import { WORDS_WRITE_SCOPE, verifyMcpToken } from "../../../lib/mcp/auth";
 import { MCP_RESOURCE_METADATA_PATH } from "../../../lib/mcp/metadata";
 
 // Owner-scoped writes against live data; never cached, and never prerendered.
@@ -34,13 +34,17 @@ const handler = createMcpHandler(
 );
 
 /**
- * `requiredScopes: [WORDS_WRITE_SCOPE]` belongs here and is deliberately absent until S2 — the
- * tenant defines no such permission yet, so every obtainable token would be rejected with a 403.
- * Adding it is the one-line change that completes §11.2's asymmetry.
+ * The scope is defence in depth, not the boundary — under Option A the audience already separates
+ * this server from `/api/v2` (§11.6). It earns its keep with the second tool, when `words:read`
+ * must be a grant a learner can withhold from a client that only needs to write.
+ *
+ * A 403 here reports `scope="words:write"` in the `WWW-Authenticate` header, which is how a client
+ * that asked for too little learns what to ask for.
  */
 const authed = withMcpAuth(handler, verifyMcpToken, {
   required: true,
   resourceMetadataPath: MCP_RESOURCE_METADATA_PATH,
+  requiredScopes: [WORDS_WRITE_SCOPE],
 });
 
 export { authed as GET, authed as POST, authed as DELETE };

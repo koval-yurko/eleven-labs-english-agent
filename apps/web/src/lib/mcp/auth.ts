@@ -12,10 +12,16 @@
  * token fails while looking perfectly valid decoded by eye), the pinned `RS256` (left open, a token
  * nominates its own `alg`), and the fail-CLOSED rule when the server is misconfigured.
  *
- * **Option B is why the audience here is the same `AUTH0_API_AUDIENCE` the mobile app uses**
- * (docs/2026-08-23-mcp-server-add-words.md §11.2). The consequence, stated where someone changing
- * this will read it: an `/api/mcp` token is also a valid `/api/v2` token. The scope below is the
- * only thing that distinguishes the two directions.
+ * **The audience is `MCP_RESOURCE_URL`, NOT `AUTH0_API_AUDIENCE`** — Option A
+ * (docs/2026-08-23-mcp-server-add-words.md §11.6). That one difference is the whole point: the MCP
+ * server has its own Auth0 API whose identifier IS its canonical URL, so `aud` equals the RFC 8707
+ * resource the client asked for, and the two directions are closed by cryptography rather than by
+ * convention. A phone token cannot drive `/api/mcp` and an MCP token cannot drive `/api/v2`,
+ * because neither carries the other's audience.
+ *
+ * Do not "simplify" this back to the shared audience. Under the shared one, the token handed to
+ * Claude is a whole-API credential, and only a scope check the v2 routes do not perform stands
+ * between it and the learner's entire collection.
  */
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -23,15 +29,22 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 /**
  * The scope an MCP client must hold to write words.
  *
- * NOT yet enforced — S1 has no tenant configuration, so no obtainable token can carry it and
- * requiring it would reject every token in existence. S2 defines it as a permission on the Auth0
- * API and turns on `requiredScopes` in the route. Until then it is advertised in the protected
- * resource metadata (which is how a client learns to ask for it) and parsed out of the token here.
+ * Defence in depth under Option A rather than the only boundary: the audience already separates
+ * this server from `/api/v2`. Its real work starts with the second tool, when `words:read` has to
+ * be a different grant from `words:write` (§11.4).
+ *
+ * Advertised in the protected resource metadata, which is how a client learns to ask for it.
  */
 export const WORDS_WRITE_SCOPE = "words:write";
 
 const domain = process.env.AUTH0_DOMAIN?.trim();
-const audience = process.env.AUTH0_API_AUDIENCE?.trim();
+
+/**
+ * The MCP server's own Auth0 API identifier — the same string as its RFC 9728 `resource`, by
+ * construction. One variable rather than two so they cannot drift: a `resource` the clients accept
+ * but Auth0 does not know, or an `aud` no client asked for, are both silent failures.
+ */
+const audience = process.env.MCP_RESOURCE_URL?.trim();
 
 const jwks = domain
   ? createRemoteJWKSet(new URL(`https://${domain}/.well-known/jwks.json`))
@@ -70,10 +83,10 @@ export async function verifyMcpToken(
       clientId: typeof payload.azp === "string" ? payload.azp : "",
       scopes: parseScopes(payload.scope),
       expiresAt: typeof payload.exp === "number" ? payload.exp : undefined,
-      // `resource` is left unset ON PURPOSE. The SDK documents it as "MUST match the MCP server's
-      // resource identifier", and under Option B it would not: the token's audience is the shared
-      // API, not `…/api/mcp`. Asserting a binding the token does not carry would be a lie in the
-      // one field a future reader would trust.
+      // `resource` is left unset because nothing in this stack reads it: `withMcpAuth` does not,
+      // and the SDK's own `requireBearerAuth` (which does, via `checkResourceAllowed`) is not on
+      // this path. Under Option A the binding it would assert is true — `aud` IS the resource — so
+      // this is a "no reader" decision, not a correctness one. Set it if that ever changes.
       extra: { ownerId: sub },
     };
   } catch {

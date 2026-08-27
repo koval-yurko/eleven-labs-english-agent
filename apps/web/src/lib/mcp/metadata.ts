@@ -5,15 +5,15 @@
  * `resource` MUST be the canonical URI of the MCP server itself. Clients do not treat this as
  * advisory: RFC 9728 has them DISCARD a metadata document whose `resource` does not match the URL
  * they dialled, and Claude Code fails before it even opens a browser
- * (`Protected resource X does not match expected Y`). That is why the value is derived from the
- * request rather than configured — `http://localhost:3000/api/mcp` in dev and the deployed origin
- * in production, both correct with no environment variable to get wrong.
+ * (`Protected resource X does not match expected Y`).
  *
- * Under Option B this value deliberately DIFFERS from the audience the token carries
- * (docs/2026-08-23-mcp-server-add-words.md §11.2). That is the legal half of the split: `resource`
- * and `aud` may differ, `resource` and the server URL may not.
+ * Under Option A the same string is ALSO the Auth0 API identifier, and therefore the `aud` of every
+ * token this server accepts (docs/2026-08-23-mcp-server-add-words.md §11.6). It is read from
+ * `MCP_RESOURCE_URL` rather than derived from the request precisely because of that second role: an
+ * audience must be a fixed value the server was configured with, never one reconstructed from
+ * `Host` or `X-Forwarded-Host`, which are attacker-supplied.
  */
-import { generateProtectedResourceMetadata, getPublicUrl } from "mcp-handler";
+import { generateProtectedResourceMetadata } from "mcp-handler";
 
 import { WORDS_WRITE_SCOPE } from "./auth";
 
@@ -28,16 +28,25 @@ export const MCP_PATH = "/api/mcp";
  */
 export const MCP_RESOURCE_METADATA_PATH = `/.well-known/oauth-protected-resource${MCP_PATH}`;
 
-/** The canonical resource URI, from the PUBLIC origin — `getPublicUrl` reads the proxy headers a deployment sets. */
-export function mcpResourceUrl(req: Request): string {
-  const url = getPublicUrl(req);
-  url.pathname = MCP_PATH;
-  url.search = "";
-  url.hash = "";
+/**
+ * The canonical resource URI: `MCP_RESOURCE_URL`, checked rather than trusted.
+ *
+ * The path assertion is not pedantry. A value whose path is not `/api/mcp` produces a document
+ * every client silently discards, and the symptom — "the connector just won't authorize" — points
+ * nowhere near the environment variable. One `throw` at the point of use turns that into a message.
+ */
+export function mcpResourceUrl(): string {
+  const configured = process.env.MCP_RESOURCE_URL?.trim();
+  if (!configured) throw new Error("MCP_RESOURCE_URL is not set; /api/mcp has no identity.");
+
+  const url = new URL(configured);
+  if (url.pathname !== MCP_PATH || url.search || url.hash) {
+    throw new Error(`MCP_RESOURCE_URL must be an origin plus exactly ${MCP_PATH}; got ${configured}`);
+  }
   return url.toString();
 }
 
-export function mcpProtectedResourceMetadata(req: Request) {
+export function mcpProtectedResourceMetadata() {
   const domain = process.env.AUTH0_DOMAIN?.trim();
   // Fail closed, loudly: a document listing no authorization server is invalid per the MCP spec
   // ("MUST include at least one"), and serving an invalid one is worse than serving none.
@@ -47,7 +56,7 @@ export function mcpProtectedResourceMetadata(req: Request) {
     // The trailing slash is Auth0's `iss` verbatim. RFC 9728 §7.6 has the client match this against
     // the issuer it discovers, so it has to be the same string the tokens carry.
     authServerUrls: [`https://${domain}/`],
-    resourceUrl: mcpResourceUrl(req),
+    resourceUrl: mcpResourceUrl(),
     additionalMetadata: {
       // How a client learns to ask for the scope. Advertised in S1, enforced in S2 (see auth.ts).
       scopes_supported: [WORDS_WRITE_SCOPE],

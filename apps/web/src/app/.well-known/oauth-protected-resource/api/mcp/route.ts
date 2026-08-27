@@ -12,11 +12,12 @@ import { metadataCorsOptionsRequestHandler } from "mcp-handler";
 
 import { mcpProtectedResourceMetadata } from "../../../../../lib/mcp/metadata";
 
-// The document names the request's own origin, so it cannot be prerendered at build time.
+// The document is read from the environment, not the request — but it must still be served fresh,
+// because a deployment that changes MCP_RESOURCE_URL must not be answered from a build-time cache.
 export const dynamic = "force-dynamic";
 
-export function GET(req: Request): Response {
-  return Response.json(mcpProtectedResourceMetadata(req), {
+export function GET(): Response {
+  return Response.json(mcpProtectedResourceMetadata(), {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "max-age=3600",
