@@ -1,9 +1,14 @@
 # An MCP server for the collection: one tool, `add_words`
 
-**Status: RESEARCH, nothing built.** The question is how to expose this app's vocabulary collection
-over the Model Context Protocol, starting with a single tool that takes a list of strings, checks
-which are already in the learner's collection, and adds the ones that are new — protected by the
-**same Auth0** that already guards `/api/v2`.
+**Status: BUILT and connected — S0 through S3 done, 2026-08-27.** `POST /api/mcp` exposes one tool,
+`add_words_to_collection`, which takes a list of strings, checks which are already in the learner's
+collection and adds the ones that are new. It is protected by Auth0, but — the one reversal in this
+document — **not by the same Auth0 API that guards `/api/v2`**: the MCP server has its own, whose
+identifier is its own URL, so an MCP token is useless at `/api/v2` and a phone token is useless
+here (§11.6). Claude Code is connected and has written to a real learner's collection from a chat.
+
+Read §9 for what each stage actually cost; the rest is the reasoning that got there, kept because
+the wrong turns are the expensive part to rediscover.
 
 ## 1. The short version
 
@@ -578,9 +583,42 @@ are **different `norm_key`s** and therefore two rows. `resolve_words` normalizes
 lemmatize, and a leading `to` is part of the text. Nothing is wrong — but a probe that expects
 "the same idiom" to collapse will read it as a bug.
 
-**S3 — the honest edges.** Popularity-bump note in the response, a `console` line per call for the
-same reason every other write path has one, and a decision on whether the dev environment gets its
-own Auth0 API or is left as pasted-token-only.
+**S3 — the honest edges. ✅ DONE 2026-08-27.** Four items, one of which turned out to be built on a
+false premise.
+
+**The popularity note was already there** — `summarize()` reports the duplicate branch as
+"Already in the collection — met again, not duplicated: X (met 2×)", which is the one line §2.2
+asked for. Confirmed live: re-sending a word already in the collection returned it with
+`popularity` incremented, so the non-idempotent counter is both real and visible to the model that
+caused it.
+
+**The `console` line: the stated reason was wrong, the line is still right.** This stage was
+planned as "a `console` line per call for the same reason every other write path has one". There is
+no such reason — `console` appears in `apps/web/src` in exactly two places, the ElevenLabs webhook
+and `sync-agents`, and no write path logs at all. But the webhook is the precedent that matters,
+and it is a precedent for the honest version of the argument: **every other write in this app
+happens with a learner watching a screen.** An MCP call does not. A model decides to make it and
+the only evidence is the row, so "why is there a word I never typed" has no answer without a line.
+It logs `clientId` (Auth0's `azp` — the one thing the row does not record) and counts, and
+deliberately **not the words themselves**: the texts are the learner's vocabulary, and copying them
+into platform logs gives that content a second home with a different retention policy and a
+different set of readers, to answer a question the `words` table answers better.
+
+**The read-tool boundary lives at the registration call site**, not in `lib/mcp/` generally — the
+comment goes where the person adding tool number two has to type, which is `registerAddWords(server)`
+in the route. It names the three lines from §11.4 (a read tool is an exfiltration channel, a delete
+tool is irreversible, a scope is minted with its tool or not at all) plus one mechanical fact worth
+having in front of you: `requiredScopes` is passed to `withMcpAuth`, so it gates the whole SERVER.
+A `words:read` tool cannot be gated by adding to that list — it needs its own check on
+`ctx.http.authInfo.scopes` inside the tool.
+
+**Dev gets its own Auth0 API, and it already has one.** The question was posed as open; S2 answered
+it by construction. Under Option A the API identifier IS the resource URL, so an environment
+without its own API cannot have a `resource` its clients accept — "pasted-token-only dev" was never
+available once Option A was chosen. `MCP_RESOURCE_URL=http://localhost:3000/api/mcp` is stable
+precisely because dev is not tunnelled (§11.3), which is the whole reason §4.3's objection to
+Option A evaporated. Production gets a second API when there is a production origin; the identifier
+is the only thing that differs.
 
 S0 and S1 were the work. S2 was configuration, and it was indeed where the surprises were —
 both of them in Auth0's dashboard rather than in any code we wrote.
@@ -754,10 +792,14 @@ Built per §11.6: a new Auth0 API, compatibility profile **ON**, no Default Audi
 one hand-registered application per client. Claude Code only; ChatGPT cannot be reached from a
 localhost server at all and waits for a deployed origin.
 
-**S3 — the honest edges.** As before, plus: write the read-tool boundary from §11.4 into the repo
-(a comment in `lib/mcp/` beats a doc nobody re-reads), and record in the tenant's notes *why* the
-compatibility profile is off — because the next person to read Auth0's MCP guide will try to turn it
-on, and it will break the server.
+**S3 — the honest edges. ✅ Done 2026-08-27** — see §9.
+
+The last clause of this entry was written under Option B and is now **inverted**: it said to record
+why the compatibility profile is *off*. Under Option A it is **ON**, and it must stay on — with it
+off, Auth0 ignores the `resource` every MCP client sends, falls back to `audience` that no client
+sends, and mints an opaque token `jose` cannot verify (§11.2, step 4). The note the tenant actually
+needs is the other one: **the API Identifier is immutable and must equal the MCP URL byte for
+byte**, so a wrong one is a delete-and-recreate rather than an edit.
 
 ### 11.6 Reversed to Option A — the decision of record
 

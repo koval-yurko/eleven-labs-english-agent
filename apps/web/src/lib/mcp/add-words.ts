@@ -70,6 +70,8 @@ export function registerAddWords(server: McpServer): void {
       // the failure `/api/v2/lesson-items` calls out, in a third place.
       if (result.added.length > 0) scheduleWordJobs(ownerId);
 
+      logCall(ctx.http?.authInfo?.clientId, words.length, result);
+
       const structured = {
         added: result.added,
         already_present: result.alreadyPresent,
@@ -81,6 +83,33 @@ export function registerAddWords(server: McpServer): void {
         structuredContent: structured,
       };
     },
+  );
+}
+
+/**
+ * One line per call, and the only logging in `apps/web/src` outside the ElevenLabs webhook.
+ *
+ * That is not an oversight being copied — it is the same reason the webhook has one. Every other
+ * write in this app happens with a learner watching a screen, so a failed or surprising write
+ * announces itself. An MCP call has no UI in front of it: a model decides to make it, and the only
+ * evidence it happened is the row. This line is what makes "why is there a word I never typed"
+ * answerable.
+ *
+ * **Counts, never the words themselves.** The texts are the learner's own vocabulary; copying them
+ * into platform logs would give this content a second home with a different retention policy and a
+ * different set of readers, to answer questions the `words` table already answers better.
+ *
+ * `clientId` is Auth0's `azp` — which client wrote, the one thing the row does NOT record and the
+ * thing that matters first once more than one client is connected (`lib/mcp/auth.ts`).
+ */
+function logCall(
+  clientId: string | undefined,
+  requested: number,
+  r: Awaited<ReturnType<typeof addWords>>,
+): void {
+  console.info(
+    `[mcp] add_words_to_collection client=${clientId || "?"} in=${requested} ` +
+      `added=${r.added.length} present=${r.alreadyPresent.length} skipped=${r.skipped.length}`,
   );
 }
 

@@ -28,6 +28,29 @@ export const maxDuration = 60;
 
 const handler = createMcpHandler(
   (server) => {
+    /**
+     * ─── Read this before adding the second tool. ────────────────────────────────────────────
+     *
+     * This server is WRITE-ONLY AND BLIND, and that is what makes its threat model small enough to
+     * state in a sentence: a prompt injection that reaches `add_words_to_collection` can put junk
+     * vocabulary in the caller's own collection, and nothing else. Three lines are worth knowing
+     * before they are crossed, because each one changes the CLASS of the server rather than its
+     * size (docs/2026-08-23-mcp-server-add-words.md §8.2, §11.4):
+     *
+     * 1. **The first read tool makes this an exfiltration channel.** `list_words`, `search_words`,
+     *    ChatGPT's `search`/`fetch` pair — any of them lets the learner's collection leave the
+     *    account and enter a model context someone else may be steering. That is a different
+     *    review, not a bigger version of this one.
+     * 2. **A delete tool crosses irreversibility.** `deleteWord` already exists in `lib/words.ts`
+     *    and would be four lines here. Client-side confirmation (ChatGPT's per-conversation
+     *    prompt, Claude's per-tool approval) is a UX affordance, not a guarantee, and it is the
+     *    only thing that would stand between a model and destroying vocabulary.
+     * 3. **Mint the scope with the tool, not after.** `words:read` must be a grant the learner can
+     *    withhold from a client that only needs to write; one omnibus scope erases the only
+     *    granularity the design has. Add the permission to the Auth0 API, list it in
+     *    `scopes_supported` (`lib/mcp/metadata.ts`), and gate it — `requiredScopes` below is
+     *    per-server, so a read tool needs its own check inside the tool.
+     */
     registerAddWords(server);
   },
   { serverInfo: { name: "tutor-collection", version: "0.1.0" } },
