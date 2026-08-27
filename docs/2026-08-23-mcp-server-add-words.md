@@ -7,6 +7,9 @@ document — **not by the same Auth0 API that guards `/api/v2`**: the MCP server
 identifier is its own URL, so an MCP token is useless at `/api/v2` and a phone token is useless
 here (§11.6). Claude Code is connected and has written to a real learner's collection from a chat.
 
+**Not deployed.** It runs against `http://localhost:3000` only, so the two cloud clients — ChatGPT
+and claude.ai — have never been able to reach it. That is S4.
+
 Read §9 for what each stage actually cost; the rest is the reasoning that got there, kept because
 the wrong turns are the expensive part to rediscover.
 
@@ -396,6 +399,12 @@ lists, reverse proxy) are **Enterprise-only**. Three ways out, in order of prefe
 3. **Skip both:** hand-register one Auth0 application and configure the client with that `client_id`.
    Loses zero-config connection, keeps the tenant closed.
 
+**Chosen in S2: option 3, for Claude Code. Revised in S4: option 1 is the only one that scales past
+it** — ChatGPT has no field to paste a `client_id` into, so option 3 means Claude-only. CIMD keeps
+what option 3 was chosen for (the tenant stays admin-controlled; there is no open endpoint) without
+that ceiling, because the admin imports the client's published document rather than the client
+registering itself. See §9, S4.
+
 ### 8.2 A write tool reachable by a model is a prompt-injection sink
 
 `add_words_to_collection` is low-severity by construction — it creates rows in the caller's own
@@ -620,6 +629,81 @@ precisely because dev is not tunnelled (§11.3), which is the whole reason §4.3
 Option A evaporated. Production gets a second API when there is a production origin; the identifier
 is the only thing that differs.
 
+**S4 — production, and the one client that cannot be hand-registered. PLANNED, not started.**
+
+The staging plan originally ended at S3, because it was written when "who consumes it" was still
+open. Answer 1 (§10) said *any* remote client, and two of those — ChatGPT and claude.ai — reach out
+from OpenAI's and Anthropic's infrastructure and **cannot see localhost at all** (§11.3). They have
+been untestable this whole time. A deployed origin is the only thing that changes that.
+
+**What is already true, checked rather than assumed:**
+
+- The production origin is `https://eleven-labs-english-agent.vercel.app` — the same one
+  `apps/mobile/.env` points `EXPO_PUBLIC_API_BASE_URL` at. Today it answers `/api/mcp` with **404**
+  and the metadata document with **307 → /auth/login**, because this branch is not merged: the
+  `/.well-known/` exemption in `proxy.ts` ships with it (§9, S1).
+- **No code changes are needed to deploy.** `MCP_RESOURCE_URL` is the only new variable, and both
+  routes are `force-dynamic`, so it is read at request time rather than baked at build. A build
+  without it still builds.
+- **The failure shape of a missing `MCP_RESOURCE_URL` is the right one, and worth memorising**:
+  `/api/mcp` 401s every request (`verifyMcpToken` has no audience, so it fails CLOSED) while the
+  metadata route **500s**. Closed where it must be closed, loud where it must be loud — but the
+  symptom a user reports is "the connector won't authorize", which points at the endpoint. Check the
+  `.well-known` document first; it is the half that says what is wrong.
+
+**A production-only constraint that has no dev equivalent: preview deployments cannot serve MCP.**
+The PRM's `resource` is read from configuration, on purpose (§11.6 — an audience must never be
+rebuilt from `Host`). So a preview deployment serves the *production* resource string at a *preview*
+URL, and every RFC 9728-conformant client discards the document (§11.1). MCP works on the production
+alias only. This is not a bug to fix — deriving `resource` from the request is exactly the thing that
+must not happen — it is a property to know before someone tests a connector against a preview URL and
+concludes the server is broken.
+
+**The Auth0 API identifier is a one-shot decision.** Identifiers are immutable (§9, S2), and under
+Option A the identifier IS the URL clients dial. So `https://eleven-labs-english-agent.vercel.app/api/mcp`
+locks the server to that hostname; if a custom domain is ever intended for this app, it has to be
+chosen now rather than migrated to later.
+
+#### The finding that changes §8.1: ChatGPT cannot be hand-registered
+
+§11.2 assumed, and flagged for confirmation, that "both Claude and ChatGPT expose a field for a
+pre-supplied client id". **For ChatGPT that is false.** Its connector flow supports **CIMD or
+Dynamic Client Registration** and offers no place to paste a `client_id` — which is precisely what
+S2 relied on for Claude Code (`claude mcp add --client-id`). So §8.1's option 3, "skip both and
+hand-register", quietly means *Claude-only forever*.
+
+**CIMD is the way out, and it is better than either option §8.1 weighed.** Its point is not that it
+is newer: DCR's problem was an **open registration endpoint** anyone can flood, and CIMD does not
+have one. The client publishes a metadata document at an HTTPS URL, that URL *is* its `client_id`,
+and the **tenant admin imports it** — Auth0 fetches, validates and persists it. So the tenant stays
+admin-controlled, exactly as hand-registration kept it, while the client still gets an id it can
+actually use. §8.1's tension between "zero-config" and "closed tenant" turns out to be a false
+choice.
+
+Three things to expect while doing it, all of which follow from CIMD clients being **third-party**
+applications in Auth0's model:
+
+1. **The S2 surprise returns, in its third-party form.** A CIMD client still needs an explicit grant
+   against the API — Auth0 documents this as client grants, either per-application or the API's
+   *default third-party grants*, with the per-application grant winning where both exist. This is
+   the same wall as S2's `Client "X" is not authorized to access resource server "<uri>"`, and the
+   pre-flight `curl` in S2 diagnoses it the same way.
+2. **The production API must permit third-party applications**, which a first-party-only API does
+   not. That also brings a real consent screen, which is correct here — the learner *should* be
+   consenting to give ChatGPT `words:write`.
+3. **Third-party clients can only use domain-level connections.** Worth checking against how this
+   tenant's connection is configured before assuming the login will render.
+
+The CIMD toggle is tenant-wide, like every other toggle in this document. Unlike Default Audience
+(§11.2) its blast radius is small: it advertises a capability in the AS metadata and permits clients
+the admin has imported. It does not change what any existing application receives.
+
+**The order to do it in**, so that a failure has one cause: merge and deploy → set `MCP_RESOURCE_URL`
+→ confirm the metadata document answers 200 with the right `resource` (this is the step that catches
+the proxy and the env var at once) → create the production Auth0 API with `words:write` → re-point
+Claude Code at the deployed URL, since it is the client already known to work end to end → only then
+add CIMD and ChatGPT, which is the only genuinely new variable.
+
 S0 and S1 were the work. S2 was configuration, and it was indeed where the surprises were —
 both of them in Auth0's dashboard rather than in any code we wrote.
 
@@ -719,7 +803,8 @@ containing it.
 
 **The tripwire, therefore: under Option B, DCR stays OFF.** Hand-register one Auth0 application per
 client and paste the `client_id` (§8.1 option 3) — both Claude and ChatGPT expose a field for a
-pre-supplied client id, which is worth confirming in S2 before committing. If zero-config DCR ever
+pre-supplied client id, which is worth confirming in S2 before committing. **[Confirmed false for
+ChatGPT, 2026-08-27 — it offers CIMD or DCR and no pasted id. See §9, S4.]** If zero-config DCR ever
 becomes a requirement, that is the moment Option B has to be revisited, and the cost of switching
 then is exactly what §4.3 said it was: one Auth0 API, one env var, one line in the PRM. Nothing in
 this design makes that switch expensive later, which is the main reason B is a reasonable bet now.
