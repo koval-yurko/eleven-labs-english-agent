@@ -294,9 +294,9 @@ but it is exactly the audience-binding property the spec spends a whole section 
 
 **Recommendation: A.** B is defensible for an afternoon spike and should not survive it.
 
-> **Decided 2026-08-23: B.** That is a legitimate call, but B as described above *does not work* —
-> not for a security reason, for a mechanical one. See §11.2 for the chain and for the one tenant
-> configuration that makes B function.
+> **Decided 2026-08-23: B. Reversed 2026-08-24: A** — the recommendation above stands after all.
+> §11.2 is the research that got there (B is mechanically broken as written, and the fix is a
+> tenant-wide Default Audience); §11.6 is the decision and the config that follows from it.
 
 ### 4.4 The end-to-end flow, once configured
 
@@ -340,13 +340,14 @@ apps/web/src/app/.well-known/oauth-protected-resource/api/mcp/route.ts
                                                      new   (or a rewrite to /api/oauth-protected-resource/*)
 apps/web/src/lib/words.ts                            edit  + addWords(ownerId, texts[])
 apps/web/src/proxy.ts                                edit  exempt /.well-known/* from the auth gate
+apps/web/.env.example / deployment env               edit  + MCP_RESOURCE_URL
 apps/web/package.json                                edit  + mcp-handler, @modelcontextprotocol/server, zod4
 ```
 
-**Two corrections after building it.** `lib/config.ts` and the new env vars are NOT needed: Option B
-reuses `AUTH0_API_AUDIENCE`, and the canonical resource URL is derived from the request's public
-origin (`getPublicUrl`), so dev and production are both correct with nothing to configure. And
-`proxy.ts` — absent from the plan — turned out to be load-bearing; see §9's S1 entry.
+**Two corrections after building it.** `lib/config.ts` is not needed, and the two planned env vars
+collapsed into one: under Option A the audience and the RFC 9728 `resource` are the same string, so
+`MCP_RESOURCE_URL` carries both (§11.6). And `proxy.ts` — absent from the plan — turned out to be
+load-bearing; see §9's S1 entry.
 
 Nine files, one of them a `package.json`. The tool body itself is about thirty lines.
 
@@ -410,9 +411,8 @@ exactly this tool.
   not implement. Fixed with a `zod4` alias.
 - ~~**The `.well-known` folder in the App Router**~~ **Resolved in S1: it works.** The
   unforeseen obstacle was the app's own auth gate, not Next — §9, S1.
-- **Tenant toggles are tenant-wide.** The compatibility profile is documented as `audience`-wins when
-  both are present, and web/mobile never send `resource` — so existing logins should be untouched.
-  Confirm a mobile login still works immediately after flipping it, rather than discovering it later.
+- ~~**Tenant toggles are tenant-wide.**~~ **Resolved in S2: existing logins are untouched.** The
+  phone's exact authorization request still reaches `/u/login` with both toggles on. See §9, S2.
 
 ## 9. Staging
 
@@ -495,22 +495,104 @@ S2 would have been "Claude can't connect" with a working-looking server.
 - The S0 dev-owner fallback is **deleted**, not kept behind a flag. Under `required: true` it is
   unreachable in the normal case and a silent mis-write in the abnormal one.
 
-**S2 — the tenant.** New Auth0 API with the canonical URL as identifier, `words:write` scope, default
-third-party permissions, compatibility profile + issuer-in-response on, DCR (or CIMD) resolved per
-§8.1. Connect Claude Code end-to-end and add a word from a chat.
+**S2 — the tenant** (Option A, §11.6). A new Auth0 API with identifier `http://localhost:3000/api/mcp`
+and a `words:write` permission; **Resource Parameter Compatibility Profile ON**; Include Issuer ON;
+DCR **off**, with one hand-registered Native application per client. No Default Audience, and
+nothing that touches the existing web or mobile logins. Then connect Claude Code end-to-end and add
+a word from a chat.
+
+Pre-verified before any toggle was flipped: Auth0 accepts an unknown `resource` parameter today
+without error, `claude mcp add` supports `--client-id` / `--client-secret` / `--callback-port` (so
+DCR can stay off), and the redirect URI it needs is exactly `http://localhost:PORT/callback`.
+
+**✅ Claude Code authenticated and connected, 2026-08-24.** What that single word "Connected" proves,
+because it is more than it looks: the client fetched the PRM, accepted its `resource` as matching the
+URL it dialled (so **plain-`http` localhost is tolerated** — §11.3's open question), discovered Auth0
+from `authorization_servers`, ran PKCE against a hand-registered client with DCR off, received a
+token whose `aud` is `http://localhost:3000/api/mcp`, and then passed `tools/list` — **through
+`requiredScopes: ["words:write"]`**. That last hop could not be verified any other way: it means the
+client read `scopes_supported` out of the metadata, asked for the scope, and Auth0 granted it. The
+whole Option A chain, end to end, with a real learner token.
+
+#### The two things S2 cost that no amount of reading would have predicted
+
+**1. Auth0 requires an explicit Application↔API authorization — even for a first-party Native app on
+the authorization-code flow.** Nothing in Auth0's MCP guide mentions it; the concept is documented
+around *client grants*, which are a machine-to-machine idea. The symptom is an error carried on the
+authorization *redirect*, not an error page:
+
+```
+invalid_request: Client "<client_id>" is not authorized to access resource server
+                 "http://localhost:3000/api/mcp".
+```
+
+The fix is on the **application** (Applications → the app → its APIs list → enable the API and its
+permissions), NOT on the API's "Machine To Machine Applications" tab — that tab creates
+client-credentials grants and refuses a public client outright, with the unrelated-sounding
+complaint that the Token Endpoint Auth Method must not be `none`.
+
+**2. Two Auth0 errors that look alike mean opposite things, and telling them apart is a free
+pre-flight.** One `curl` to `/oauth/token` (or `/authorize`) before spending a browser login:
+
+| Error | Means |
+| --- | --- |
+| `Service not enabled within domain: <uri>` | **No API with that Identifier exists.** Wrong string, or not created. |
+| `Client "X" is not authorized to access resource server "<uri>"` | **The API exists; the app is not linked to it.** |
+
+The first caught an Identifier of `https://mcp.english-tutor.kovalchuk.work` — a reasonable-looking
+value that cannot work, because Option A forces Identifier = PRM `resource` = the URL the client
+dials, and Claude Code discards a metadata document that disagrees (§11.1). **Auth0 Identifiers are
+immutable**, so a wrong one means delete and recreate the API.
+
+**Mobile was checked, not assumed** (§8.3's standing worry). Replaying the phone's exact authorization
+request — Native client, custom-scheme callback, `audience=https://api.english-tutor.kovalchuk.work`
+— still redirects cleanly to `/u/login` after both toggles. The compatibility profile did not disturb
+it, exactly as documented: `audience` is what mobile sends, `resource` is what it never sends.
+`Include Issuer` is confirmed live too — authorization responses now carry `iss=`.
+
+**✅ Called from a chat, 2026-08-27 — S2 closed.** Claude Code binds MCP tools at session start, so
+the server added during S2 connected but exposed no tools until the next session. In that session
+the tool was called by a model, in prose, and reproduced every branch of §2.1 that S0 proved over
+raw JSON-RPC — this time over OAuth with a real learner token:
+
+```
+words: ["to burn the midnight oil", "To burn the midnight oil.", "   ", "to burn the midnight oil"]
+→ added:    To burn the midnight oil.        (one id; the two spellings collapsed in Postgres)
+  skipped:  "   "  ·  "to burn the midnight oil" (dup of an earlier entry)
+
+then ["To burn the midnight oil.", "burn the midnight oil"]
+→ already_present: both, met 1× — same ids returned, nothing duplicated
+```
+
+Two things this stage adds that S0's run could not:
+
+- **`owner_id` is `auth0|…`, a human sub** — not S1's `<client_id>@clients` machine owner. The chain
+  the whole document exists for (client → PKCE → Auth0 → `aud` = the MCP URL → `verifyMcpToken` →
+  `owner_id`) is closed against a real learner for the first time.
+- **`after()` survives the authenticated path too.** Both rows came back `level: "C1"` with
+  `level_at` and `details_at` stamped within seconds. S0 proved this under the dev-owner gate;
+  `withMcpAuth` wrapping the handler does not change it.
+
+One thing to know before repeating it: `"burn the midnight oil"` and `"to burn the midnight oil"`
+are **different `norm_key`s** and therefore two rows. `resolve_words` normalizes, it does not
+lemmatize, and a leading `to` is part of the text. Nothing is wrong — but a probe that expects
+"the same idiom" to collapse will read it as a bug.
 
 **S3 — the honest edges.** Popularity-bump note in the response, a `console` line per call for the
 same reason every other write path has one, and a decision on whether the dev environment gets its
 own Auth0 API or is left as pasted-token-only.
 
-S0 and S1 are the work. S2 is configuration and is where the surprises will be.
+S0 and S1 were the work. S2 was configuration, and it was indeed where the surprises were —
+both of them in Auth0's dashboard rather than in any code we wrote.
 
 ## 10. Open questions — answered 2026-08-23
 
 1. **Which client?** Claude, ChatGPT, *any* remote MCP client. Not an internal script — the full
    OAuth discovery dance in §4 is required, and it now has to work for more than one client
    implementation. See §11.1.
-2. **Option A or B?** **B** — reuse the existing `AUTH0_API_AUDIENCE`, no new Auth0 API. See §11.2.
+2. **Option A or B?** First B, then **A** on 2026-08-24 once B's true cost was priced. A new Auth0
+   API per environment, identifier = the canonical MCP URL. See §11.2 for the pricing and §11.6 for
+   the decision.
 3. **Dev MCP-connectable?** No. Dev is localhost-only, no tunnel. See §11.3.
 4. **First of several tools?** **Yes, the first.** So §8.2's threat model is due now, not later.
    See §11.4.
@@ -544,6 +626,10 @@ Two consequences worth stating before any code is written:
   distinction is what saves Option B, and it is the whole of 11.2.
 
 ### 11.2 Option B does not work as written — and here is the version that does
+
+> **SUPERSEDED 2026-08-24 by §11.6.** Kept in full because it is the argument that chose Option A:
+> the reversal was not a change of mind about MCP, it was this section's cost finally being read as
+> a price rather than a caveat. Nothing below is wrong; it is simply no longer what we are building.
 
 The chain, in order, all of it verified:
 
@@ -621,10 +707,9 @@ class of pain does not reappear here.
 
 Two things to verify rather than assume:
 
-- **`http://` canonical URI.** The PRM in dev must advertise `http://localhost:3000/api/mcp`, and the
-  client will compare its configured URL against it. OAuth 2.1 requires HTTPS for *authorization
-  server* endpoints (Auth0, fine) and permits loopback redirect URIs; whether each client tolerates a
-  plain-`http` *resource* is per-client. Test it early — it is a five-minute check, not a design.
+- ~~**`http://` canonical URI.**~~ **Answered in S2 for Claude Code: it tolerates it.** A plain-`http`
+  loopback `resource` passed the RFC 9728 match. Still per-client — ChatGPT is untested and, being a
+  cloud client, cannot reach localhost to be tested at all.
 - **Auth0 callback registration** for whatever loopback port the local client uses.
 
 Practical consequence for staging: S1's "paste a token by hand" is not a stepping stone any more, it
@@ -664,15 +749,59 @@ identical for one tool or six.
 
 **S1 — Auth0 verification, pasted token. ✅ Done** — see §9.
 
-**S2 — the tenant, and it is a shorter list than §4.2 implied.** Set **Default Audience**; leave the
-compatibility profile **OFF**; turn on Include Issuer; leave **DCR OFF** and hand-register one Auth0
-application per client. Then connect from a deployed origin — Claude first, ChatGPT second, because
-ChatGPT additionally needs developer mode and will exercise the manual-confirmation path.
+**S2 — the tenant. ✅ Done 2026-08-27** (connected 08-24, tool called from a chat 08-27) — see §9.
+Built per §11.6: a new Auth0 API, compatibility profile **ON**, no Default Audience, DCR off with
+one hand-registered application per client. Claude Code only; ChatGPT cannot be reached from a
+localhost server at all and waits for a deployed origin.
 
 **S3 — the honest edges.** As before, plus: write the read-tool boundary from §11.4 into the repo
 (a comment in `lib/mcp/` beats a doc nobody re-reads), and record in the tenant's notes *why* the
 compatibility profile is off — because the next person to read Auth0's MCP guide will try to turn it
 on, and it will break the server.
+
+### 11.6 Reversed to Option A — the decision of record
+
+The question that turned it: *why is Default Audience tenant-wide and not per-application?* Because
+in Auth0's model the audience belongs to the **request**, not the client — `audience=` (legacy) and
+`resource=` (RFC 8707) are both per-request, and Default Audience exists only to answer "what does an
+audience-less request mean in this tenant?", a migration shim for turning opaque `/userinfo` tokens
+into JWTs without editing every client. There is a standing community request for a per-application
+version; it has not shipped.
+
+That is not a detail — it is the reason §11.2's cost cannot be engineered away. Option B's blast
+radius is tenant-wide *by construction*, and the only lever left is a rule ("DCR stays off") rather
+than a mechanism.
+
+Option A pays a smaller price for a stronger property:
+
+| | Option B | **Option A (chosen)** |
+| --- | --- | --- |
+| New Auth0 API | none | one per environment, identifier = the MCP URL |
+| Default Audience | **required**, tenant-wide | not needed |
+| Resource Parameter Compatibility Profile | must stay **OFF** | **ON** |
+| Effect on existing web/mobile logins | web tokens become JWTs; consent may appear | **none** — `audience` still wins, and audience-less requests behave exactly as today |
+| `aud` of an MCP token | the shared API → **also a valid `/api/v2` token** | the MCP URL → useless anywhere else |
+| A phone token at `/api/mcp` | blocked only by the scope check | blocked by the audience |
+| If DCR is ever enabled | a consenting client gets the whole API | a consenting client gets `words:write` on one tool |
+| Dev cost | none | none — dev is localhost-only (§11.3), so `http://localhost:3000/api/mcp` never rotates |
+
+The last row is why A got cheap: §4.3 priced A partly on "the dev identifier is tied to a tunnel URL
+that changes", and answer 3 deleted the tunnel.
+
+**One environment variable, three roles.** `MCP_RESOURCE_URL` is the RFC 9728 `resource`, the Auth0
+API identifier, and therefore the token `aud` — the same string by construction, so they cannot
+drift. It is read from configuration rather than derived from the request on purpose: an audience
+must never be reconstructed from `Host` or `X-Forwarded-Host`. `mcpResourceUrl()` asserts its path
+is exactly `/api/mcp`, because the failure mode of a wrong value is a document every client silently
+discards — a symptom that points nowhere near an env var.
+
+**Verified at the moment of the switch:** the M2M token that S1 accepted (`aud` = the shared API) is
+now rejected `401` by `/api/mcp`. That single rejection is the whole of what Option A buys, and it
+is now a property of the token rather than of our discipline.
+
+`requiredScopes: [WORDS_WRITE_SCOPE]` is enabled from the start under A — the new API defines the
+permission, so a client can actually obtain it. It is defence in depth here rather than the boundary,
+and it starts earning its keep with the second tool, when `words:read` must be separately grantable.
 
 ## Sources
 
