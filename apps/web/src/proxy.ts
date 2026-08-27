@@ -24,8 +24,14 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
   // `/privacy` and `/support` used to be exempt here too — the two URLs App Store Connect requires,
   // opened with no session by the store's link validator and by App Review. Both pages are gone, so
   // whatever URLs are entered in App Store Connect now have to be hosted somewhere else.
+  //
+  // `/.well-known/*` is public by definition. The RFC 9728 document for `/api/mcp` lives there, and
+  // it is the FIRST thing an MCP client fetches — before it has any credential, since discovering
+  // how to get one is the document's entire purpose. Redirecting it to a login page makes the MCP
+  // server undiscoverable while leaving `/api/mcp` itself looking perfectly healthy.
   if (
     pathname.startsWith("/auth") ||
+    pathname.startsWith("/.well-known/") ||
     pathname === "/manifest.webmanifest" ||
     pathname === "/sw.js" ||
     pathname === "/offline"

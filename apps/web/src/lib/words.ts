@@ -12,7 +12,7 @@
  */
 import { getServiceSupabase } from "./supabase/server";
 import { bumpWordPopularity } from "./lesson-items";
-import { wordInputKey } from "@tutor/shared/words/key";
+import { clientDedupeKey, wordInputKey } from "@tutor/shared/words/key";
 import type { AddWordResult } from "@tutor/shared/words/types";
 
 export interface ResolvedWord {
@@ -121,4 +121,91 @@ export async function deleteWord(ownerId: string, wordId: string): Promise<boole
     .select("id");
   if (error) throw new Error(`deleteWord: ${error.message}`);
   return ((data as { id: string }[] | null) ?? []).length > 0;
+}
+
+export interface AddWordsResult {
+  added: { id: string; text: string }[];
+  alreadyPresent: { id: string; text: string; popularity: number | null }[];
+  /** Normalized to nothing, or a duplicate of an earlier entry in the SAME call. */
+  skipped: string[];
+}
+
+/**
+ * Add many words in one pass — the batch twin of `addWord`, written for the MCP tool
+ * (docs/2026-08-23-mcp-server-add-words.md §2.1).
+ *
+ * Not a loop over `addWord`: that is 2N round trips where `resolve_words` already takes an array.
+ * This is one RPC plus one bump per duplicate.
+ *
+ * Three things it has to get right, all of which the singular path gets right for free:
+ *
+ * 1. **Dedupe the input BEFORE the RPC.** `resolve_words` upserts each element of the array in
+ *    turn, so `["Ubiquitous.", "ubiquitous."]` comes back as two rows for one word and the second
+ *    reports `was_created = false` — the caller would announce "already in your collection" for a
+ *    word it created a millisecond earlier. `clientDedupeKey` is deliberately WEAKER than the
+ *    Postgres identity, and that is the safe direction: merging less leaves a duplicate for the
+ *    server to collapse, merging more would silently drop a word the learner typed.
+ * 2. **Two surviving inputs can still collapse onto one word id** — "Don't" and "dont" differ under
+ *    `clientDedupeKey` but not under `norm_key`, which is exactly what `resolveWords`' own doc
+ *    comment warns about. Group the result by id, not by text, and count the group as added if ANY
+ *    of its rows created the row.
+ * 3. **A bump must not be able to fail the add.** Same reason as `addWord`: the word is in the
+ *    collection either way, and reporting an error for a counter turns a correct answer into a
+ *    broken one.
+ *
+ * `scheduleWordJobs` is deliberately NOT called here — it belongs to the request path, the way it
+ * does for `addWord`'s callers, so this stays a pure data function.
+ */
+export async function addWords(ownerId: string, rawTexts: string[]): Promise<AddWordsResult> {
+  const skipped: string[] = [];
+  const texts: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of rawTexts) {
+    const text = wordInputKey(raw);
+    if (!text) {
+      skipped.push(raw);
+      continue;
+    }
+    const key = clientDedupeKey(raw);
+    if (seen.has(key)) {
+      skipped.push(raw);
+      continue;
+    }
+    seen.add(key);
+    texts.push(text);
+  }
+
+  if (texts.length === 0) return { added: [], alreadyPresent: [], skipped };
+
+  const resolved = await resolveWords(ownerId, texts);
+
+  // The LAST spelling the RPC saw for a group is the one now stored — `resolve_words` refreshes
+  // `text` on every upsert ("most recently typed form wins") — so that is the one to report back.
+  const groups = new Map<string, { text: string; created: boolean }>();
+  for (const text of texts) {
+    const word = resolved.get(text);
+    if (!word) {
+      // The RPC returns one row per input, so a gap is a dropped row, not a resolved word. Report
+      // it as skipped rather than inventing an id for it.
+      skipped.push(text);
+      continue;
+    }
+    groups.set(word.id, { text, created: (groups.get(word.id)?.created ?? false) || word.created });
+  }
+
+  const added: AddWordsResult["added"] = [];
+  const duplicates: { id: string; text: string }[] = [];
+  for (const [id, group] of groups) {
+    (group.created ? added : duplicates).push({ id, text: group.text });
+  }
+
+  const alreadyPresent = await Promise.all(
+    duplicates.map(async (word) => ({
+      ...word,
+      popularity: await bumpWordPopularity(ownerId, word.id).catch(() => null),
+    })),
+  );
+
+  return { added, alreadyPresent, skipped };
 }
