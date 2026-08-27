@@ -24,7 +24,20 @@ import { z } from "zod4";
 
 import { scheduleWordJobs } from "../sync-flush";
 import { addWords } from "../words";
-import { mcpOwnerId } from "./owner";
+
+/**
+ * **MCP writes are ANONYMOUS: `owner_id` is NULL, and there is no configured owner anywhere.**
+ *
+ * The token authenticates a caller, not a person, so there is no `sub` to stamp — and inventing one
+ * from an environment variable would be a guess wearing a configuration value's clothes. NULL says
+ * the true thing: nobody claimed this word.
+ *
+ * `0018_unowned_words.sql` is what makes NULL a first-class value rather than a hole — the natural
+ * key is `nulls not distinct` so anonymous adds still collapse onto one row, the popularity bump
+ * matches with `is not distinct from`, and `ownedOrUnowned` (lib/lesson-items.ts) is why the
+ * learner sees these words at all. See docs/2026-08-27-mcp-static-token-auth.md §2.
+ */
+const ANONYMOUS = null;
 
 /**
  * Both caps are the ones this codebase already chose, imported rather than re-picked: `MAX_ITEMS`
@@ -61,16 +74,17 @@ export function registerAddWords(server: McpServer): void {
       outputSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async ({ words }, ctx) => {
-      const ownerId = mcpOwnerId(ctx);
-      const result = await addWords(ownerId, words);
+    async ({ words }) => {
+      const result = await addWords(ANONYMOUS, words);
 
       // The same rule as every other write path: without this an MCP-added word has no CEFR level
       // and no `details` until the next sweep, and nothing about that is visible at the time. It is
       // the failure `/api/v2/lesson-items` calls out, in a third place.
-      if (result.added.length > 0) scheduleWordJobs(ownerId);
+      // `null` here means "every owner's pending words", which is what the sweep scripts pass and
+      // the only thing that can reach a row with no owner. The batch cap keeps it bounded.
+      if (result.added.length > 0) scheduleWordJobs(ANONYMOUS);
 
-      logCall(ctx.http?.authInfo?.clientId, words.length, result);
+      logCall(words.length, result);
 
       const structured = {
         added: result.added,
@@ -99,17 +113,15 @@ export function registerAddWords(server: McpServer): void {
  * into platform logs would give this content a second home with a different retention policy and a
  * different set of readers, to answer questions the `words` table already answers better.
  *
- * `clientId` is Auth0's `azp` — which client wrote, the one thing the row does NOT record and the
- * thing that matters first once more than one client is connected (`lib/mcp/auth.ts`).
+ * It used to log `clientId` (Auth0's `azp` — WHICH client wrote, the one thing the row does not
+ * record). One shared secret has no per-client identity to report, so the field is gone rather than
+ * printed as a constant. If that ever matters, give each client its own token and label the TOKEN;
+ * do not rebuild a per-request `AuthInfo` to carry a value that never varies.
  */
-function logCall(
-  clientId: string | undefined,
-  requested: number,
-  r: Awaited<ReturnType<typeof addWords>>,
-): void {
+function logCall(requested: number, r: Awaited<ReturnType<typeof addWords>>): void {
   console.info(
-    `[mcp] add_words_to_collection client=${clientId || "?"} in=${requested} ` +
-      `added=${r.added.length} present=${r.alreadyPresent.length} skipped=${r.skipped.length}`,
+    `[mcp] add_words_to_collection in=${requested} added=${r.added.length} ` +
+      `present=${r.alreadyPresent.length} skipped=${r.skipped.length}`,
   );
 }
 

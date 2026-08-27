@@ -25,10 +25,14 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
   // opened with no session by the store's link validator and by App Review. Both pages are gone, so
   // whatever URLs are entered in App Store Connect now have to be hosted somewhere else.
   //
-  // `/.well-known/*` is public by definition. The RFC 9728 document for `/api/mcp` lives there, and
-  // it is the FIRST thing an MCP client fetches — before it has any credential, since discovering
-  // how to get one is the document's entire purpose. Redirecting it to a login page makes the MCP
-  // server undiscoverable while leaving `/api/mcp` itself looking perfectly healthy.
+  // `/.well-known/*` is public by definition, and nothing lives there today: the RFC 9728 document
+  // for `/api/mcp` was deleted when MCP moved to a shared secret
+  // (docs/2026-08-27-mcp-static-token-auth.md). The exemption stays anyway, for the failure shape.
+  // A client probing for OAuth metadata should get a clean 404 — "there is no authorization server
+  // here" — rather than a 307 into an HTML login page, which is a worse thing to hand a JSON parser
+  // and a worse thing to read in a client's logs. It is also the standing warning for whatever
+  // lands here next (`apple-app-site-association` is the plausible one): this gate ate the metadata
+  // document for a whole stage while `/api/mcp` itself looked perfectly healthy.
   if (
     pathname.startsWith("/auth") ||
     pathname.startsWith("/.well-known/") ||

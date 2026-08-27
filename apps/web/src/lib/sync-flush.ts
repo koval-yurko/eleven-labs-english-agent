@@ -115,7 +115,7 @@ export async function applyOps(ownerId: string, records: OutboxRecord[]): Promis
  * their own newest-first queue, which is what makes the capped window safe. Both are best-effort and
  * swallow: the sweeps are the backstop, and a failure costs a chip until the next one.
  */
-export function scheduleWordJobs(ownerId: string): void {
+export function scheduleWordJobs(ownerId: string | null): void {
   after(async () => {
     try {
       await levelItems(ownerId, { limit: LEVEL_AFTER_LIMIT });

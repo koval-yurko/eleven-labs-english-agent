@@ -11,7 +11,7 @@
  * client-minted uuid is stable only within one.
  */
 import { getServiceSupabase } from "./supabase/server";
-import { bumpWordPopularity } from "./lesson-items";
+import { bumpWordPopularity, ownedOrUnowned } from "./lesson-items";
 import { clientDedupeKey, wordInputKey } from "@tutor/shared/words/key";
 import type { AddWordResult } from "@tutor/shared/words/types";
 
@@ -35,7 +35,7 @@ type ResolveRow = { input_text: string; word_id: string; was_created: boolean };
  * input; callers that link words to a lesson must dedupe by id, not by text.
  */
 export async function resolveWords(
-  ownerId: string,
+  ownerId: string | null,
   texts: string[],
 ): Promise<Map<string, ResolvedWord>> {
   const clean = texts.map(wordInputKey).filter((t) => t.length > 0);
@@ -116,7 +116,11 @@ export async function deleteWord(ownerId: string, wordId: string): Promise<boole
   const { data, error } = await getServiceSupabase()
     .from("words")
     .delete()
-    .eq("owner_id", ownerId)
+    // Unowned words are deletable too, and that is not a widening of the gate by accident. The
+    // whole mitigation for a model talked into calling `add_words_to_collection` is "junk
+    // vocabulary, cleaned up with the existing delete" — an anonymous word the UI shows but cannot
+    // remove would turn a recoverable annoyance into a permanent one.
+    .or(ownedOrUnowned(ownerId))
     .eq("id", wordId)
     .select("id");
   if (error) throw new Error(`deleteWord: ${error.message}`);
@@ -156,7 +160,10 @@ export interface AddWordsResult {
  * `scheduleWordJobs` is deliberately NOT called here — it belongs to the request path, the way it
  * does for `addWord`'s callers, so this stays a pure data function.
  */
-export async function addWords(ownerId: string, rawTexts: string[]): Promise<AddWordsResult> {
+export async function addWords(
+  ownerId: string | null,
+  rawTexts: string[],
+): Promise<AddWordsResult> {
   const skipped: string[] = [];
   const texts: string[] = [];
   const seen = new Set<string>();

@@ -20,6 +20,27 @@ import type { ItemDetail, ItemFacet, ItemRow, WordDetails } from "@tutor/shared/
 import type { ItemsQuery, SortKey } from "@tutor/shared/words/query";
 
 /**
+ * The rows a learner may see: their own, plus the UNOWNED ones.
+ *
+ * `owner_id is null` means "added anonymously" — today, through the MCP server, which authenticates
+ * a shared secret rather than a person and therefore has no `sub` to stamp (0018_unowned_words.sql,
+ * docs/2026-08-27-mcp-static-token-auth.md §2). Those words are part of the collection; a row no
+ * query returns is a row that may as well not exist.
+ *
+ * **This is the one place the ownership rule is widened, and it is widened for READS only.** Every
+ * write still stamps or filters an explicit `owner_id` — the MCP path stamps NULL on purpose, and
+ * nothing else may. Expressed once, here, so "which words are visible?" has a single answer rather
+ * than four `.or(…)` strings that drift.
+ *
+ * The value is double-quoted because an Auth0 sub contains `|`, and PostgREST parses `or=(…)` on
+ * bare punctuation. `.or()` composes with AND against every other filter on the query, which is
+ * what the level/kind/category filters below rely on.
+ */
+export function ownedOrUnowned(ownerId: string): string {
+  return `owner_id.eq."${ownerId}",owner_id.is.null`;
+}
+
+/**
  * Sort key → the column it orders by. SERVER-ONLY: the keys are the page's public grammar (and live
  * in `shared/items-query.ts`), the columns are this table's business. Typed as a total map over
  * `SortKey`, so adding a key to the shared whitelist without mapping it here is a type error rather
@@ -42,7 +63,7 @@ const SORT_COLUMNS: Record<SortKey, string> = {
  * keystroke.
  */
 export async function listItems(ownerId: string, query: ItemsQuery): Promise<ItemRow[]> {
-  let q = getServiceSupabase().from("owner_items").select("*").eq("owner_id", ownerId);
+  let q = getServiceSupabase().from("owner_items").select("*").or(ownedOrUnowned(ownerId));
 
   // "B2 or not-yet-classified" is one OR group; it ANDs with every other filter.
   const levels = query.levels.filter((l) => l === UNLEVELED || (CEFR_LEVELS as readonly string[]).includes(l));
@@ -84,7 +105,7 @@ export async function getItem(ownerId: string, id: string): Promise<ItemDetail |
   const { data, error } = await db
     .from("owner_items")
     .select("*")
-    .eq("owner_id", ownerId)
+    .or(ownedOrUnowned(ownerId))
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(`getItem: ${error.message}`);
@@ -94,7 +115,7 @@ export async function getItem(ownerId: string, id: string): Promise<ItemDetail |
   const { data: d, error: dErr } = await db
     .from("words")
     .select("details, details_at")
-    .eq("owner_id", ownerId)
+    .or(ownedOrUnowned(ownerId))
     .eq("id", id)
     .maybeSingle();
   if (dErr) throw new Error(`getItem details: ${dErr.message}`);
@@ -128,7 +149,10 @@ export async function listItemFacets(ownerId: string): Promise<ItemFacet[]> {
  * everywhere else in this module: an id that is not the caller's updates zero rows and comes back
  * null. See `supabase/migrations/0017_word_popularity.sql`.
  */
-export async function bumpWordPopularity(ownerId: string, wordId: string): Promise<number | null> {
+export async function bumpWordPopularity(
+  ownerId: string | null,
+  wordId: string,
+): Promise<number | null> {
   const { data, error } = await getServiceSupabase().rpc("bump_word_popularity", {
     p_owner_id: ownerId,
     p_id: wordId,
