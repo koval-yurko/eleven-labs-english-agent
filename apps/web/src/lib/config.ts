@@ -2,6 +2,7 @@
  * Server-side configuration. SERVER-ONLY — the ElevenLabs api key is read here but NEVER
  * returned to the browser; only a short-lived conversation token ever reaches the client.
  */
+import type { McpClientConfig } from "../agent/openai-mcp";
 
 export interface ElevenLabsConfig {
   appEnv: string;
@@ -40,6 +41,30 @@ export function openAiRealtimeConfig(env: NodeJS.ProcessEnv = process.env): Open
     apiKey: env.OPENAI_API_KEY?.trim() || undefined,
     model: env.OPENAI_REALTIME_MODEL?.trim() || "gpt-realtime",
     voice: env.OPENAI_REALTIME_VOICE?.trim() || "marin",
+  };
+}
+
+/**
+ * Our OWN MCP server, as a CLIENT reaches it — the one place in this file that reads a secret in
+ * order to GIVE it away rather than to keep it.
+ *
+ * That inversion is the whole reason this is a separate reader. Everything above holds a vendor's
+ * key so a client never sees it; this hands OpenAI the credential to `/api/mcp` so their servers
+ * can call us back (../agent/openai-mcp.ts). `lib/mcp/auth.ts` reads the same `MCP_TOKEN` from the
+ * other side of that call — verifying it — and the two must not be merged: one answers "is this
+ * caller allowed in", this one answers "what do we present when we are the caller".
+ *
+ * `MCP_TOKEN_OLD` is deliberately absent. It exists so clients configured with the outgoing secret
+ * keep working through a rotation, and we are not one of those clients — we always present the
+ * current value.
+ *
+ * The shape is `McpClientConfig`, declared next to the mapper that consumes it rather than here, so
+ * "what this config is for" and "what it means" stay in one file.
+ */
+export function mcpClientConfig(env: NodeJS.ProcessEnv = process.env): McpClientConfig {
+  return {
+    url: env.MCP_PUBLIC_URL?.trim() || undefined,
+    token: env.MCP_TOKEN?.trim() || undefined,
   };
 }
 

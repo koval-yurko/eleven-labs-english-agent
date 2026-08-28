@@ -10,10 +10,11 @@ import type {
   RealtimeTokenResponse,
 } from "@tutor/shared/api";
 
+import { openAiMcpTools } from "../../../../../agent/openai-mcp";
 import { effectiveConfig, findVersion, openAiTurnDetection } from "../../../../../agent/prompts";
 import { resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
-import { openAiRealtimeConfig } from "../../../../../lib/config";
+import { mcpClientConfig, openAiRealtimeConfig } from "../../../../../lib/config";
 import { apiError, json, preflight } from "../../../../../lib/http";
 
 // Mints a credential per request; nothing here is cacheable.
@@ -37,6 +38,15 @@ export const OPTIONS = preflight;
  * The client may still send a `session` object alongside its SDP offer and any field it set would
  * win. The adapter deliberately sends none (`apps/mobile/src/lib/transport/openai.ts`), so this body
  * is the whole configuration.
+ *
+ * ## The one part of the config that is not about this process
+ *
+ * `session.tools` may carry our own MCP server, when the version asks for it (`mcpTools` in
+ * `agent/prompts/types.ts`, translated by `agent/openai-mcp.ts`). It is the exception to the
+ * paragraph above: everything else here configures a model OpenAI runs for us, while this hands
+ * OpenAI a URL and a credential and asks them to call US back at `/api/mcp`. The tool call never
+ * touches the device — no adapter change, no data-channel round trip — and the credential is
+ * echoed back as `"<redacted>"`, so it does not travel down with the ephemeral key.
  *
  * ## The row key is minted here
  *
@@ -115,6 +125,19 @@ export const POST = withBearer(async (req) => {
    * Read off the raw version, not `config`, so an unset `turnTimeoutSeconds` still means "wait for
    * the learner" rather than the effective default of seven seconds. See `openAiTurnDetection`.
    */
+  /**
+   * TOOLS, also chosen by the version — and the only field in this body that reaches OUTSIDE this
+   * process. `mcpTools` names what the lesson grants; `openAiMcpTools` turns that into the MCP
+   * entry, or says why it cannot.
+   *
+   * Refused rather than dropped when the deployment is not configured for it: a version that grants
+   * tools was written around having them, and starting the lesson without them would be a silently
+   * different lesson — the same reasoning that refuses a version belonging to the other provider a
+   * few lines up. A version granting nothing gets `[]` and never reaches a check.
+   */
+  const mcp = openAiMcpTools(chosen, mcpClientConfig());
+  if (!mcp.ok) return apiError(500, "config", mcp.reason);
+
   const audioInput: RealtimeAudioInput = {
     // Without this there are NO learner transcripts at all — the model hears the audio and answers,
     // but `conversation.item.input_audio_transcription.completed` never fires, so half of every
@@ -134,6 +157,9 @@ export const POST = withBearer(async (req) => {
           model,
           instructions,
           audio: { input: audioInput, output: { voice } },
+          // Omitted entirely when the version grants none, so a lesson without tools sends the same
+          // body it always did.
+          ...(mcp.tools.length === 0 ? {} : { tools: mcp.tools }),
           // The per-version turn budget, carried across. It is a BACKSTOP for a prompt-level rule,
           // never the rule itself — the model is cut off mid-sentence when it hits this.
           ...(config.maxTokens === undefined ? {} : { max_output_tokens: config.maxTokens }),

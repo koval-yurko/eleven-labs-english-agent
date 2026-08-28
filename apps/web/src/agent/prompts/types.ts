@@ -138,4 +138,44 @@ export interface PromptVersion {
    * backstop that does.
    */
   silenceEndCallTimeoutSeconds?: number;
+  /**
+   * Tools this version's tutor may call on OUR MCP server (`/api/mcp`), by name. Absent or empty —
+   * which is every version but one — means the session is given no MCP server at all.
+   *
+   * **OPENAI VERSIONS ONLY.** It is read by `openAiMcpTools` (../openai-mcp.ts) and baked into the
+   * Realtime session by `/api/v2/words-agent/openai-token`. On the other two providers it is
+   * IGNORED rather than approximated, and for a reason per provider: ElevenLabs attaches MCP
+   * servers through its dashboard/SDK, outside the `agents.lock.json` discipline that makes
+   * `sync:agents` the source of truth (docs/2026-08-27-mcp-static-token-auth.md §6), and Vapi has
+   * its own tool vocabulary that `vapiAssistantBody` deliberately does not speak yet.
+   *
+   * ## Why the version names the TOOLS and not the server
+   *
+   * There is exactly one server — ours — and its address and credential are deployment facts, so
+   * they live in the environment (`MCP_PUBLIC_URL`, `MCP_TOKEN`) and not in a prompt module. What a
+   * version decides is the LESSON question: *may this tutor write to the learner's collection?*
+   * That is the same shape as `turnTimeoutSeconds`, which states the pacing the lesson wants and
+   * lets the mapper translate it into a vendor's field.
+   *
+   * ## Naming every tool is the point, not ceremony
+   *
+   * There is no "grant everything" value on purpose. The server holds ONE shared secret with no
+   * scopes, so every client already holding `MCP_TOKEN` reaches every tool registered on it
+   * (route.ts's note above `registerAddWords`). This list is the only place a version's reach can
+   * be narrowed, and it becomes load-bearing the day a second tool is registered — a wildcard would
+   * hand that tool to every existing version retroactively.
+   *
+   * A name that matches no registered tool is NOT an error anywhere: OpenAI filters the server's
+   * advertised list by these names, so a typo silently yields a tutor with no tools. Copy the names
+   * from `lib/mcp/add-words.ts`.
+   *
+   * ## The consequence to know before setting this
+   *
+   * **Words added through MCP are anonymous — `owner_id` is NULL** — because the static token
+   * authenticates a caller, not a person (docs/2026-08-27-mcp-static-token-auth.md §2). A word the
+   * tutor saves mid-lesson does not become the speaking learner's; it lands in the unowned pool that
+   * every learner's collection reads. With one learner that is invisible, and with two it is the
+   * thing to fix first.
+   */
+  mcpTools?: string[];
 }

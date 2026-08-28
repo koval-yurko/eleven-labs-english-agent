@@ -11,6 +11,7 @@ import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
 import words20 from "./words-2.0";
+import words21 from "./words-2.1";
 import words30 from "./words-3.0";
 
 export type { PromptVersion } from "./types";
@@ -41,12 +42,17 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  *
  * **The last entry is no longer automatically the default** — see `DEFAULT_PROMPT_VERSION`.
  *
- * ## Three entries, one lesson
+ * ## Three entries, one lesson — and one that is a lesson again
  *
  * There used to be eight, seven of which were the trail of getting the lesson right. They are gone,
  * and what is left is the destination three times: `PODCAST_LESSON_PROMPT` on ElevenLabs, the same
- * text on OpenAI, and the same text again on Vapi. The picker is therefore a choice of SERVICE
- * wearing a version number, which is why every label names the service.
+ * text on OpenAI, and the same text again on Vapi. For those three the picker is a choice of
+ * SERVICE wearing a version number, which is why each of their labels names the service.
+ *
+ * `words-2.1` is the first entry since that collapse whose difference is not the service. It is
+ * words-2.0 plus the tutor's ability to save a word the learner asks for, which needs both a prompt
+ * clause and a grant (`mcpTools`) — so its label names the capability instead. It exists as a fourth
+ * module rather than an edit precisely to keep the byte-identity the other three depend on.
  *
  * `words-3.0` is in this list but NOT in the picker: it has a provisioned assistant and no mobile
  * adapter, so `activeVersions()` withholds it (../../lib/agent-registry.ts). This list is what
@@ -57,7 +63,7 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words20, words30];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words20, words21, words30];
 
 /**
  * The version a session runs when none was asked for — and therefore the SERVICE it runs on.
