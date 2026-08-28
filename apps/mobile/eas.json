@@ -23,6 +23,9 @@
     },
     "production": {
       "distribution": "store",
+      "env": {
+        "APP_VARIANT": "production"
+      },
       "node": "22.13.1",
       "autoIncrement": true,
       "environment": "production"
