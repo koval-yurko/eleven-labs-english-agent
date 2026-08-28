@@ -67,6 +67,10 @@ deleted.
 clause plus the grant, standing to `words-1.0` exactly as `words-2.1` stands to `words-2.0`.
 Register with `approval_policy: "auto_approve_all"` and `transport: "STREAMABLE_HTTP"`.
 
+> **Built on 2026-08-28** (branch `worktree-elevenlabs-mcp`). §15 records what the code does where it
+> differs from the design below — one API constraint found while writing it changed the plan shape,
+> and that section is the authority on the parts it names.
+
 **What the decisions buy.** With the secret pre-existing and the URL a constant, the sync's new
 phase is *one* remote object with *one* read to resolve a name — no secret writes, no fingerprint in
 the lockfile, no rotation choreography, and **`MCP_TOKEN` is never read by the ElevenLabs path at
@@ -267,9 +271,10 @@ string"* — so the lookup must find the entry whose `name` equals `MCP_AUTHORIZ
 take `secrets[0]`. A future `MCP_AUTHORIZATION_HEADER_OLD` sitting in the same workspace during a
 rotation is exactly the value that would otherwise be picked up, silently, at the worst moment.
 
-The `secret_id` does not need a lockfile entry of its own — it is resolved on every run and folded
-into the registration body, so a secret recreated under the same name simply produces a config diff
-and one PATCH.
+The `secret_id` is resolved on every run. It was going to be folded into the hashed body so that a
+secret recreated under the same name showed up as an ordinary config diff — **that is not what was
+built**, because it would have made the plan un-computable without credentials. It is recorded and
+compared instead; see §15.2.
 
 ### 5.1 `request_headers.Authorization`, not `secret_token`
 
@@ -432,14 +437,19 @@ extended in the same commit or the first sync after a hand-edit silently deletes
     "add_words_to_collection": {
       "provider": "elevenlabs",
       "serverId": "mcp_srv_…",
-      "configHash": "sha256:…",   // over the registration body actually sent, secret_id included
+      "secretId": "sec_…",        // recorded, not hashed — §15.2
+      "identityHash": "sha256:…", // create-only fields; a diff is a REPLACE — §15.1
+      "configHash": "sha256:…",   // the PATCHable half
       "name": "tutor-collection (add_words_to_collection)",
       "updatedAt": "2026-08-28T…"
     }
   },
-  "agents": { /* unchanged */ }
+  "agents": { /* + `mcpServerIds` on entries that carry one — §15.2 */ }
 }
 ```
+
+*(Shown as built. The design in this section had three fields and one hash; §15.2 says what moved and
+why. `version` stays `1` — nothing reads it, and bumping a number no consumer checks is ceremony.)*
 
 `configHash` follows the **Vapi** rule, not the ElevenLabs one: hash the body that will be sent, not
 a hand-enumerated field list. There are no legacy hashes to preserve here, and the ElevenLabs agent
@@ -473,6 +483,11 @@ one step short, since the secret is not ours to remove:
 Phases 0–2 run only when **some** ElevenLabs version has a non-empty `mcpTools`. A deployment where
 no version grants anything must never touch settings, secrets or registrations — the same rule
 `openAiMcpTools` states as "the common case, and the one that must stay free of every check below".
+
+Two things §15 adds to this: a change to the registration's create-only fields is a **replace**, so
+phase 2 also has to move agents onto a newly created id and phase 3 deletes the superseded one
+(§15.1); and phase 3 is **not fatal** — by then the agents are already correct, and a registration
+that would not delete is dashboard litter the next sync retries, not a reason to exit 1.
 
 `--dry-run` must keep working with no credentials, which means phase 0 cannot be a hard prerequisite
 of *planning*. Plan it as an action (`⚙ opt-in check`) and perform it only on apply.
@@ -719,6 +734,9 @@ database, which is exactly the kind of drift `packages/shared` exists to prevent
 
 ## 12. Stages
 
+S1, S2 and S3 are **built** (§15); S0 is not, and is now the only thing between this and a real
+lesson.
+
 | | Stage | Ends when |
 | --- | --- | --- |
 | **S0** | **Probe, by hand.** Enable `can_use_mcp_servers`; register the server against the DEPLOYED url with `request_headers.Authorization = { secret_id: MCP_AUTHORIZATION_HEADER }`; `GET …/tools` and see `add_words_to_collection`; attach it to a scratch agent; run one lesson; watch `/api/mcp` log an authenticated `tools/list`. Delete the registration and the scratch agent; leave the secret. | The transport, the header format and the approval policy are confirmed against the real thing, not against this document |
@@ -773,7 +791,9 @@ STREAMABLE_HTTP}` (default `SSE`); `response_timeout_secs` default 30, range 5�
 `secret_id` / `variable_name` / `env_var_label`; `mcp_tool_call.awaiting_approval.approval_timeout_secs`
 default 300; `prompt.mcp_server_ids` on the agent body; `prompt.tools` deprecated in favour of
 `tool_ids`; `can_use_mcp_servers` default `false`; MCP unavailable under Zero Retention / HIPAA;
-MCP servers and environment variables both absent from the CLI.
+MCP servers and environment variables both absent from the CLI. And the one that reshaped the plan:
+**`PATCH /v1/convai/mcp-servers/{id}` accepts neither `url`, `name`, `description` nor `transport`**
+(§15.1) — its documented body simply does not contain them.
 
 **Not established, and each one is a question S0 should answer:**
 
@@ -823,3 +843,93 @@ MCP servers and environment variables both absent from the CLI.
   `agents.lock.json` ambiguous.
 - **A read tool.** Unchanged from the server's own rule: the first one turns this into an
   exfiltration channel and is a different review.
+
+---
+
+## 15. As built (2026-08-28)
+
+S1–S3 are implemented and dry-run clean. **S0 is not done** — it needs credentials and a live
+workspace, and it is the only step that can confirm the four things §13 lists as unverified. Nothing
+here has touched ElevenLabs.
+
+```text
+▶ sync:agents  (dry run)   prune=retire   providers=elevenlabs,vapi
+  ＋ mcp+      add_words_to_collection  [elevenlabs mcp server]
+  ～ update    words-1.0  [elevenlabs]        ← the one-time re-PATCH, §7.4 rule (A)
+  ＋ create    words-1.1  [elevenlabs]
+  · no-op      words-3.0  [vapi]
+```
+
+### 15.1 The API constraint that changed the plan shape
+
+**`PATCH /v1/convai/mcp-servers/{id}` does not accept `url`, `name`, `description` or `transport`.**
+Its body is the approval policy, the headers, the tool-call behaviour and the timeout — nothing else.
+Those four fields are create-only.
+
+So a registration has two kinds of change, and the sync has to tell them apart:
+
+| Change | Endpoint | Server id | Agents |
+| --- | --- | --- | --- |
+| approval policy, headers, timeouts, secret | `PATCH` | survives | untouched |
+| **url, name, description, transport** | **create + delete** | **new** | **must be re-PATCHed** |
+
+`mcpIdentity()` is those four fields, `identityHash` covers them, and a diff produces a **replace**:
+create the new registration, let phase 2 move every attached agent onto it, delete the old one in
+phase 3. It also settles the URL question harder than §8.2 argued — moving the URL is not an edit,
+it is a new server id and a re-patch of every agent that names it.
+
+### 15.2 What the lockfile actually holds
+
+`version` stays `1` and `mcpServers` is omitted while empty, so a registry granting nothing produces
+byte-identical output to before. Two departures from §7.2:
+
+- **`secretId` is a recorded field, not a hash input.** The design folded it into the hashed body;
+  that would have made the plan un-computable offline, because the id can only be learned from the
+  network and `--dry-run` must work without credentials. It is compared at apply time instead — a
+  registration whose config matches but whose secret id has moved is upgraded from noop to patch,
+  and says so on the line it prints.
+- **Agent entries gain `mcpServerIds`.** For the same reason: the agent hash covers the version's
+  GRANT (`mcpTools`, a stable list of names), not the resolved server id, so `--dry-run` can plan
+  before any registration exists. Id drift is then invisible to the hash, and this field is what
+  makes it visible — `buildPlan` forces an update when the ids an agent was last PATCHed with differ
+  from the ones the lockfile now holds, and when the registration it needs is about to be created or
+  replaced.
+
+### 15.3 Files
+
+| File | What |
+| --- | --- |
+| `agent/mcp-url.ts` | **new** — `unreachableHost`, lifted out of `openai-mcp.ts` so both mappers share the one guard that fails silently when it is wrong |
+| `agent/elevenlabs-mcp.ts` | **new** — the URL constant, `MCP_SECRET_NAME`, the pinned knobs, `mcpIdentity` / `mcpCreateBody` / `mcpPatchBody`, and the dev-URL refusal |
+| `agent/sync-agents.ts` | the three phases, the lockfile section, `--allow-dev-mcp-url`, `mcp_server_ids` in `agentBody()` and `mcpTools` in `elevenLabsHash()` |
+| `agent/prompts/save-to-collection.ts` | **new** — `SAVE_TO_COLLECTION_CLAUSE` + `SAVE_TO_COLLECTION_TOOLS`, moved out of `words-2.1.ts` so the twin versions cannot drift |
+| `agent/prompts/words-1.1.ts` | **new** — `PODCAST_LESSON_PROMPT` + the clause + the grant + words-1.0's config |
+| `agent/prompts/index.ts` | `words-1.1` in the registry; `mcpTools` on `EffectiveAgentConfig` |
+| `agent/prompts/types.ts` | `mcpTools` is no longer OpenAI-only; the dashboard-only claim withdrawn |
+| `agent/agents.lock.json` | the `note` describes `mcpServers` and `mcpServerIds` |
+| `apps/web/.env.example` | `MCP_PUBLIC_URL` is an ElevenLabs override behind a flag; `MCP_TOKEN` names its ElevenLabs copy and the rotation order |
+
+### 15.4 Verified by running it
+
+- `pnpm typecheck` and per-package `pnpm lint` are clean. (`pnpm lint` at the repo root fails with
+  `Command "eslint" not found` on `master` too — pre-existing, untouched here.)
+- `--dry-run` plans the run above with no credentials and no network.
+- `--dry-run --provider=vapi` skips ElevenLabs *and* the MCP phase, leaving the registration
+  unplanned rather than orphaned.
+- `MCP_PUBLIC_URL=https://…ngrok.app/api/mcp` is refused with the §8.2 message and exit 1;
+  `--allow-dev-mcp-url` accepts it; `http://localhost:3000/api/mcp` is refused even with the flag.
+
+### 15.5 What the first real `pnpm sync:agents` will do
+
+In order, and it is worth reading before running it against the shared workspace:
+
+1. `GET /v1/convai/settings` — **stops** unless someone has opted the workspace in.
+2. `GET /v1/convai/secrets?search=MCP_AUTHORIZATION_HEADER` — **stops** unless the secret exists.
+3. `POST /v1/convai/mcp-servers` — one registration, `tutor-collection (add_words_to_collection)`.
+4. `PATCH` the `words-1.0` agent — same body it has today plus `mcp_server_ids: []` (rule (A)).
+5. `POST` a new `words-1.1` agent, attached to the registration.
+6. Nothing to delete.
+
+Then S0's real question, which no amount of dry-running answers: **does a tool call arrive at
+`/api/mcp` with a header `mcpTokenOk` accepts?** That depends on `MCP_AUTHORIZATION_HEADER` holding
+`Bearer ` + the current `MCP_TOKEN`, which is opaque to every API involved.

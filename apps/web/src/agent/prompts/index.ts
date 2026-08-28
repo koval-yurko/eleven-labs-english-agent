@@ -10,6 +10,7 @@ import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import type { PromptVersion } from "./types";
 import words10 from "./words-1.0";
+import words11 from "./words-1.1";
 import words20 from "./words-2.0";
 import words21 from "./words-2.1";
 import words30 from "./words-3.0";
@@ -54,6 +55,11 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * clause and a grant (`mcpTools`) — so its label names the capability instead. It exists as a fourth
  * module rather than an edit precisely to keep the byte-identity the other three depend on.
  *
+ * `words-1.1` is that same capability on ElevenLabs, and it restores the comparison 2.1 broke: the
+ * same lesson, the same clause (./save-to-collection.ts, shared so the two cannot drift) and the
+ * same grant, on two services. A difference between 1.1 and 2.1 is a difference between ElevenLabs
+ * and OpenAI and nothing else — which is what 1.0 versus 2.0 was for the lesson without the tool.
+ *
  * `words-3.0` is in this list but NOT in the picker: it has a provisioned assistant and no mobile
  * adapter, so `activeVersions()` withholds it (../../lib/agent-registry.ts). This list is what
  * `sync:agents` reconciles; `activeVersions()` is what a learner can be handed. Those are different
@@ -63,7 +69,7 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words20, words21, words30];
+export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words20, words21, words30];
 
 /**
  * The version a session runs when none was asked for — and therefore the SERVICE it runs on.
@@ -105,6 +111,16 @@ export interface EffectiveAgentConfig {
   maxDurationSeconds: number;
   turnTimeoutSeconds: number;
   silenceEndCallTimeoutSeconds: number;
+  /**
+   * The version's MCP grant, defaulted to `[]`. Sorted, so two versions granting the same tools in a
+   * different order produce the same ElevenLabs registration key (`mcpGrantKey`).
+   *
+   * Here rather than read off the raw version because `sync:agents` needs it in two places that both
+   * take an effective config: the ElevenLabs agent hash, and the lookup that turns a grant into the
+   * `mcp_server_ids` its agent body carries. Ignored entirely for Vapi and OpenAI — the first has no
+   * tool vocabulary yet, the second is not provisioned at all.
+   */
+  mcpTools: string[];
 }
 
 /** Resolve a version's full baked agent config, applying env/constant defaults (sync-time). */
@@ -131,6 +147,7 @@ export function effectiveConfig(
     turnTimeoutSeconds,
     silenceEndCallTimeoutSeconds:
       v.silenceEndCallTimeoutSeconds ?? DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS,
+    mcpTools: [...(v.mcpTools ?? [])].sort(),
   };
 }
 

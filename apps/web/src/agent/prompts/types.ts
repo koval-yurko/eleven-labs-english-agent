@@ -140,22 +140,34 @@ export interface PromptVersion {
   silenceEndCallTimeoutSeconds?: number;
   /**
    * Tools this version's tutor may call on OUR MCP server (`/api/mcp`), by name. Absent or empty —
-   * which is every version but one — means the session is given no MCP server at all.
+   * which is every version but two — means the tutor is given no MCP server at all.
    *
-   * **OPENAI VERSIONS ONLY.** It is read by `openAiMcpTools` (../openai-mcp.ts) and baked into the
-   * Realtime session by `/api/v2/words-agent/openai-token`. On the other two providers it is
-   * IGNORED rather than approximated, and for a reason per provider: ElevenLabs attaches MCP
-   * servers through its dashboard/SDK, outside the `agents.lock.json` discipline that makes
-   * `sync:agents` the source of truth (docs/2026-08-27-mcp-static-token-auth.md §6), and Vapi has
-   * its own tool vocabulary that `vapiAssistantBody` deliberately does not speak yet.
+   * **OPENAI AND ELEVENLABS VERSIONS.** Vapi still IGNORES it rather than approximating it: that
+   * platform has its own tool vocabulary which `vapiAssistantBody` deliberately does not speak yet.
+   *
+   * The two providers that read it do so through very different machinery, and the difference is
+   * worth knowing before setting the field:
+   *
+   *   - **OpenAI** — `openAiMcpTools` (../openai-mcp.ts) turns this list into `allowed_tools` on a
+   *     `session.tools` entry, minted per request by `/api/v2/words-agent/openai-token`. The grant
+   *     is per session and costs nothing; the list is sent to the vendor verbatim.
+   *   - **ElevenLabs** — `elevenLabsMcpRegistrations` (../elevenlabs-mcp.ts) turns it into a
+   *     **provisioned workspace registration**, and `pnpm sync:agents` attaches that registration's
+   *     id to the agent (`prompt.mcp_server_ids`). The list is NEVER sent: ElevenLabs grants at the
+   *     SERVER, so what this field selects is *which registration the agent points at*. Versions
+   *     granting the same set share one; a different set needs its own.
+   *     (This used to say ElevenLabs was dashboard-only and outside the `agents.lock.json`
+   *     discipline — see §6 of docs/2026-08-27-mcp-static-token-auth.md, which was written before
+   *     anyone read the API reference. It has full CRUD; the correction is
+   *     docs/2026-08-28-elevenlabs-mcp-in-code.md.)
    *
    * ## Why the version names the TOOLS and not the server
    *
    * There is exactly one server — ours — and its address and credential are deployment facts, so
-   * they live in the environment (`MCP_PUBLIC_URL`, `MCP_TOKEN`) and not in a prompt module. What a
-   * version decides is the LESSON question: *may this tutor write to the learner's collection?*
-   * That is the same shape as `turnTimeoutSeconds`, which states the pacing the lesson wants and
-   * lets the mapper translate it into a vendor's field.
+   * they live outside a prompt module (in the environment for OpenAI, in a constant and a workspace
+   * secret for ElevenLabs). What a version decides is the LESSON question: *may this tutor write to
+   * the learner's collection?* That is the same shape as `turnTimeoutSeconds`, which states the
+   * pacing the lesson wants and lets each mapper translate it into a vendor's field.
    *
    * ## Naming every tool is the point, not ceremony
    *
@@ -165,9 +177,12 @@ export interface PromptVersion {
    * be narrowed, and it becomes load-bearing the day a second tool is registered — a wildcard would
    * hand that tool to every existing version retroactively.
    *
-   * A name that matches no registered tool is NOT an error anywhere: OpenAI filters the server's
-   * advertised list by these names, so a typo silently yields a tutor with no tools. Copy the names
-   * from `lib/mcp/add-words.ts`.
+   * A name that matches no registered tool is NOT an error anywhere, and the two providers fail
+   * differently: OpenAI filters the server's advertised list by these names, so a typo silently
+   * yields a tutor with no tools; ElevenLabs never sees the names at all, so a typo yields a
+   * registration under a wrong-looking name whose agent still reaches every tool on the server.
+   * Copy the names from `lib/mcp/add-words.ts` — or better, import them from
+   * ./save-to-collection.ts, where the grant sits beside the prompt clause that describes it.
    *
    * ## The consequence to know before setting this
    *

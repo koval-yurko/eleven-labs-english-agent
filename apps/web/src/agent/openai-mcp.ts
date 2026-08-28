@@ -28,6 +28,7 @@
  *     `client_secrets` response, so the credential does not ride back down to the device with the
  *     ephemeral key.
  */
+import { unreachableHost } from "./mcp-url";
 import type { PromptVersion } from "./prompts";
 
 /**
@@ -75,20 +76,6 @@ export interface McpClientConfig {
  * token here would produce a tutor whose every tool call comes back 401 mid-lesson.
  */
 const MIN_TOKEN_LENGTH = 32;
-
-/**
- * Hosts that resolve somewhere on this machine or this network and nowhere on OpenAI's.
- *
- * The loopback names are the ones a dev environment produces by default; the RFC 1918 ranges and
- * `.local` are the same mistake made from a LAN address, which looks more like a real URL and is
- * therefore likelier to be believed. Both fail identically and invisibly — the request never
- * arrives, so there is nothing in our logs to notice.
- */
-function unreachableHost(hostname: string): boolean {
-  if (["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(hostname)) return true;
-  if (hostname.endsWith(".local") || hostname.endsWith(".localhost")) return true;
-  return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname);
-}
 
 /**
  * `serverInfo.name` from `app/api/mcp/route.ts`. The two do not have to match — OpenAI never reads
