@@ -62,7 +62,28 @@ export interface ActiveVersion {
  * Delete `"vapi"` from the withheld set the moment `apps/mobile/src/lib/transport/vapi.ts` is a real
  * adapter — and not before.
  */
-const CLIENT_READY: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>(["elevenlabs", "openai"]);
+const CLIENT_READY: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>([
+  "elevenlabs",
+  "openai",
+  // Opened 2026-08-28, when `apps/mobile/src/lib/transport/vapi.ts` became a real adapter.
+  "vapi",
+]);
+
+/**
+ * Providers whose version has a REMOTE OBJECT that `pnpm sync:agents` provisions, and whose id
+ * therefore lives in the lockfile.
+ *
+ * This used to be written as `provider !== "elevenlabs"`, which was correct while ElevenLabs was the
+ * only provisioned provider and became a silent bug the moment Vapi arrived: a Vapi version resolved
+ * with `agentId: null`, so its token route — which needs the assistant id to scope a credential —
+ * refused every lesson with "no Vapi assistant in agents.lock.json" while the assistant sat there,
+ * provisioned and healthy.
+ *
+ * The real question was never "is this ElevenLabs" but "is there an id to look up", so it is asked
+ * that way now. A provider absent from this set is one whose session config is built per request
+ * (OpenAI); a provider in it must have an active lockfile entry or it is not offered at all.
+ */
+const PROVISIONED: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>(["elevenlabs", "vapi"]);
 
 /** Active versions, in canonical PROMPT_VERSIONS order (oldest → newest). */
 export function activeVersions(): ActiveVersion[] {
@@ -71,7 +92,10 @@ export function activeVersions(): ActiveVersion[] {
     const label = v.label ?? v.version;
     // Provisioned but un-offerable. See CLIENT_READY.
     if (!CLIENT_READY.has(provider)) return [];
-    if (provider !== "elevenlabs") {
+    // A provider with NO remote object is active by existing on disk — there is nothing to look up,
+    // because its session config is built per request by its own token route. Only OpenAI is this
+    // shape today.
+    if (!PROVISIONED.has(provider)) {
       return [{ version: v.version, provider, agentId: null, label }];
     }
     const a = lock.agents[v.version];

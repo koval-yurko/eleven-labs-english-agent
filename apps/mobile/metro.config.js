@@ -38,7 +38,7 @@
 //
 // It removes the collision. It does not make Daily's M118-era JS correct against LiveKit's M137
 // native code. Anything Daily calls that changed shape between those generations fails HERE, at
-// runtime, not at build. That is what /spike-vapi is for.
+// runtime, not at build. See ./src/lib/transport/vapi.ts and its shim.
 //
 // The tsconfig `paths` entry beside this does the same redirect for the type checker.
 const { getDefaultConfig } = require("expo/metro-config");

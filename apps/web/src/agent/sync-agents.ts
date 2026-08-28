@@ -48,6 +48,7 @@ import {
   type EffectiveAgentConfig,
 } from "./prompts";
 import type { PromptVersion } from "./prompts";
+import { vapiConfig } from "../lib/config";
 import { VAPI_API, vapiAssistantBody } from "./vapi-assistant";
 
 const here = dirname(fileURLToPath(import.meta.url)); // src/agent
@@ -154,7 +155,10 @@ function elevenLabsHash(c: EffectiveAgentConfig): string {
  * counterpart, so changing it on a Vapi version correctly produces no update.
  */
 function vapiHash(c: EffectiveAgentConfig): string {
-  return "sha256:" + createHash("sha256").update(JSON.stringify(vapiAssistantBody(c))).digest("hex");
+  return (
+    "sha256:" +
+    createHash("sha256").update(JSON.stringify(vapiBody(c))).digest("hex")
+  );
 }
 
 // ── HTTP ───────────────────────────────────────────────────────────────────────────────────
@@ -238,6 +242,12 @@ interface ProviderDriver {
 const elKey = process.env.ELEVENLABS_API_KEY?.trim() ?? "";
 const elVoice = process.env.ELEVENLABS_TEACHER_VOICE_ID?.trim() ?? "";
 const vapiKey = process.env.VAPI_PRIVATE_KEY?.trim() ?? "";
+const { webhookUrl, webhookSecret } = vapiConfig();
+const vapiServer = { url: webhookUrl, secret: webhookSecret };
+
+function vapiBody(c: EffectiveAgentConfig) {
+  return vapiAssistantBody(c, vapiServer);
+}
 
 const elHeaders = () => ({ "xi-api-key": elKey });
 const vapiHeaders = () => ({ authorization: `Bearer ${vapiKey}` });
@@ -278,13 +288,13 @@ const vapi: ProviderDriver = {
       "POST",
       `${VAPI_API}/assistant`,
       vapiHeaders(),
-      vapiAssistantBody(c),
+      vapiBody(c),
     )) as { id?: string };
     if (!data.id) throw new Error(`create returned no id for ${c.version}`);
     return data.id;
   },
   update: (id, c) =>
-    callApi("PATCH", `${VAPI_API}/assistant/${id}`, vapiHeaders(), vapiAssistantBody(c)),
+    callApi("PATCH", `${VAPI_API}/assistant/${id}`, vapiHeaders(), vapiBody(c)),
   rename: (id, name) => callApi("PATCH", `${VAPI_API}/assistant/${id}`, vapiHeaders(), { name }),
   remove: (id) => callApi("DELETE", `${VAPI_API}/assistant/${id}`, vapiHeaders()),
 };

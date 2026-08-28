@@ -136,7 +136,16 @@ export function vapiSilenceTimeout(seconds: number): number {
  * in Vapi's test console shows the literal `{{items_list}}`. That is a property of the platform, not
  * an oversight, and it is why evaluating this version means driving it from a client.
  */
-export function vapiAssistantBody(c: EffectiveAgentConfig): Record<string, unknown> {
+/** Where finished calls are reported to. Both halves or neither — see `vapiAssistantBody`. */
+export interface VapiServerConfig {
+  url?: string;
+  secret?: string;
+}
+
+export function vapiAssistantBody(
+  c: EffectiveAgentConfig,
+  server: VapiServerConfig = {},
+): Record<string, unknown> {
   const plans = c.turnEagerness ? SPEAKING_PLANS[c.turnEagerness] : undefined;
   return {
     name: c.name,
@@ -165,5 +174,18 @@ export function vapiAssistantBody(c: EffectiveAgentConfig): Record<string, unkno
     // ElevenLabs post-call webhook (§8). `transcript` is deliberately absent — it fires per partial
     // and would be a firehose against a route whose only job is the final upsert.
     serverMessages: ["end-of-call-report"],
+    /**
+     * WHERE that report goes, provisioned onto the assistant rather than set org-wide in Vapi's
+     * dashboard — so it is versioned with the rest of the assistant and cannot drift unnoticed.
+     *
+     * Both halves or neither. A `server` block with a url and no secret would stand up an
+     * unauthenticated endpoint, and a webhook carries no session: the secret IS the authentication.
+     * Omitting the block entirely is a supported state — `serverMessages` then names a report Vapi
+     * has nowhere to send, which is exactly what this assistant looked like before this field
+     * existed, and is silent rather than broken.
+     */
+    ...(server.url && server.secret
+      ? { server: { url: server.url, secret: server.secret } }
+      : {}),
   };
 }

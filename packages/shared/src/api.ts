@@ -14,6 +14,8 @@ export const API_V2_ROUTES = {
   agentVersions: `${API_V2}/agent-versions`,
   conversationToken: `${API_V2}/words-agent/token`,
   realtimeToken: `${API_V2}/words-agent/openai-token`,
+  vapiToken: `${API_V2}/words-agent/vapi-token`,
+  vapiWebhook: `${API_V2}/vapi/webhook`,
   lessonSession: `${API_V2}/lessons/session`,
   lessons: `${API_V2}/lessons`,
   syncFlush: `${API_V2}/sync/flush`,
@@ -182,6 +184,69 @@ export function isRealtimeTokenResponse(body: unknown): body is RealtimeTokenRes
     // degrades to "no idle timeout" — a lesson that works and does not re-engage — whereas failing
     // the guard would refuse to start one at all. The adapter reads it defensively for the same
     // reason.
+  );
+}
+
+/**
+ * What the client sends to mint a Vapi call credential. Same shape as `RealtimeTokenRequest`, and
+ * deliberately so: on every provider the words travel as DATA and the prompt stays on the server.
+ */
+export interface VapiTokenRequest {
+  lessonId: string;
+  items: TutorItem[];
+  version?: string;
+}
+
+/**
+ * What comes back.
+ *
+ * Vapi sits between the two providers we already had, and this shape is where that shows.
+ * ElevenLabs returns a token bound to an agent the server provisioned; OpenAI returns an ephemeral
+ * secret plus the WHOLE session config, because it has no remote object. Vapi returns a token AND
+ * an assistant id — the assistant exists, `pnpm sync:agents` made it — plus the one piece of
+ * per-lesson state that is not baked into it.
+ */
+export interface VapiTokenResponse {
+  /**
+   * A short-lived public-scope JWT, signed server-side and restricted to `assistantId`.
+   *
+   * Not the Vapi public API key. Both work in the SDK constructor, and the difference is what a
+   * stolen one can do: the public key can start any assistant in the org for as long as it exists;
+   * this expires and names one. Minted per lesson for the same reason the ElevenLabs conversation
+   * token is.
+   */
+  token: string;
+  /** The assistant `sync:agents` provisioned for this version, read from agents.lock.json. */
+  assistantId: string;
+  /**
+   * The rendered word list, for `assistantOverrides.variableValues.items_list`.
+   *
+   * The counterpart of OpenAI's interpolated instructions: there the server builds the whole prompt,
+   * here the prompt already sits on Vapi with `{{items_list}}` in it and only the value travels. The
+   * CLIENT passes this through untouched — it never composes the string, so a shipped binary cannot
+   * change what the lesson teaches, only fail to send it.
+   */
+  itemsList: string;
+  /** The row key for `lesson_sessions`, minted by the server. */
+  conversationId: string;
+  version: string;
+}
+
+export function isVapiTokenResponse(body: unknown): body is VapiTokenResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<VapiTokenResponse>;
+  return (
+    typeof b.token === "string" &&
+    b.token.length > 0 &&
+    typeof b.assistantId === "string" &&
+    b.assistantId.length > 0 &&
+    typeof b.conversationId === "string" &&
+    b.conversationId.length > 0 &&
+    typeof b.version === "string" &&
+    // `itemsList` is NOT required to be non-empty: a lesson with no words is a real state — a
+    // learner can open one before adding any — and refusing to start it would be a worse failure
+    // than a tutor that finds its list empty and says so.
+    typeof b.itemsList === "string"
   );
 }
 

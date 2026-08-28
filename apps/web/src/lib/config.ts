@@ -2,6 +2,8 @@
  * Server-side configuration. SERVER-ONLY — the ElevenLabs api key is read here but NEVER
  * returned to the browser; only a short-lived conversation token ever reaches the client.
  */
+import { API_V2_ROUTES } from "@tutor/shared/api";
+
 import type { McpClientConfig } from "../agent/openai-mcp";
 
 export interface ElevenLabsConfig {
@@ -92,12 +94,17 @@ export interface VapiConfig {
   privateKey?: string;
   publicKey?: string;
   orgId?: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
 }
 
 export function vapiConfig(env: NodeJS.ProcessEnv = process.env): VapiConfig {
+  const origin = env.VAPI_WEBHOOK_ORIGIN?.trim().replace(/\/+$/, "") || undefined;
   return {
     privateKey: env.VAPI_PRIVATE_KEY?.trim() || undefined,
     publicKey: env.VAPI_PUBLIC_KEY?.trim() || undefined,
     orgId: env.VAPI_ORG_ID?.trim() || undefined,
+    webhookUrl: origin ? `${origin}${API_V2_ROUTES.vapiWebhook}` : undefined,
+    webhookSecret: env.VAPI_WEBHOOK_SECRET?.trim() || undefined,
   };
 }

@@ -12,8 +12,6 @@ import { Auth0Provider } from "react-native-auth0";
 import { env } from "@/env";
 import { AuthGate, AuthProvider } from "@/lib/auth";
 import { reconcileAtLaunch } from "@/lib/lesson-card";
-// SPIKE ONLY — remove with the branch.
-import { SpikeLink } from "@/lib/spike/SpikeLink";
 import { TutorSessionProvider } from "@/lib/tutor-session";
 import { useScheme, useTheme } from "@/theme";
 import { NavProgressBar, SessionBar } from "@/ui";
@@ -128,9 +126,6 @@ export default function RootLayout() {
               the old unmount guard raised — a live, billed session with nothing on screen saying so —
               now that navigating away no longer ends one. */}
               <SessionBar />
-              {/* SPIKE ONLY — remove with the branch. See lib/spike/SpikeLink.tsx for why this is a
-              button rather than a deep link. */}
-              <SpikeLink />
               {/* Last, so it paints over the navigator rather than under it — the web's `.nav-progress`
               is `position: fixed` with `z-index: 100` for the same reason. */}
               <NavProgressBar />

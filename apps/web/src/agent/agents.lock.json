@@ -12,9 +12,9 @@
     "words-3.0": {
       "agentId": "71b14fe9-2d18-49dd-928a-f64ce159c9ee",
       "status": "active",
-      "hash": "sha256:2700e367f103928f4e2b46c5d07859ab91aa09f7563f98db00b1466a5b954e3d",
+      "hash": "sha256:1e385fdf6f437dd41c116ca02140106c5d4438649e7cb4482573e15bdd01c363",
       "name": "english-words-tutor (words-3.0)",
-      "updatedAt": "2026-08-27T21:54:13.747Z",
+      "updatedAt": "2026-08-28T19:23:19.068Z",
       "provider": "vapi"
     }
   }

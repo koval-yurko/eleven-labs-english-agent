@@ -1,7 +1,12 @@
 /**
- * SPIKE ONLY — path A of docs/2026-08-27-vapi-third-voice-provider.md. NEVER MERGE.
- *
  * The four methods `@daily-co/react-native-daily-js` needs and LiveKit's fork does not have.
+ *
+ * Promoted out of `lib/spike/` on 2026-08-28 with ./vapi.ts. It began as scaffolding and is now
+ * load-bearing: no Vapi lesson starts without it. That promotion is the honest cost of running Vapi
+ * at all on this client, and it is worth restating plainly — this file patches one vendor's SDK to
+ * work against another vendor's WebRTC fork, three release generations apart, and nothing upstream
+ * promises that keeps working. See §12.4 of docs/2026-08-27-vapi-third-voice-provider.md; a Daily or
+ * Vapi upgrade is the event to re-measure it on.
  *
  * ## What this is fixing
  *
@@ -25,7 +30,7 @@
  *
  * Missing properties are `undefined`, which does not throw at import — it throws later, as
  * `nativeUtils.setAudioMode is not a function`, when Daily joins a call. So without this shim the
- * build is green, the app launches, and the spike dies the moment you press Start.
+ * build is green, the app launches, and every Vapi lesson dies the instant it is started.
  *
  * ## Why no-ops are the RIGHT answer here, not a stub
  *
@@ -55,7 +60,7 @@
  *
  * Must run BEFORE anything imports `@daily-co/react-native-daily-js`, because that module reads the
  * properties during its own initialisation. The spike screen guarantees this by `require()`-ing the
- * Vapi SDK lazily, after calling this. That is the only reason the require in `spike-vapi.tsx` is
+ * Vapi SDK lazily, after calling this. That is the only reason the require in `./vapi.ts` is
  * lazy — do not "tidy" it into a top-level import.
  */
 import { NativeModules } from "react-native";

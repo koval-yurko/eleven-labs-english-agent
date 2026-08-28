@@ -207,25 +207,6 @@ const config: ExpoConfig = {
     // The whole per-variant object, never spread key by key — src/env.ts reads it back as one
     // shape. See docs/2026-08-13-expo-s2-auth0-bearer.md §3.2.
     env: readEnv(key),
-    // SPIKE ONLY — path A of docs/2026-08-27-vapi-third-voice-provider.md. NEVER MERGE.
-    //
-    // Deliberately NOT in `env` above: that object is the app's typed contract (MobileEnv /
-    // ENV_VARS / src/env.ts), and adding throwaway keys to it would put spike scaffolding in the
-    // shape every screen depends on.
-    //
-    // But it does have to go through `extra`, because reading `process.env.EXPO_PUBLIC_*` in a
-    // component does NOT survive Metro's cache. Those reads are inlined by babel-preset-expo at
-    // TRANSFORM time, and Metro caches transforms per file — so editing .env leaves a stale
-    // `undefined` compiled into the bundle until someone remembers `--clear`. That is exactly the
-    // "EXPO_PUBLIC_VAPI_PUBLIC_KEY not defined" symptom, and it is invisible: the build succeeds.
-    //
-    // `extra` is immune, because app.config.ts is re-evaluated on every start / prebuild / build
-    // and lands in the manifest rather than in transformed source. It is also the path the app's
-    // four real variables already take, i.e. the one proven to work in this project.
-    spikeVapi: {
-      publicKey: process.env.EXPO_PUBLIC_VAPI_PUBLIC_KEY ?? "",
-      assistantId: process.env.EXPO_PUBLIC_VAPI_ASSISTANT_ID ?? "",
-    },
   },
 };
 
