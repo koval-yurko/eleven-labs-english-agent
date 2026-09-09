@@ -13,6 +13,12 @@ routes, Auth0 session handling, Supabase access, the ElevenLabs agent registry, 
 migrations — the mobile app talks to it over HTTP. Do not build new screens there, and do not spend
 effort on its remaining pages beyond keeping them compiling.
 
+The one exception is **`apps/web/src/app/ops/` — operator surfaces**, which are pages that exist to
+inspect data the backend owns. They belong to the backend, not to the deprecated client, so the
+sentence above does not apply to them: it is about the product. Nothing under `/ops` is linked from
+the learner navigation, the URLs are typed by hand, and no learner-facing page may be added beside
+one. See `docs/2026-09-09-mobile-debug-reports-and-feedback.md` §12.1.
+
 The reason the native app exists: iOS revokes the microphone and drops the socket the moment Safari
 leaves the foreground, so a browser voice lesson cannot survive a locked screen. See
 `docs/2026-08-12-expo-app-creation.md` and the stage plan in `docs/2026-08-12-expo-build-plan.md`.
@@ -56,7 +62,12 @@ pnpm sync:agents       # reconcile ElevenLabs agents with apps/web/src/agent/pro
 pnpm level:items       # assign CEFR levels to unlevelled words
 pnpm enrich:words      # fill words.details (RU translations, forms, examples)
 pnpm lexicon:load      # load the lexicon; pnpm level:lexicon levels it
+pnpm report <id>       # one debug report as Markdown; --list, --since 7d, --json
 ```
+
+`pnpm report` is the handoff for a diagnostic report filed from the phone — read-only, and the
+reason there is no read tool on the MCP server (`docs/2026-09-09-mobile-debug-reports-and-feedback.md`
+§13). An 8-character id prefix is enough; it is what the app's Send tab tells the learner to quote.
 
 Every job has a `:plan` variant that dry-runs and makes zero LLM calls. Before pushing mobile work,
 run `pnpm --filter mobile check` (typecheck → lint → expo-doctor → bundle).

@@ -24,6 +24,21 @@ import {
   type TranscriptLine,
 } from "./src/tutor/session";
 import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor/pause";
+import {
+  MAX_DEBUG_DATA_KEYS,
+  MAX_DEBUG_DATA_VALUE,
+  MAX_DEBUG_EVENTS,
+  MAX_DEBUG_MESSAGE,
+  MAX_DEBUG_NOTE,
+  MAX_DEBUG_TRANSCRIPT_TAIL,
+  MAX_REPORT_BYTES,
+  redactValue,
+  sanitizeDebugReport,
+  trimDebugEvents,
+  type DebugEvent,
+  type DebugLevel,
+} from "./src/debug/report";
+import { DEBUG_CODES, isKnownDebugCode } from "./src/debug/codes";
 import { createFakeTransport } from "./src/testing/fake-transport";
 import type { TutorCapabilities } from "./src/tutor/transport";
 import {
@@ -608,6 +623,211 @@ for (const speaking of [false, true])
 }
 
 console.log(`checked held-pause properties (${pauseCases} cases)`);
+
+// ── debug reports (R9) ───────────────────────────────────────────────────────────────────────
+// The report is built on a phone, in the middle of the failure it describes, and read by a person
+// or a model days later. Three things have to hold or it is worse than nothing: it must not carry a
+// credential, it must not drop the error to make room for chatter, and an old build's report must
+// still be storable by a server that has never heard of its codes.
+// See docs/2026-09-09-mobile-debug-reports-and-feedback.md §4.6, §6, §8.
+
+const dbgEvent = (over: Partial<DebugEvent> = {}): DebugEvent => ({
+  seq: 1,
+  at: "2026-09-09T10:00:00.000Z",
+  since: 0,
+  level: "debug",
+  code: "session.status",
+  message: "status",
+  provider: null,
+  ...over,
+});
+
+const ring = (levels: DebugLevel[]): DebugEvent[] =>
+  levels.map((level, i) => dbgEvent({ seq: i + 1, level, code: `c${i}` }));
+
+// 1. THE EVICTION ORDER. A ring flooded by `transport.usage` that dropped the connect failure is a
+//    ring that was not worth keeping — which is exactly what a plain `slice(-max)` produces.
+eq(
+  "trimDebugEvents: an error outlives the debug events around it",
+  trimDebugEvents(ring(["debug", "error", "debug", "debug"]), 2).map((e) => e.level),
+  ["error", "debug"],
+);
+eq(
+  "trimDebugEvents: info/warn go only once every debug has",
+  trimDebugEvents(ring(["info", "error", "warn"]), 1).map((e) => e.level),
+  ["error"],
+);
+eq(
+  "trimDebugEvents: all-errors falls back to oldest-first",
+  trimDebugEvents(ring(["error", "error", "error"]), 1).map((e) => e.seq),
+  [3],
+);
+// Identity, not a copy: the ring calls this on every emit, and a fresh array each time would make
+// the modal's `useSyncExternalStore` re-render on events it already has.
+{
+  const short = ring(["debug", "info"]);
+  if (trimDebugEvents(short, 10) !== short) {
+    failures.push("trimDebugEvents: an under-length ring must return the input array identity");
+  }
+}
+
+// 2. REDACTION, the backstop. Nothing should reach it — `data` is flat scalars and `apiFetch` emits
+//    a path, not a header — but the cost of being wrong is a credential inside a stored blob.
+eq("redactValue: a secret-shaped key is dropped whatever it holds", redactValue("conversationToken", "abc"), "<redacted>");
+eq("redactValue: case-insensitive on the key", redactValue("Authorization", "Bearer x"), "<redacted>");
+eq(
+  "redactValue: a jwt is recognised by shape, under any key",
+  redactValue("route", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+  "<jwt>",
+);
+eq(
+  "redactValue: a LiveKit-shaped url keeps its path and loses its query",
+  redactValue("url", "wss://live.example.com/rtc?access_token=abc.def.ghi"),
+  "wss://live.example.com/rtc",
+);
+eq("redactValue: an ordinary path is left alone", redactValue("path", "/api/v2/lessons/session"), "/api/v2/lessons/session");
+
+// 3. THE SANITIZER refuses only what is structurally unusable.
+eq("sanitizeDebugReport: not an object", sanitizeDebugReport("nope"), null);
+eq("sanitizeDebugReport: an array is not a report", sanitizeDebugReport([]), null);
+eq("sanitizeDebugReport: no kind", sanitizeDebugReport({ note: "x" }), null);
+eq("sanitizeDebugReport: an unknown kind", sanitizeDebugReport({ kind: "wat" }), null);
+
+{
+  const minimal = sanitizeDebugReport({ kind: "manual" });
+  if (minimal === null) failures.push("sanitizeDebugReport: a bare `kind` must still produce a report");
+  else {
+    eq("sanitizeDebugReport: absent fields become null, never undefined", minimal.lessonId, null);
+    eq("sanitizeDebugReport: a missing snapshot is an empty one, not a crash", minimal.state.live.status, "disconnected");
+    eq("sanitizeDebugReport: no frozen snapshot", minimal.state.atError, null);
+    eq("sanitizeDebugReport: events default to empty", minimal.events, []);
+  }
+}
+
+// 4. AN UNKNOWN CODE SURVIVES. The reports that matter most come from the build nobody updated.
+{
+  const old = sanitizeDebugReport({
+    kind: "error",
+    events: [dbgEvent({ code: "transport.quantum_flux", level: "error" })],
+  });
+  eq("sanitizeDebugReport: an unknown code is preserved, not dropped", old?.events[0]?.code, "transport.quantum_flux");
+  eq("codes: and it is still reported as unknown", isKnownDebugCode("transport.quantum_flux"), false);
+  eq("codes: a real one is known", isKnownDebugCode(DEBUG_CODES[0]), true);
+}
+
+// 5. THE BOUNDS. Each one is a place a phone could otherwise hand the server an unbounded blob.
+{
+  const fat = sanitizeDebugReport({
+    kind: "error",
+    note: "n".repeat(MAX_DEBUG_NOTE + 500),
+    events: [
+      // Spread rather than passed through `dbgEvent`, because `nested` is deliberately a shape the
+      // typed `DebugData` forbids — the point is what the SANITIZER does with a body that was never
+      // type-checked, which is every body it ever sees.
+      {
+        ...dbgEvent({ message: "m".repeat(MAX_DEBUG_MESSAGE + 100) }),
+        data: {
+          ...Object.fromEntries(Array.from({ length: MAX_DEBUG_DATA_KEYS + 8 }, (_, i) => [`k${i}`, i])),
+          long: "v".repeat(MAX_DEBUG_DATA_VALUE + 100),
+          nested: { dropped: true },
+        },
+      },
+    ],
+    transcriptTail: Array.from({ length: MAX_DEBUG_TRANSCRIPT_TAIL + 20 }, () => ({ role: "user", text: "hi" })),
+  });
+  eq("sanitizeDebugReport: note capped", fat?.note.length, MAX_DEBUG_NOTE);
+  eq("sanitizeDebugReport: message capped", fat?.events[0]?.message.length, MAX_DEBUG_MESSAGE);
+  eq("sanitizeDebugReport: data keys capped", Object.keys(fat?.events[0]?.data ?? {}).length, MAX_DEBUG_DATA_KEYS);
+  eq("sanitizeDebugReport: transcript tail capped", fat?.transcriptTail.length, MAX_DEBUG_TRANSCRIPT_TAIL);
+  // A nested object is DROPPED rather than stringified: `[object Object]` in a report is a field
+  // that looks answered and is not.
+  if (Object.values(fat?.events[0]?.data ?? {}).some((v) => typeof v === "object" && v !== null)) {
+    failures.push("sanitizeDebugReport: a nested value survived the flat-scalar rule");
+  }
+}
+
+{
+  const over = sanitizeDebugReport({
+    kind: "error",
+    events: Array.from({ length: MAX_DEBUG_EVENTS + 250 }, (_, i) =>
+      dbgEvent({ seq: i, level: i === 0 ? "error" : "debug" }),
+    ),
+  });
+  eq("sanitizeDebugReport: events trimmed to exactly the cap", over?.events.length, MAX_DEBUG_EVENTS);
+  // And the trim used the ring's rule, not a slice — the oldest event here is the only error.
+  eq("sanitizeDebugReport: the error survived the trim", over?.events[0]?.level, "error");
+}
+
+// 6. THE SIZE CAP, and the order it is spent in: the transcript first (it is redundant — the same
+//    lines are already stored under `conversationId`), then events, and the note only truncated.
+{
+  const huge = sanitizeDebugReport({
+    kind: "error",
+    note: "x".repeat(1_000_000),
+    transcriptTail: [{ role: "user", text: "keep me" }],
+    // A full ring of maximally fat events — every message and every `data` value at its cap. This
+    // is the largest report the phone's own bounds allow, and it is ~3× over the wire cap: the two
+    // limits are deliberately not derived from each other, so this is the case that proves the
+    // outer one still bites.
+    events: Array.from({ length: MAX_DEBUG_EVENTS }, (_, i) =>
+      dbgEvent({
+        seq: i,
+        message: "m".repeat(MAX_DEBUG_MESSAGE),
+        data: Object.fromEntries(
+          Array.from({ length: MAX_DEBUG_DATA_KEYS }, (_, k) => [`k${k}`, "v".repeat(MAX_DEBUG_DATA_VALUE)]),
+        ),
+      }),
+    ),
+  });
+  if (huge === null) failures.push("sanitizeDebugReport: an oversized report must be trimmed, not refused");
+  else {
+    const size = JSON.stringify(huge).length;
+    if (size > MAX_REPORT_BYTES) failures.push(`sanitizeDebugReport: still ${size} over the cap`);
+    if (huge.note.length === 0) {
+      failures.push("sanitizeDebugReport: the note is the one field a machine cannot produce — never dropped");
+    }
+    if (huge.events.length === 0) {
+      failures.push("sanitizeDebugReport: events are halved to fit, not emptied — the ring is the evidence");
+    }
+    eq("sanitizeDebugReport: the redundant transcript goes first", huge.transcriptTail, []);
+  }
+}
+
+// 7. THE ROUND TRIP THE SPOOL DEPENDS ON (S2). A report is sanitized, written to the device as
+//    JSON, read back by a possibly newer build, and sanitized again before it is sent. That second
+//    pass must be a no-op — if it is not, a report changes shape every time the phone fails to send
+//    it, and a queue that has waited a week is not the report that was filed.
+{
+  const filed = sanitizeDebugReport({
+    kind: "error",
+    note: "the tutor never said anything",
+    lessonId: "3f2a1c9e-0000-4000-8000-000000000000",
+    conversationId: "conv_123",
+    provider: "elevenlabs",
+    agentVersion: "words-3.0",
+    errorCode: "transport.error",
+    errorMessage: "Server error: Unknown error",
+    client: { appVersion: "1.0.0", buildNumber: "42", variant: "preview", platform: "ios", osVersion: "26.1", deviceModel: "iPhone 15 Pro", apiBaseUrl: "https://x.vercel.app", online: false },
+    events: [dbgEvent({ level: "error", code: "transport.error", data: { code: 1008 } })],
+    transcriptTail: [{ role: "agent", text: "hello" }],
+    capturedAt: "2026-09-09T10:00:00.000Z",
+  });
+  const reread = sanitizeDebugReport(JSON.parse(JSON.stringify(filed)) as unknown);
+  eq("sanitizeDebugReport: survives a spool round trip unchanged", reread, filed);
+}
+
+// 8. `capturedAt` IS NOT `created_at`, and the sanitizer must not invent one. A spooled report can
+//    arrive hours after the failure; the column only tells the truth because this value travels.
+{
+  const spooled = sanitizeDebugReport({ kind: "error", capturedAt: "2026-09-09T09:00:00.000Z" });
+  eq("sanitizeDebugReport: capturedAt travels verbatim", spooled?.capturedAt, "2026-09-09T09:00:00.000Z");
+  const undated = sanitizeDebugReport({ kind: "error" });
+  // The epoch, not `now()`. A report with no capture time must look obviously wrong rather than
+  // quietly claim to have been captured the moment the server happened to parse it.
+  eq("sanitizeDebugReport: a missing capturedAt is the epoch, never now()", undated?.capturedAt, new Date(0).toISOString());
+}
+
+console.log(`checked debug-report properties (${DEBUG_CODES.length} codes)`);
 
 if (failures.length > 0) {
   console.error(`FAILED: ${failures.length}`);

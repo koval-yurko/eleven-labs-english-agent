@@ -1,8 +1,10 @@
 /**
- * Checks for the pure half of the lock-screen surfaces (`src/lib/lesson-activity-state.ts`).
+ * Checks for the pure logic whose bugs are invisible on a device.
  *
- * These exist because the intent resolver is the one piece of this feature whose bugs are invisible
- * on a device: a press stream that resolves wrongly looks exactly like a press that did not land.
+ * Two things qualify so far: the lock-screen intent resolver
+ * (`src/lib/lesson-activity-state.ts`) — a press stream that resolves wrongly looks exactly like a
+ * press that did not land — and the retry policy (`src/lib/retry-policy.ts`), which decides whether
+ * a transcript that exists only on this phone is kept or thrown away.
  * The cases below are the ones the design argues about — a batch replayed after a background
  * relaunch, and the state diff that decides whether a push reaches iOS at all.
  *
@@ -21,6 +23,7 @@ import {
 } from "./src/lib/lesson-activity-state";
 import { itemLine } from "@tutor/shared/lessons/types";
 import { tutorErrorMessage } from "./src/lib/tutor-error";
+import { isFinalRefusal } from "./src/lib/retry-policy";
 
 let failures = 0;
 function check(name: string, ok: boolean) {
@@ -200,9 +203,32 @@ check(
   orderA.togglePause === orderB.togglePause && orderA.toggleMute === orderB.toggleMute,
 );
 
+// ── the retry policy ────────────────────────────────────────────────────────────────────────
+// One predicate, two callers (the debug-report spool and the journal restore), and getting it wrong
+// costs a learner their conversation in one direction or hammers a refusing endpoint forever in the
+// other. Neither failure is visible on a device until it has already happened.
+
+// FINAL — the server looked at the request and refused it. Retrying sends the same request to the
+// same rule. `404` is the one that motivated this: a lesson soft-deleted on another client.
+check("404 is final — the lesson is gone and will stay gone", isFinalRefusal(404));
+check("400 is final — a malformed body is malformed on every attempt", isFinalRefusal(400));
+check("403 is final", isFinalRefusal(403));
+// `apiFetch` already retried a 401 once with a freshly minted token, so one reaching a caller is
+// the second — and the token source is by then signing the app out.
+check("401 is final — apiFetch already spent its one retry", isFinalRefusal(401));
+
+// RETRYABLE — nobody answered. These are the cases that used to delete the only copy of a
+// transcript, because the journal cleared itself regardless of why the push failed.
+check("500 is retryable — the server failed rather than decided", !isFinalRefusal(500));
+check("503 is retryable", !isFinalRefusal(503));
+check("0 is retryable — ApiFetchError carries 0 for a request that never completed", !isFinalRefusal(0));
+// A 2xx never reaches this predicate (no throw), but a caller that passed one in must not be told
+// to retry a success.
+check("200 is not a refusal", !isFinalRefusal(200));
+
 // `throw` rather than `process.exit`: this file is typechecked by the app's tsconfig, which has no
 // Node types by design (it is a React Native project). A non-zero exit is all the gate needs.
 if (failures > 0) {
   throw new Error(`${failures} check(s) failed`);
 }
-console.log("lesson-activity-state: all checks passed");
+console.log("mobile pure logic: all checks passed");

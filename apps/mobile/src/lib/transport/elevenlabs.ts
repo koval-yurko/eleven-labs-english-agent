@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { apiFetch } from "@/api";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { useAccessToken } from "@/lib/auth";
+import { emit } from "@/lib/diagnostics";
 import { tutorErrorMessage } from "@/lib/tutor-error";
 
 /**
@@ -75,7 +76,16 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
   });
 
   const conversation = useConversation({
-    onConnect: ({ conversationId }) => eventsRef.current.onTransportId(conversationId),
+    onConnect: ({ conversationId }) => {
+      emit({
+        level: "info",
+        code: "transport.connected",
+        provider: "elevenlabs",
+        message: "LiveKit room connected",
+        data: { transportId: conversationId },
+      });
+      eventsRef.current.onTransportId(conversationId);
+    },
     onMessage: ({ message, role }) => eventsRef.current.onTurn({ role, text: message }),
     /**
      * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
@@ -83,16 +93,51 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
      */
     onAgentResponseCorrection: ({ original_agent_response, corrected_agent_response }) =>
       eventsRef.current.onTurnCorrected(original_agent_response, corrected_agent_response),
-    onStatusChange: ({ status }) => eventsRef.current.onStatus(status),
-    onDisconnect: (details) => eventsRef.current.onEnd(details.reason),
+    onStatusChange: ({ status }) => {
+      emit({ level: "debug", code: "transport.connect", provider: "elevenlabs", message: status });
+      eventsRef.current.onStatus(status);
+    },
+    onDisconnect: (details) => {
+      emit({
+        level: details.reason === "error" ? "error" : "info",
+        code: "transport.disconnect",
+        provider: "elevenlabs",
+        message: `disconnected (${details.reason})`,
+        data: { reason: details.reason },
+      });
+      eventsRef.current.onEnd(details.reason);
+    },
     /**
      * The SDK triggers the OS microphone prompt itself from `AudioSession.configureAudio()`, so a
      * DENIED microphone arrives here — as does everything else, which is why `context` is not
      * dropped: it carries the `error_event`'s `errorType` / `code` / `debugMessage` straight off the
      * wire. `tutorErrorMessage` owns the wording and the branching, and it stays in this file
      * because what it knows is what an exhausted ELEVENLABS quota looks like.
+     *
+     * The bus gets the STRUCTURED fields alongside the composed sentence, and that is the direct
+     * repair of the failure `tutor-error.ts` documents. Folding `context` into the sentence made
+     * the sentence honest; it left the fields as prose inside a string nobody can group by. Here
+     * they land as `data`, where "how many reports this week carry `code 1008`?" is a query rather
+     * than a re-read of every screenshot.
      */
-    onError: (message, context) => eventsRef.current.onError(tutorErrorMessage(message, context)),
+    onError: (message, context) => {
+      const ctx = (typeof context === "object" && context !== null ? context : {}) as Record<
+        string,
+        unknown
+      >;
+      emit({
+        level: "error",
+        code: "transport.error",
+        provider: "elevenlabs",
+        message,
+        data: {
+          errorType: typeof ctx.errorType === "string" ? ctx.errorType : null,
+          code: typeof ctx.code === "number" || typeof ctx.code === "string" ? ctx.code : null,
+          debugMessage: typeof ctx.debugMessage === "string" ? ctx.debugMessage : null,
+        },
+      });
+      eventsRef.current.onError(tutorErrorMessage(message, context));
+    },
   });
   /**
    * `onUsage` is never raised here, and that is a fact about the platform rather than an omission.
@@ -159,16 +204,67 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
       capabilities: CAPABILITIES,
 
       start: async (request, onIdentified) => {
+        /**
+         * The PREAMBLE. Emitted before anything can fail, so a start that dies in the mint still
+         * says which route, which version and which capability set was in play.
+         *
+         * "It didn't work" is three different questions on three different stacks — three token
+         * routes, three transports, three error vocabularies — and a report that does not say which
+         * one it was in is a report about nothing (§1.4). This is the answer, on every provider.
+         */
+        const route = conversationTokenPath(request.version ?? undefined);
+        emit({
+          level: "info",
+          code: "transport.mint",
+          provider: "elevenlabs",
+          message: "minting a conversation token",
+          data: {
+            route,
+            version: request.version,
+            items: request.items.length,
+            ...CAPABILITIES,
+          },
+        });
+
         // No microphone pre-flight: the SDK's audio session raises the prompt itself, so a denial
         // arrives through `onError` rather than here.
-        const res = await apiFetch<unknown>(
-          conversationTokenPath(request.version ?? undefined),
-          latest.current.accessToken,
-          { method: "POST" },
-        );
+        let res: unknown;
+        try {
+          res = await apiFetch<unknown>(route, latest.current.accessToken, { method: "POST" });
+        } catch (e) {
+          // `apiFetch` has already logged the HTTP failure. This says which START it killed —
+          // without it a 402 on the token route is indistinguishable from a background refresh.
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "elevenlabs",
+            message: e instanceof Error ? e.message : String(e),
+            data: { route },
+          });
+          throw e;
+        }
         if (!isConversationTokenResponse(res)) {
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "elevenlabs",
+            message: "the token route answered with an unusable shape",
+            data: { route },
+          });
           throw new Error("The server did not return a usable conversation token.");
         }
+
+        // The ROW KEY, the moment it exists. It joins to `lesson_sessions`, to the LangSmith trace
+        // (`lesson <conversation_id>`) and to the ElevenLabs console — which is why the report can
+        // carry the key instead of the transcript (§6). No agent id: this route resolves version →
+        // agent server-side and deliberately never tells the client which one it picked.
+        emit({
+          level: "info",
+          code: "transport.connect",
+          provider: "elevenlabs",
+          message: "token minted, connecting",
+          data: { conversationId: res.conversationId, version: res.version, appEnv: res.appEnv },
+        });
 
         // The seam. Everything the session must do while the row key is known and the line is not
         // yet up happens in here — see `TutorTransportControls.start` for the three things and why

@@ -23,6 +23,7 @@ export const API_V2_ROUTES = {
   itemPopularity: `${API_V2}/lesson-items/popularity`,
   itemDelete: `${API_V2}/lesson-items/delete`,
   suggest: `${API_V2}/lexicon/suggest`,
+  debugReports: `${API_V2}/debug-reports`,
 } as const;
 
 export function lessonPath(id: string): string {
@@ -107,6 +108,26 @@ export interface TutorSessionInput {
 
 export interface LessonSessionResponse {
   ok: true;
+}
+
+/**
+ * What `POST /api/v2/debug-reports` answers with.
+ *
+ * **It returns the id, and that is not decoration.** The modal shows it, the learner quotes it, and
+ * `pnpm report <id>` resolves it. Without one the only handle on a report is a timestamp.
+ *
+ * `stored: false` is the rate-limit answer, and it is a 200 on purpose — see the route. A cap that
+ * errored would make the spool retry the report it just refused, forever.
+ */
+export interface DebugReportResponse {
+  id: string | null;
+  stored: boolean;
+}
+
+export function isDebugReportResponse(body: unknown): body is DebugReportResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<DebugReportResponse>;
+  return (typeof b.id === "string" || b.id === null) && typeof b.stored === "boolean";
 }
 
 export interface MeResponse {
@@ -380,7 +401,30 @@ export interface HealthCheck {
   detail: string;
 }
 
+/**
+ * What `/api/health` says about the SERVICE — never about the caller.
+ *
+ * Three states rather than a boolean, because a uniform aggregate makes a background-job dependency
+ * page someone at 3am for something no learner can feel:
+ *
+ *  - `ok` — everything green.
+ *  - `degraded` — every request-path dependency is up, but something a background job needs is not.
+ *    Reported, and deliberately still a **200**: `words.level` and `words.details` are nullable
+ *    forever and their jobs have no deadline (CLAUDE.md), so Anthropic being unreachable delays a
+ *    backfill and stops nothing.
+ *  - `down` — a dependency a learner's request needs is unreachable. This is the one worth waking
+ *    up for, and the only one that answers 503.
+ */
+export type HealthStatus = "ok" | "degraded" | "down";
+
 export interface HealthResponse {
+  /** The probe's verdict. Monitors should read this, or the status code, and nothing else. */
+  status: HealthStatus;
+  /**
+   * Whether the CALLER is signed in — reported for a human reading this in a browser, and
+   * deliberately excluded from `status`. A monitor has no cookie, and a probe that reports "down"
+   * because nobody is logged in is a probe that is always down.
+   */
   auth: HealthCheck;
   supabase: HealthCheck;
   elevenlabs: HealthCheck;

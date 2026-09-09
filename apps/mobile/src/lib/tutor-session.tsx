@@ -38,9 +38,11 @@ import { AppState } from "react-native";
 
 import { addControlIntentListener, drainControlIntents } from "@/modules/lesson-activity";
 
-import { apiFetch } from "@/api";
+import { apiFetch, ApiFetchError } from "@/api";
 import { useAccessToken, useSession } from "@/lib/auth";
+import { emit, markSessionStart, registerSnapshot } from "@/lib/diagnostics";
 import { buildActivityState, resolveIntents } from "@/lib/lesson-activity-state";
+import { isFinalRefusal } from "@/lib/retry-policy";
 import { dismissCard, ensureCard, pushCard } from "@/lib/lesson-card";
 import {
   clearJournal,
@@ -334,7 +336,13 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   const journal = useCallback(() => {
     const forLesson = convLessonRef.current;
-    if (!forLesson) return;
+    if (!forLesson) {
+      // The guarded case, made visible. A line arriving with no conversation to file it under is
+      // the exact window `start` opens while it retires a session for a different lesson — rare,
+      // correct to drop, and indistinguishable from a journal that is simply not writing.
+      emit({ level: "warn", code: "journal.write_failed", message: "a line arrived with no conversation to journal it under" });
+      return;
+    }
     void writeJournal({
       lessonId: forLesson,
       conversationId: conversationIdRef.current,
@@ -363,8 +371,32 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       usage: TutorUsage | null;
     }) => {
       const { lessonId: forLesson, conversationId, agentVersion, lines: transcript, usage } = payload;
-      if (!conversationId || !forLesson || savedForRef.current === conversationId) return;
-      if (transcript.length === 0) return;
+      /**
+       * The three no-ops, said out loud.
+       *
+       * Every one of them is correct, and every one of them looks identical from outside to a save
+       * that failed: a transcript that is not on the server after a lesson is the failure that
+       * cannot be recovered after the fact, so "it was already saved" and "there was nothing to
+       * save" have to be distinguishable from "the write was refused".
+       */
+      if (!conversationId || !forLesson || savedForRef.current === conversationId || transcript.length === 0) {
+        emit({
+          level: "debug",
+          code: "persist.skipped",
+          message: "nothing to persist",
+          data: {
+            reason: !conversationId
+              ? "no_conversation"
+              : !forLesson
+                ? "no_lesson"
+                : savedForRef.current === conversationId
+                  ? "already_saved"
+                  : "empty_transcript",
+            lines: transcript.length,
+          },
+        });
+        return;
+      }
       savedForRef.current = conversationId;
 
       const body: TutorSessionInput = {
@@ -382,11 +414,32 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(body),
         });
         await clearJournal(forLesson);
+        emit({
+          level: "info",
+          code: "persist.ok",
+          message: "transcript saved",
+          data: { conversationId, lessonId: forLesson, lines: transcript.length },
+        });
         // The screen used to call `load()` straight from here. It cannot any more — this runs above
         // the router and the screen may not even be mounted — so the refresh is a fact it publishes
         // and the screen reacts to.
         setLastPersisted({ lessonId: forLesson, at: Date.now() });
-      } catch {
+      } catch (e) {
+        // The status and code, not just the sentence: a 404 here means the lesson was soft-deleted
+        // on another client, a 401 means the token died mid-lesson, and a 0 means the network went.
+        // On screen all three are the same thing, which is nothing.
+        emit({
+          level: "error",
+          code: "persist.failed",
+          message: e instanceof Error ? e.message : String(e),
+          data: {
+            conversationId,
+            lessonId: forLesson,
+            lines: transcript.length,
+            status: e instanceof ApiFetchError ? e.status : null,
+            code: e instanceof ApiFetchError ? (e.code ?? null) : null,
+          },
+        });
         // Un-guard so a later attempt can retry: a lost transcript is the one failure that cannot be
         // recovered after the fact.
         savedForRef.current = null;
@@ -428,6 +481,15 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       // stop.
       const authoritative = conversationIdRef.current;
       if (authoritative && transportId !== authoritative) {
+        // The tripwire finally leaves a trace. Until now this only ever set a string on a screen
+        // that may not be mounted, and the day the two ids stop agreeing is the day it matters that
+        // BOTH of them were written down.
+        emit({
+          level: "error",
+          code: "session.id_mismatch",
+          message: "the transport reported an id that is not the row key",
+          data: { transportId, conversationId: authoritative },
+        });
         setError(`Session id mismatch (${transportId}). The transcript is still saved correctly.`);
       }
     },
@@ -471,10 +533,31 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         : usage;
     },
     onStatus: (next) => {
+      // The TRANSITION, not the value: `${from} → ${to}` is what reconstructs a sequence, and the
+      // sequence is what the report exists to carry. Unguarded by ownership exactly as the ref
+      // itself is — this tracks the transport, not the conversation.
+      emit({
+        level: "debug",
+        code: "session.status",
+        message: `${statusRef.current} → ${next}`,
+        data: { from: statusRef.current, to: next, owns: ownsRef.current },
+      });
       statusRef.current = next;
     },
     onEnd: (reason) => {
       if (!ownsRef.current) return;
+      emit({
+        level: reason === "error" ? "error" : "info",
+        code: "session.end",
+        message: `session ended (${reason})`,
+        data: {
+          reason,
+          lines: linesRef.current.length,
+          // Whether the verdict below is allowed to land on a screen: a disconnect arriving after
+          // the focus has moved must not write itself onto another lesson.
+          stillFocused: convLessonRef.current !== null && convLessonRef.current === lessonIdRef.current,
+        },
+      });
       kickedOffRef.current = false;
       const forLesson = convLessonRef.current;
       void persistSession();
@@ -507,6 +590,14 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
      */
     onError: (message) => {
       if (!ownsRef.current) return;
+      // The adapter has already logged the STRUCTURED half under `transport.error`. This is the
+      // sentence the learner is actually looking at, which is the other thing an investigation
+      // needs — the report should be able to say what was on screen, not only what was on the wire.
+      emit({
+        level: "error",
+        code: "session.error",
+        message,
+      });
       setError(message);
     },
   };
@@ -625,10 +716,40 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       at: Date.now(),
     });
     snapshotRef.current = plan.snapshot;
+    /**
+     * The PLAN, not just "a pause happened".
+     *
+     * `planHold` is pure and property-checked over the full cross-product in `pnpm check:shared`,
+     * and its docblock says why: "this branch used to be reachable only on a phone, in a billed
+     * session, and getting it wrong shows up as the tutor saying a plausible wrong thing." Logging
+     * which branch it took closes that loop from the other end — when the tutor DOES say a
+     * plausible wrong thing, the report names the branch that produced it.
+     */
+    emit({
+      level: "info",
+      code: "pause.hold_plan",
+      message: `hold: barge-in ${plan.bargeIn}`,
+      data: {
+        bargeIn: plan.bargeIn,
+        heartbeat: plan.heartbeat,
+        aborted: plan.snapshot.aborted,
+        atLine: plan.snapshot.atLine,
+        wasMuted: plan.snapshot.wasMuted,
+      },
+    });
     // `applyHold` reports whether the tutor was ACTUALLY silenced. `false` means it is still
     // audible, and the paused status line says so rather than claiming a silence we did not
     // deliver (`@/lib/agent-audio`).
-    setSilenced(applyHold(tx, plan));
+    const silencedNow = applyHold(tx, plan);
+    // Separate from the plan above: the plan is what we INTENDED, this is what the audio graph
+    // actually did. `silenced: false` is a tutor still talking into a paused lesson.
+    emit({
+      level: silencedNow ? "info" : "warn",
+      code: "pause.hold",
+      message: silencedNow ? "held" : "held, but the tutor could not be silenced",
+      data: { silenced: silencedNow },
+    });
+    setSilenced(silencedNow);
     mutedRef.current = true;
     // The timer stays here: `tutor-pause` decides WHETHER one is needed, this file owns it, because
     // an interval is a resource with a lifetime and a pure planner has no business holding one.
@@ -657,7 +778,18 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     snapshotRef.current = null;
     // The line died while the pause was held: `setMicMuted` throws with no active conversation, and
     // the provider has already reset its own mute state on disconnect. The drop path owns this.
-    if (!ownsRef.current || statusRef.current !== "connected" || !snapshot) return;
+    if (!ownsRef.current || statusRef.current !== "connected" || !snapshot) {
+      // "Resume did nothing" is what this looks like on screen, and the three causes are very
+      // different: someone else's conversation, a line that already dropped, or a hold that was
+      // never taken.
+      emit({
+        level: "warn",
+        code: "pause.release",
+        message: "release found nothing to resume",
+        data: { owns: ownsRef.current, status: statusRef.current, hadSnapshot: snapshot !== null },
+      });
+      return;
+    }
     /**
      * What the learner is owed, in exactly three cases — and each of the two that speak is bounded
      * to ONE turn. The tutor was listening (nothing lost), cut off (owed the tail of one thought),
@@ -665,6 +797,19 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
      * pins the table, including that a cut-off turn outranks an unheard one.
      */
     const plan = planRelease(snapshot, { lines: linesRef.current, at: Date.now() });
+    // Which of the three the learner was owed. `say` is the whole answer: null (nothing lost),
+    // `ABORTED_RESUME_MESSAGE` (cut off), or `UNHEARD_RESUME_MESSAGE` (talked unheard) — and the
+    // wrong one of those is the tutor plausibly continuing the wrong thought.
+    emit({
+      level: "info",
+      code: "pause.release_plan",
+      message: plan.say ? "release: the tutor owes one turn" : "release: nothing owed",
+      data: {
+        owed: plan.say === null ? "none" : snapshot.aborted ? "aborted" : "unheard",
+        micMuted: plan.micMuted,
+        heldMs: Date.now() - snapshot.since,
+      },
+    });
     applyRelease(tx, plan);
     mutedRef.current = plan.micMuted;
     setSilenced(true);
@@ -749,7 +894,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * this order:
    *
    *   1. **A journal** — the last session died without saving: a crash or a force-quit, since
-   *      backgrounding is survivable here. Push it to the server, then offer to carry on.
+   *      backgrounding is survivable here. Push it to the server, then offer to carry on — and
+   *      **keep it on disk if the push did not get an answer**, so the next focus tries again. See
+   *      the push below for why that condition is the 4xx/5xx split and not "did it work".
    *   2. **A pause marker** — the learner pressed Pause and then left (or the app restarted). The
    *      transcript was already saved on the way out; the marker only restores the context.
    *
@@ -765,12 +912,44 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       if (!unsaved || unsaved.lines.length === 0) {
         const marker = await readPauseMarker(forLesson);
         if (stale() || !marker || marker.lines.length === 0) return;
+        emit({
+          level: "info",
+          code: "pausemarker.restore",
+          message: "a parked pause was found on disk",
+          data: { lessonId: forLesson, lines: marker.lines.length },
+        });
         setCarried(marker.lines);
         resumeContextRef.current = { lines: marker.lines, cause: "paused" };
         setPause("paused");
         return;
       }
       await clearPauseMarker(forLesson);
+      /**
+       * Push the unsaved transcript, and let the ANSWER decide whether the journal may be deleted.
+       *
+       * This used to clear unconditionally, on the reasoning that "the post-call webhook is the
+       * backstop". **That is false for OpenAI**, which has no webhook and no post-call transcript
+       * endpoint — `/api/v2/lessons/session` says so itself: *"this write is the only witness there
+       * is"*. So a crash followed by a relaunch with no signal deleted the only copy of the lesson
+       * that existed anywhere. The journal is insurance, and insurance that cancels itself the one
+       * time it is claimed is not insurance.
+       *
+       * The rule is the spool's (§11.1), and it is the same rule for the same reason:
+       *
+       *   - **2xx** — stored. Clear.
+       *   - **4xx** — the server has ANSWERED. A lesson that was soft-deleted, or one that is not
+       *     this owner's, will refuse this write on every future launch too; keeping the journal
+       *     would be a retry that can never succeed, once per focus, forever.
+       *   - **5xx, network, not signed in** — nobody has answered. Keep it, and let the next focus
+       *     of this lesson try again.
+       *
+       * KNOWN GAP, and it is the existing contract rather than something introduced here: a
+       * retained journal is still cleared by the next `start` on this lesson (the seam in `start`
+       * clears it so a stale journal cannot outlive its conversation, and the key is per-lesson).
+       * So retention buys every retry up to the next Start, not an unbounded queue. Closing that
+       * window means keying the journal per CONVERSATION, which is a bigger change than this one.
+       */
+      let retained = false;
       if (unsaved.conversationId) {
         try {
           await apiFetch(API_V2_ROUTES.lessonSession, accessToken, {
@@ -782,13 +961,53 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
               lines: unsaved.lines,
             } satisfies TutorSessionInput),
           });
+          emit({
+            level: "info",
+            code: "persist.ok",
+            message: "a recovered journal reached the server",
+            data: { lessonId: forLesson, conversationId: unsaved.conversationId, lines: unsaved.lines.length },
+          });
           setLastPersisted({ lessonId: forLesson, at: Date.now() });
-        } catch {
-          // The post-call webhook is the backstop; the lines are still offered as context below.
+        } catch (e) {
+          const status = e instanceof ApiFetchError ? e.status : 0;
+          retained = !isFinalRefusal(status);
+          emit({
+            level: "error",
+            code: retained ? "journal.retained" : "persist.failed",
+            message: e instanceof Error ? e.message : String(e),
+            data: {
+              lessonId: forLesson,
+              conversationId: unsaved.conversationId,
+              lines: unsaved.lines.length,
+              status,
+              code: e instanceof ApiFetchError ? (e.code ?? null) : null,
+              // The whole decision, in one field: was this transcript kept or given up on?
+              retained,
+            },
+          });
         }
       }
-      await clearJournal(forLesson);
+      // A journal with no conversation id has no row key and can never be filed under one, so there
+      // is nothing to retain — it is offered as context below and then discarded.
+      if (!retained) await clearJournal(forLesson);
       if (stale()) return;
+      // A journal means the LAST session died without saving — a crash or a force-quit, since
+      // backgrounding is survivable here. Rare, real, and the one recovery worth being able to
+      // count: if it stops being rare, that is the finding.
+      emit({
+        level: "warn",
+        code: "journal.restore",
+        message: retained
+          ? "an unsaved journal was recovered and KEPT — the server could not be reached"
+          : "an unsaved journal was recovered from disk",
+        data: {
+          lessonId: forLesson,
+          conversationId: unsaved.conversationId,
+          lines: unsaved.lines.length,
+          // So one event answers both halves: what was found, and whether it is still on the device.
+          retained,
+        },
+      });
       setCarried(unsaved.lines);
       resumeContextRef.current = { lines: unsaved.lines, cause: "interrupted" };
       setPause("recovered");
@@ -801,9 +1020,32 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       if (lessonIdRef.current === next) return;
       // THE REFUSAL THAT IS THE FEATURE. A live — or connecting — session owns this state, and
       // opening another screen is not a request to take it away. Only `start` does that.
-      if (ownsRef.current && statusRef.current !== "disconnected") return;
-      if (startingRef.current) return;
+      //
+      // Logged because the refusal IS the feature: a refusal that leaves no trace is
+      // indistinguishable from a button that did nothing, and "opening lesson B shows lesson A's
+      // state" is exactly what a correct refusal looks like from the outside.
+      if ((ownsRef.current && statusRef.current !== "disconnected") || startingRef.current) {
+        emit({
+          level: "info",
+          code: "session.start_refused",
+          message: "focus refused — a session is live",
+          data: {
+            requested: next,
+            focused: lessonIdRef.current,
+            live: convLessonRef.current,
+            status: statusRef.current,
+            starting: startingRef.current,
+          },
+        });
+        return;
+      }
 
+      emit({
+        level: "info",
+        code: "session.focus",
+        message: "focus moved",
+        data: { from: lessonIdRef.current, to: next },
+      });
       lessonIdRef.current = next;
       const token = ++restoreTokenRef.current;
       linesRef.current = [];
@@ -966,6 +1208,24 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     kickedOffRef.current = true;
     const resumeFrom = resumeContextRef.current;
     resumeContextRef.current = null;
+    /**
+     * The kickoff either happened or it did not, and today the difference is only audible.
+     *
+     * The effect is keyed on `status` because `WebRTCConnection.sendMessage` drops anything sent
+     * before `RoomEvent.Connected` **with a console warning and no error** — so if the keying ever
+     * regresses the symptom is "the tutor doesn't say hello sometimes". This line, plus the console
+     * capture that now records that warning, is what turns that into a two-event story.
+     */
+    emit({
+      level: "info",
+      code: "session.kickoff",
+      message: resumeFrom ? "kickoff: resuming" : "kickoff: fresh",
+      data: {
+        resumed: Boolean(resumeFrom && resumeFrom.lines.length > 0),
+        cause: resumeFrom?.cause ?? null,
+        lines: resumeFrom?.lines.length ?? 0,
+      },
+    });
     if (resumeFrom && resumeFrom.lines.length > 0) {
       tx.context(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
       tx.say(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);
@@ -976,7 +1236,35 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(
     async (input: StartInput) => {
-      if (startingRef.current || statusRef.current === "connecting") return;
+      if (startingRef.current || statusRef.current === "connecting") {
+        emit({
+          level: "warn",
+          code: "session.start_refused",
+          message: "start refused — one is already in flight",
+          data: { lessonId: input.lessonId, starting: startingRef.current, status: statusRef.current },
+        });
+        return;
+      }
+      /**
+       * The RELATIVE clock restarts here, and the frozen at-error snapshot is spent — the same act
+       * that clears the on-screen error below. The ring itself is deliberately not cleared: the
+       * events from before a Start are frequently the explanation for the Start failing.
+       */
+      markSessionStart();
+      emit({
+        level: "info",
+        code: "session.start",
+        message: "starting",
+        provider: input.provider ?? DEFAULT_TUTOR_PROVIDER,
+        data: {
+          lessonId: input.lessonId,
+          version: input.version,
+          items: input.itemsDetailed.length,
+          // A start that takes the line away from a live lesson is the one navigation-shaped act
+          // that ends a session, and the takeover half-beat below is where the hardest bugs live.
+          takeover: statusRef.current === "connected",
+        },
+      });
       // Raised HERE and not below, so the ownership effect does not read the takeover's own hangup
       // as "the session is over" while the replacement is still being minted.
       startingRef.current = true;
@@ -1106,6 +1394,18 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
             setEnding(false);
 
             // From here on this is the row key, whatever the transport says its own id is.
+            emit({
+              level: "info",
+              code: "session.claim",
+              message: "ownership claimed",
+              provider: null,
+              data: {
+                conversationId: descriptor.conversationId,
+                version: descriptor.version,
+                lessonId: input.lessonId,
+                resuming,
+              },
+            });
             claimSession(true);
             conversationIdRef.current = descriptor.conversationId;
             convLessonRef.current = input.lessonId;
@@ -1116,6 +1416,13 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         // The transport never connected, so there is no conversation of ours to own — and the
         // ownership effect cannot notice, because the transport never left "disconnected".
+        emit({
+          level: "error",
+          code: "session.release",
+          message: e instanceof Error ? e.message : String(e),
+          provider: null,
+          data: { reason: "start_threw", lessonId: input.lessonId },
+        });
         claimSession(false);
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -1124,6 +1431,62 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       }
     },
     [claimSession, persistConversation, stopHeartbeat, transports, tx],
+  );
+
+  /**
+   * Hand the diagnostics bus a way to read this session — **a function, not a value.**
+   *
+   * The interesting half of this file is refs, and refs are invisible from outside: a transcript
+   * filed under the wrong conversation, a save that silently no-ops, a second kickoff, a pause that
+   * resumes with the wrong one of three plans. Every one of those is a hazard documented above and
+   * none of them can be seen from a screen. This is the one place they can all be read at once.
+   *
+   * **Registered every render, with no dependency array**, and the cost of that is one closure
+   * allocation and one `Set` write per render — nothing is *evaluated*. The body runs only when
+   * something asks, which while the modal is closed is only the bus freezing a copy on the first
+   * error. So the "no cost when closed" property is a property of the BODY, not of the deps.
+   *
+   * It cannot be `[]`. The five values below that are state rather than refs (`provider`,
+   * `silenced`, `carried`, `error`, `tx.capabilities`) would then be pinned to the first render,
+   * and routing them through a mutable ref instead — the `latest`/`latestControls` pattern this
+   * file uses elsewhere — is rejected by the React Compiler's immutability rule the moment that ref
+   * is read from inside a hook argument. Re-registering is the cheaper of the two answers anyway.
+   *
+   * `provider` is the state and not `providerRef`, for the same rule: `start` writes to that ref,
+   * and reading it here would make the write a compile error. It lags by one render during a
+   * takeover, which is the honest answer for a snapshot — this is what the app is rendering.
+   */
+  useEffect(() =>
+    registerSnapshot(() => ({
+      focusedLesson: lessonIdRef.current,
+      conversationLesson: convLessonRef.current,
+      conversationId: conversationIdRef.current,
+      savedFor: savedForRef.current,
+      owns: ownsRef.current,
+      starting: startingRef.current,
+      kickedOff: kickedOffRef.current,
+      status: statusRef.current,
+      provider,
+      version: versionRef.current === "" ? null : versionRef.current,
+      held: heldRef.current,
+      silenced,
+      muted: mutedRef.current,
+      speaking: speakingRef.current,
+      // A COUNT, not the lines. The transcript is already stored server-side under this
+      // conversation id for this owner; a second copy inside a diagnostic blob is a copy that
+      // outlives a deletion (§6).
+      lines: linesRef.current.length,
+      carried: carried.length,
+      usage: usageRef.current,
+      holdSnapshot: snapshotRef.current,
+      resumeCause: resumeContextRef.current?.cause ?? null,
+      resumeLines: resumeContextRef.current?.lines.length ?? 0,
+      heartbeat: heartbeatRef.current !== null,
+      capabilities: tx.capabilities,
+      restoreToken: restoreTokenRef.current,
+      metaTitle: metaRef.current?.title ?? null,
+      lastError: error,
+    })),
   );
 
   /**

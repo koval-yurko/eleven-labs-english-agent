@@ -22,6 +22,7 @@ import { useAccessToken } from "@/lib/auth";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
+import { DiagnosticsModal } from "@/lib/diagnostics-modal";
 import {
   useActiveSession,
   useTutorControls,
@@ -178,6 +179,14 @@ export default function LessonScreen() {
    * dialog per word, which at `MAX_ITEMS` would be fifty modals in the tree to show none of them.
    */
   const [removeTarget, setRemoveTarget] = useState<LessonItem | null>(null);
+
+  /**
+   * The diagnostics modal, opened from two places in the Practice panel below.
+   *
+   * State here rather than inside the modal, so the failure path can open it: the useful entry
+   * point is the one beside the error, at the moment it happens.
+   */
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   /** Active rows in display order — what the learner edits, and what the tutor will be given. */
   const active = useMemo(
@@ -745,8 +754,35 @@ export default function LessonScreen() {
             leaves it no width and it wraps under half a button anyway. */}
         <Muted style={{ marginTop: space.row }}>{statusLine}</Muted>
 
-        {error ? <ErrorText style={{ marginTop: space.row }}>{error}</ErrorText> : null}
+        {/* ENTRY POINT 2, and the one that will actually get used: offered at the moment of
+            failure, beside the sentence that failed. Asking someone to reproduce a failure in order
+            to report it is asking them not to report it — and by the time they have, `start` has
+            run `setError(null)` and the state describes a different conversation. Opening it here
+            reads the snapshot the bus froze when the error landed. */}
+        {error ? (
+          <>
+            <ErrorText style={{ marginTop: space.row }}>{error}</ErrorText>
+            <ButtonRow style={{ marginTop: space.row }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                label="Diagnostics"
+                onPress={() => setDiagnosticsOpen(true)}
+              />
+            </ButtonRow>
+          </>
+        ) : null}
+
+        {/* ENTRY POINT 1: quiet, permanent, and `inline` because it is furniture rather than an
+            action for the lesson. No build flag — the learner and the developer are currently the
+            same person. If that ever stops being true, gate this one on `__DEV__ || variant !==
+            "production"` and keep the error-side entry above for everyone. */}
+        <View style={{ marginTop: space.row, alignItems: "flex-start" }}>
+          <Button variant="inline" label="Diagnostics" onPress={() => setDiagnosticsOpen(true)} />
+        </View>
       </Panel>
+
+      <DiagnosticsModal open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen} />
 
       {/* ── Live transcript ────────────────────────────────────────────────────────────────── */}
       {transcript.length > 0 ? (

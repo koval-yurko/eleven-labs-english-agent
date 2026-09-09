@@ -79,9 +79,11 @@ export default tseslint.config(
   // The layering, stated as what each domain may NOT name. Read downward: `words` sits at the
   // bottom and `api.ts` at the top, and nothing may reach back up.
   zone(["src/theme.ts"], [NOT_TESTING, { regex: "^\\.", message: "`theme.ts` is inert data and imports nothing. Keep it that way — it is the one module with no dependencies at all." }]),
-  zone(["src/words/**/*.ts"], [NOT_TESTING, NOT_API, not("tutor", "`words/` is the bottom of the graph — `tutor/` names it, not the other way round."), not("lessons", "`words/` is the bottom of the graph — `lessons/` names it, not the other way round."), not("offline", "`words/` is the bottom of the graph — `offline/` names it, not the other way round.")]),
-  zone(["src/tutor/**/*.ts"], [NOT_TESTING, NOT_API, not("lessons", "`lessons/` names `tutor/`, so `tutor/` may not name it back."), not("offline", "`offline/` names `tutor/`, so `tutor/` may not name it back.")]),
-  zone(["src/lessons/**/*.ts", "src/offline/**/*.ts"], [NOT_TESTING, NOT_API]),
+  zone(["src/words/**/*.ts"], [NOT_TESTING, NOT_API, not("tutor", "`words/` is the bottom of the graph — `tutor/` names it, not the other way round."), not("lessons", "`words/` is the bottom of the graph — `lessons/` names it, not the other way round."), not("offline", "`words/` is the bottom of the graph — `offline/` names it, not the other way round."), not("debug", "`words/` is the bottom of the graph — `debug/` names it, not the other way round.")]),
+  zone(["src/tutor/**/*.ts"], [NOT_TESTING, NOT_API, not("lessons", "`lessons/` names `tutor/`, so `tutor/` may not name it back."), not("offline", "`offline/` names `tutor/`, so `tutor/` may not name it back."), not("debug", "`debug/` names `tutor/`, so `tutor/` may not name it back — a session that logged its own diagnostics shape would be the coupling `debug/` exists to avoid.")]),
+  // `debug/` sits beside `lessons/` and `offline/`: it names `tutor/` (a snapshot IS the session's
+  // refs) and nothing above it names it back.
+  zone(["src/lessons/**/*.ts", "src/offline/**/*.ts", "src/debug/**/*.ts"], [NOT_TESTING, NOT_API]),
 
   // `src/testing/` may name what it fakes; it is excluded from NOT_TESTING by having its own zone.
   zone(["src/testing/**/*.ts"], [NOT_API]),

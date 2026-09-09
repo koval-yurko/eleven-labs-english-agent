@@ -207,6 +207,12 @@ const config: ExpoConfig = {
     // The whole per-variant object, never spread key by key — src/env.ts reads it back as one
     // shape. See docs/2026-08-13-expo-s2-auth0-bearer.md §3.2.
     env: readEnv(key),
+    // WHICH BUILD this is, as a plain string. Not part of `MobileEnv`: that type is the contract
+    // for values the app must be CONFIGURED with, and this one is derived from `APP_VARIANT` right
+    // here. A debug report that does not say whether it came from a dev, preview or TestFlight
+    // build is a report whose first question is unanswerable
+    // (docs/2026-09-09-mobile-debug-reports-and-feedback.md §1.5).
+    variant: key,
   },
 };
 

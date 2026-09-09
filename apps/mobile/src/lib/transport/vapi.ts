@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/api";
 import { applyVoiceLessonCategory, ensureStarted } from "@/lib/audio-session";
 import { useAccessToken } from "@/lib/auth";
+import { emit } from "@/lib/diagnostics";
 import { describeShim, installDailyWebRtcShim } from "@/lib/transport/daily-webrtc-shim";
 
 /**
@@ -159,6 +160,25 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
       // patch is Daily throwing `nativeUtils.setAudioMode is not a function` several frames later,
       // somewhere with no context. Failing here names the cause instead.
       const shim = installDailyWebRtcShim();
+      /**
+       * `describeShim` produces the one line that says which of the required natives were patched,
+       * which were already there, and which the interop proxy silently refused. Until now it was
+       * only ever seen INSIDE a thrown `Error` message — i.e. only when the shim had already
+       * failed. Emitting it on every attempt is what makes the successful case comparable to the
+       * failing one, which is the whole difference between "it broke" and "it broke on this build".
+       */
+      emit({
+        level: shim.moduleFound && shim.rejected.length === 0 ? "info" : "error",
+        code: "transport.shim",
+        provider: "vapi",
+        message: describeShim(shim),
+        data: {
+          moduleFound: shim.moduleFound,
+          installed: shim.installed.length,
+          present: shim.present.length,
+          rejected: shim.rejected.length,
+        },
+      });
       if (!shim.moduleFound || shim.rejected.length > 0) {
         throw new Error(`Vapi cannot start on this build — ${describeShim(shim)}`);
       }
@@ -169,6 +189,7 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
       clientRef.current = client;
 
       client.on("call-start", () => {
+        emit({ level: "info", code: "transport.connected", provider: "vapi", message: "call started" });
         setStatus("connected");
         eventsRef.current.onStatus("connected");
       });
@@ -185,6 +206,10 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
       client.on("speech-end", () => setIsSpeaking(false));
       client.on("error", (payload?: unknown) => {
         const message = str((payload as { message?: string })?.message) ?? "Vapi reported an error.";
+        // No `errorType`/`code` to lift out: unlike ElevenLabs, this SDK hands over a message and
+        // nothing else. That absence IS the finding — a report that shows a bare `transport.error`
+        // on this provider is the reason to go and read the Vapi console.
+        emit({ level: "error", code: "transport.error", provider: "vapi", message });
         eventsRef.current.onError(message);
       });
       client.on("message", (raw?: unknown) => {
@@ -225,6 +250,13 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
       setStatus("disconnected");
       if (endedRef.current) return;
       endedRef.current = true;
+      emit({
+        level: reason === "error" ? "error" : "info",
+        code: "transport.disconnect",
+        provider: "vapi",
+        message: error ?? `call ended (${reason})`,
+        data: { reason, errored: Boolean(error) },
+      });
       if (error) eventsRef.current.onError(error);
       eventsRef.current.onStatus("disconnected");
       eventsRef.current.onEnd(reason);
@@ -272,13 +304,59 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
           items: request.items,
           ...(request.version ? { version: request.version } : {}),
         };
-        const res = await apiFetch<unknown>(API_V2_ROUTES.vapiToken, tokenRef.current, {
-          method: "POST",
-          body: JSON.stringify(body),
+        // The preamble — see the ElevenLabs adapter for why every provider emits one before it can
+        // fail.
+        emit({
+          level: "info",
+          code: "transport.mint",
+          provider: "vapi",
+          message: "minting a Vapi credential",
+          data: {
+            route: API_V2_ROUTES.vapiToken,
+            version: request.version,
+            items: request.items.length,
+            ...CAPABILITIES,
+          },
         });
+        let res: unknown;
+        try {
+          res = await apiFetch<unknown>(API_V2_ROUTES.vapiToken, tokenRef.current, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+        } catch (e) {
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "vapi",
+            message: e instanceof Error ? e.message : String(e),
+            data: { route: API_V2_ROUTES.vapiToken },
+          });
+          throw e;
+        }
         if (!isVapiTokenResponse(res)) {
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "vapi",
+            message: "the token route answered with an unusable shape",
+            data: { route: API_V2_ROUTES.vapiToken },
+          });
           throw new Error("The server did not return a usable Vapi credential.");
         }
+        // The assistant id, unlike the other two providers' agent ids, DOES reach the client — and
+        // it is the join key into the Vapi console, so it is worth the line.
+        emit({
+          level: "info",
+          code: "transport.connect",
+          provider: "vapi",
+          message: "credential minted, starting the call",
+          data: {
+            conversationId: res.conversationId,
+            version: res.version,
+            assistantId: res.assistantId,
+          },
+        });
 
         // The seam — see `TutorTransportControls.start`. Nothing below may run before it: a turn can
         // arrive on the first frame after the connect and needs a row key to file under.

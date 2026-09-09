@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/api";
 import { applyVoiceLessonCategory, ensureStarted, release } from "@/lib/audio-session";
 import { useAccessToken } from "@/lib/auth";
+import { emit } from "@/lib/diagnostics";
 
 /**
  * The OpenAI Realtime transport, over WebRTC.
@@ -264,18 +265,26 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       setStatus("disconnected");
       setIsSpeaking(false);
       setIsMuted(false);
+      emit({
+        level: reason === "error" ? "error" : "info",
+        code: "transport.disconnect",
+        provider: "openai",
+        message: `torn down (${reason})`,
+        data: { reason },
+      });
       eventsRef.current.onStatus("disconnected");
       eventsRef.current.onEnd(reason);
     },
     handle(event: ServerEvent) {
       const type = event.type ?? "";
-      const emit = eventsRef.current;
+      // Named `session` since 2026-09-09 — `emit` is now the diagnostics bus, imported above.
+      const session = eventsRef.current;
 
       switch (type) {
         // ── the transcript, both halves ──────────────────────────────────────────────────────
         case "conversation.item.input_audio_transcription.completed": {
           const text = str(event.transcript);
-          if (text) emit.onTurn({ role: "user", text });
+          if (text) session.onTurn({ role: "user", text });
           return;
         }
         case "response.output_audio_transcript.delta": {
@@ -288,7 +297,7 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         }
         case "response.output_audio_transcript.done": {
           const text = str(event.transcript);
-          if (text) emit.onTurn({ role: "agent", text });
+          if (text) session.onTurn({ role: "agent", text });
           return;
         }
 
@@ -311,7 +320,7 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           // a turn the learner did partly hear rather than correct it.
           if (!generated || !retained || retained === generated) return;
           generatedRef.current.set(id, retained);
-          emit.onTurnCorrected(generated, retained);
+          session.onTurnCorrected(generated, retained);
           return;
         }
 
@@ -327,7 +336,16 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         case "response.done": {
           const response = event.response as { usage?: unknown } | undefined;
           const usage = toUsage(response?.usage);
-          if (usage) emit.onUsage(usage);
+          if (usage) {
+            emit({
+              level: "debug",
+              code: "transport.usage",
+              provider: "openai",
+              message: "turn usage",
+              data: { ...usage },
+            });
+            session.onUsage(usage);
+          }
           return;
         }
 
@@ -335,10 +353,19 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           const detail = event.error as { message?: unknown; code?: unknown } | undefined;
           const message = str(detail?.message) ?? "The tutor service reported an error.";
           const code = str(detail?.code);
+          // The structured half, beside the sentence — the same split the ElevenLabs adapter makes,
+          // for the same reason: `insufficient_quota` is groupable, the sentence around it is not.
+          emit({
+            level: "error",
+            code: "transport.error",
+            provider: "openai",
+            message,
+            data: { code },
+          });
           // The OpenAI half of what `tutorErrorMessage` does for ElevenLabs: this provider's own
           // vocabulary, worded here, because a shared branch would be right for one and misleading
           // for the other.
-          emit.onError(
+          session.onError(
             code === "insufficient_quota"
               ? `${message} — the tutor account is out of OpenAI credit. Lessons will work again once it is topped up; nothing on this phone needs fixing.`
               : `${message}${code ? ` (${code})` : ""}`,
@@ -368,11 +395,44 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           items: request.items,
           ...(request.version ? { version: request.version } : {}),
         };
-        const res = await apiFetch<unknown>(API_V2_ROUTES.realtimeToken, tokenRef.current, {
-          method: "POST",
-          body: JSON.stringify(body),
+        // The preamble — see the ElevenLabs adapter for why every provider emits one before it can
+        // fail. `capabilities` is deliberately the PRE-mint set here: this provider settles them
+        // from the version the route returns, so the pair of events is also the record of that.
+        emit({
+          level: "info",
+          code: "transport.mint",
+          provider: "openai",
+          message: "minting an ephemeral realtime key",
+          data: {
+            route: API_V2_ROUTES.realtimeToken,
+            version: request.version,
+            items: request.items.length,
+          },
         });
+        let res: unknown;
+        try {
+          res = await apiFetch<unknown>(API_V2_ROUTES.realtimeToken, tokenRef.current, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+        } catch (e) {
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "openai",
+            message: e instanceof Error ? e.message : String(e),
+            data: { route: API_V2_ROUTES.realtimeToken },
+          });
+          throw e;
+        }
         if (!isRealtimeTokenResponse(res)) {
+          emit({
+            level: "error",
+            code: "transport.mint_failed",
+            provider: "openai",
+            message: "the token route answered with an unusable shape",
+            data: { route: API_V2_ROUTES.realtimeToken },
+          });
           throw new Error("The server did not return a usable realtime credential.");
         }
         // Settled before anything can read it: the pause reads `capabilities` from inside `hold()`,
@@ -380,6 +440,20 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
         audioInputRef.current = readAudioInput((res as { audioInput?: unknown }).audioInput);
         idleArmedRef.current = true;
         capsRef.current = capsFor(audioInputRef.current);
+        emit({
+          level: "info",
+          code: "transport.connect",
+          provider: "openai",
+          message: "key minted, exchanging SDP",
+          data: {
+            conversationId: res.conversationId,
+            version: res.version,
+            // The SETTLED set, which on this provider is a property of the version rather than of
+            // the stack — the pause branch reads these, so a wrong one is a tutor saying a
+            // plausible wrong thing on the way back from a hold.
+            ...capsRef.current,
+          },
+        });
 
         // The seam — see `TutorTransportControls.start`. Nothing below may run before it, because a
         // turn can arrive on the first frame after the connect and needs a row key to file under.
@@ -412,6 +486,16 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
 
           pc.addEventListener("connectionstatechange", () => {
             const next = toStatus(pc.connectionState);
+            // The RAW state as well as the mapped one: `toStatus` folds `closed`, `disconnected`
+            // and everything unrecognised into "disconnected", and which of them it actually was is
+            // the difference between a network drop and a teardown.
+            emit({
+              level: "debug",
+              code: "transport.connect",
+              provider: "openai",
+              message: `peer connection ${pc.connectionState}`,
+              data: { raw: pc.connectionState, status: next },
+            });
             setStatus(next);
             eventsRef.current.onStatus(next);
             if (next !== "error" && next !== "disconnected") return;
@@ -457,6 +541,16 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
             body: pc.localDescription?.sdp ?? offer.sdp,
           });
           if (!sdp.ok) {
+            // This exchange does NOT go through `apiFetch` — it is a direct call to OpenAI with the
+            // ephemeral key — so it is the one HTTP failure in the app that nothing else records.
+            // The status only; the SDP body never enters the bus (§6).
+            emit({
+              level: "error",
+              code: "transport.error",
+              provider: "openai",
+              message: `SDP exchange refused (HTTP ${sdp.status})`,
+              data: { status: sdp.status },
+            });
             throw new Error(`The tutor service refused the connection (HTTP ${sdp.status}).`);
           }
           // ADVISORY ONLY, exactly like the ElevenLabs room id: compared against the authoritative
@@ -464,6 +558,13 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           // would need (§9), which is why it is surfaced rather than dropped.
           const callId = sdp.headers.get("location")?.split("/").pop();
           if (callId) eventsRef.current.onTransportId(callId);
+          emit({
+            level: "info",
+            code: "transport.connected",
+            provider: "openai",
+            message: "SDP exchanged",
+            data: { transportId: callId ?? null },
+          });
 
           await pc.setRemoteDescription({ type: "answer", sdp: await sdp.text() });
         } catch (e) {

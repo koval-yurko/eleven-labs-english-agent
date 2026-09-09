@@ -28,6 +28,8 @@
     "lexicon:load:plan": "pnpm --filter web lexicon:load:plan",
     "level:lexicon": "pnpm --filter web level:lexicon",
     "level:lexicon:plan": "pnpm --filter web level:lexicon:plan",
+    "report": "pnpm --filter web report",
+    "verify:reports": "pnpm --filter web verify:reports",
     "mobile": "pnpm --filter mobile start"
   },
   "devDependencies": {

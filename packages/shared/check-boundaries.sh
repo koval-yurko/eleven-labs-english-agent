@@ -21,6 +21,7 @@ echo "layering zones:"
 probe "words/ may not name tutor/"        DENY  src/words/__p.ts      ../tutor/session
 probe "words/ may not name offline/"      DENY  src/words/__p.ts      ../offline/ops
 probe "tutor/ may not name offline/"      DENY  src/tutor/__p.ts      ../offline/ops
+probe "tutor/ may not name debug/"        DENY  src/tutor/__p.ts      ../debug/report
 probe "tutor/ may not name api"           DENY  src/tutor/__p.ts      ../api
 probe "offline/ may not name api"         DENY  src/offline/__p.ts    ../api
 probe "nothing shipped names testing/"    DENY  src/__p.ts            ./testing/fake-transport
@@ -50,6 +51,7 @@ probe "tutor/ still cannot reach an app"    DENY src/tutor/__p.ts     ../../lib/
 echo "what must remain legal:"
 probe "tutor/ may name words/"            ALLOW src/tutor/__p.ts      ../words/types
 probe "offline/ may name tutor/"          ALLOW src/offline/__p.ts    ../tutor/session
+probe "debug/ may name tutor/"            ALLOW src/debug/__p.ts      ../tutor/transport
 probe "testing/ may name what it fakes"   ALLOW src/testing/__p.ts    ../tutor/transport
 probe "api.ts may name any domain"        ALLOW src/__p.ts            ./tutor/transport
 

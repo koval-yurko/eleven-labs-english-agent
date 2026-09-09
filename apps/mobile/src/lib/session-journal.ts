@@ -2,6 +2,8 @@ import Storage from "expo-sqlite/kv-store";
 import type { SessionJournalEntry } from "@tutor/shared/offline/mirror";
 import type { TranscriptLine } from "@tutor/shared/tutor/session";
 
+import { emit } from "@/lib/diagnostics";
+
 /**
  * Crash insurance for a live tutor session: every transcript line is written to the device as it
  * arrives, and cleared once the server has the conversation.
@@ -35,6 +37,12 @@ const key = (lessonId: string) => `journal:${lessonId}`;
  * hot path of a running conversation (once per transcript line), and storage failing is not a reason
  * for the lesson to stop. The journal is insurance — insurance that breaks the thing it insures is
  * worse than no insurance.
+ *
+ * **The swallowing did not change; each catch now writes one line first.** That is the whole of
+ * what `lib/diagnostics.ts` does to this file. A device whose SQLite is wedged used to be
+ * indistinguishable from one whose journal was simply never needed — both produce exactly nothing —
+ * and "the recovery card never appears" is not a symptom anyone can act on. `emit` cannot throw, so
+ * the guarantee above is intact.
  */
 export async function writeJournal(
   entry: Omit<SessionJournalEntry, "updatedAt">,
@@ -43,8 +51,14 @@ export async function writeJournal(
   try {
     const full: SessionJournalEntry = { ...entry, updatedAt: now.toISOString() };
     await Storage.setItem(key(entry.lessonId), JSON.stringify(full));
-  } catch {
+  } catch (e) {
     // Best effort — never break a running conversation.
+    emit({
+      level: "error",
+      code: "journal.write_failed",
+      message: e instanceof Error ? e.message : String(e),
+      data: { lessonId: entry.lessonId, lines: entry.lines.length },
+    });
   }
 }
 
@@ -59,7 +73,15 @@ export async function readJournal(lessonId: string): Promise<SessionJournalEntry
     const entry = parsed as Partial<SessionJournalEntry>;
     if (typeof entry.lessonId !== "string" || !Array.isArray(entry.lines)) return null;
     return entry as SessionJournalEntry;
-  } catch {
+  } catch (e) {
+    // A journal that cannot be READ is the failure that costs a transcript: the lines are on the
+    // device and unreachable, and the screen shows no recovery card to say so.
+    emit({
+      level: "error",
+      code: "journal.restore",
+      message: `could not read the journal: ${e instanceof Error ? e.message : String(e)}`,
+      data: { lessonId },
+    });
     return null;
   }
 }
@@ -67,8 +89,16 @@ export async function readJournal(lessonId: string): Promise<SessionJournalEntry
 export async function clearJournal(lessonId: string): Promise<void> {
   try {
     await Storage.removeItem(key(lessonId));
-  } catch {
+  } catch (e) {
     // Ignored: a stale journal is offered as "continue where you left off", never replayed blindly.
+    // Worth a line anyway — a clear that keeps failing is a lesson that keeps offering to resume a
+    // conversation it already saved.
+    emit({
+      level: "warn",
+      code: "journal.clear_failed",
+      message: e instanceof Error ? e.message : String(e),
+      data: { lessonId },
+    });
   }
 }
 
@@ -109,8 +139,14 @@ export async function writePauseMarker(
   try {
     const full: PausedSessionEntry = { ...entry, pausedAt: now.toISOString() };
     await Storage.setItem(pauseKey(entry.lessonId), JSON.stringify(full));
-  } catch {
+  } catch (e) {
     // The pause still works in memory for as long as the screen lives.
+    emit({
+      level: "warn",
+      code: "pausemarker.write",
+      message: `could not park the pause: ${e instanceof Error ? e.message : String(e)}`,
+      data: { lessonId: entry.lessonId, lines: entry.lines.length },
+    });
   }
 }
 
@@ -124,7 +160,13 @@ export async function readPauseMarker(lessonId: string): Promise<PausedSessionEn
     if (typeof entry.lessonId !== "string" || !Array.isArray(entry.lines)) return null;
     if (typeof entry.pausedAt !== "string") return null;
     return entry as PausedSessionEntry;
-  } catch {
+  } catch (e) {
+    emit({
+      level: "warn",
+      code: "pausemarker.restore",
+      message: `could not read the pause marker: ${e instanceof Error ? e.message : String(e)}`,
+      data: { lessonId },
+    });
     return null;
   }
 }

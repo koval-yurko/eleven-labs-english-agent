@@ -20,3 +20,18 @@ const FORMAT: Intl.DateTimeFormatOptions = { timeZone: "UTC" };
 export function formatDate(value: string | number | Date): string {
   return new Date(value).toLocaleDateString("en-US", FORMAT);
 }
+
+/**
+ * The same, with the clock — for the operator surfaces, where the *minute* is the join key.
+ *
+ * `formatDate` is for "added" / "last practiced" audit dates, where a day is the useful unit and
+ * UTC-vs-local is invisible. A debug report is lined up against a server log and against the moment
+ * a phone was locked, and both of those are timestamps. Same pinned timezone and locale, same
+ * reason: the string has to be a pure function of the value.
+ *
+ * The `UTC` suffix is not decoration — a bare `14:02` that is silently UTC is the kind of thing
+ * someone spends twenty minutes disagreeing with their phone about.
+ */
+export function formatDateTime(value: string | number | Date): string {
+  return `${new Date(value).toLocaleString("en-US", { ...FORMAT, hour12: false })} UTC`;
+}

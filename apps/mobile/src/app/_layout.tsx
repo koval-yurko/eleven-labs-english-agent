@@ -11,10 +11,23 @@ import { Auth0Provider } from "react-native-auth0";
 
 import { env } from "@/env";
 import { AuthGate, AuthProvider } from "@/lib/auth";
+import { installDiagnosticsCapture } from "@/lib/diagnostics-capture";
+import { useDebugSpoolFlush } from "@/lib/diagnostics-flush";
 import { reconcileAtLaunch } from "@/lib/lesson-card";
 import { TutorSessionProvider } from "@/lib/tutor-session";
 import { useScheme, useTheme } from "@/theme";
 import { NavProgressBar, SessionBar } from "@/ui";
+
+/**
+ * At MODULE SCOPE, before the first render.
+ *
+ * The console patch and the global error handler have to be in place before anything else can warn
+ * or throw, and an effect is too late — the SDK warnings that matter most (LiveKit dropping a
+ * message sent before `RoomEvent.Connected`) fire during the first connect, and a crash during the
+ * first render would be the one this misses. `installDiagnosticsCapture` is idempotent, so Fast
+ * Refresh re-running this file costs nothing.
+ */
+installDiagnosticsCapture();
 
 /**
  * The root layout: providers, the status bar, one stack, and the progress bar above it.
@@ -107,6 +120,10 @@ export default function RootLayout() {
           or a pop cannot touch it). See `lib/tutor-session.tsx`.
         */}
           <TutorSessionProvider>
+            {/* Sends whatever the spool is holding, at launch and on every foreground. Inside
+              `AuthProvider` because it needs the token source, and rendering nothing — it is a
+              behaviour, not a surface. See `lib/diagnostics-flush.ts`. */}
+            <DebugSpoolFlush />
             {/* The clock and battery. `style` names the CONTENT colour, so it is the inverse of the
               background: dark glyphs on a light screen. Without this the status bar keeps its
               light glyphs and vanishes into a white page. */}
@@ -135,4 +152,17 @@ export default function RootLayout() {
       </AuthProvider>
     </Auth0Provider>
   );
+}
+
+/**
+ * The spool drain, as a component that renders nothing.
+ *
+ * `useDebugSpoolFlush` needs `useAccessToken()`, which only resolves under `AuthProvider` — and
+ * `RootLayout` is what MOUNTS that provider, so it cannot call the hook itself. One empty component
+ * placed inside the tree is the whole of the workaround, and it is also the honest shape: this is a
+ * behaviour with a lifetime, not a surface.
+ */
+function DebugSpoolFlush() {
+  useDebugSpoolFlush();
+  return null;
 }
