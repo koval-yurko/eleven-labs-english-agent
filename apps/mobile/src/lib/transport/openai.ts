@@ -553,11 +553,13 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
             });
             throw new Error(`The tutor service refused the connection (HTTP ${sdp.status}).`);
           }
-          // ADVISORY ONLY, exactly like the ElevenLabs room id: compared against the authoritative
-          // conversation id, never stored. It is also the handle a server-side sideband connection
-          // would need (§9), which is why it is surfaced rather than dropped.
+          // ADVISORY ONLY, and NOT the ElevenLabs case: OpenAI has no idea what our conversation
+          // id is — the token route minted that uuid itself — so this `rtc_...` handle lives in the
+          // provider's namespace and can never be compared against the row key. It is reported as a
+          // `"provider-handle"` for exactly that reason. It is the handle a server-side sideband
+          // connection would need (§9), which is why it is surfaced rather than dropped.
           const callId = sdp.headers.get("location")?.split("/").pop();
-          if (callId) eventsRef.current.onTransportId(callId);
+          if (callId) eventsRef.current.onTransportId(callId, "provider-handle");
           emit({
             level: "info",
             code: "transport.connected",

@@ -75,7 +75,10 @@ All of them, plus one legacy string, live in `HIDDEN_KICKOFF_MESSAGES`.
 - **Filter transcripts on `HIDDEN_KICKOFF_MESSAGES`, never one constant.** The webhook once filtered
   only `KICKOFF_MESSAGE` and leaked `RESUME_MESSAGE` into history as a learner turn.
 - **`conversationId` comes from `onIdentified` and is authoritative.** `onTransportId` is a tripwire
-  and must never be stored — four writers converge on that one row.
+  and must never be stored — four writers converge on that one row. It only *is* a tripwire when the
+  adapter reports `"row-key"` (ElevenLabs, which mints the row key itself); OpenAI reports a
+  `"provider-handle"` in its own namespace, and comparing that against our minted uuid raised a
+  mismatch banner on every single OpenAI lesson until the kind was added.
 - **`UNHEARD_RESUME_MESSAGE` is chosen by evidence, not timing** — any `role === "agent"` line after
   `snapshot.atLine` means a whole turn played to nobody.
 - **`TutorTransportControls` identity must be stable for the transport's life** — screens put its

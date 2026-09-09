@@ -48,13 +48,35 @@ export interface TutorSessionDescriptor {
   version: string;
 }
 
+/**
+ * What the id a transport reports through `onTransportId` actually IS.
+ *
+ * The two are not comparable, and conflating them is a bug this repo has already paid for: the
+ * session's mismatch tripwire fired on every OpenAI lesson, because it compared a provider handle
+ * against a row key we minted ourselves.
+ */
+export type TutorTransportIdKind =
+  /**
+   * The provider MINTED the row key, and this is it. `onIdentified` reported the same id, so the
+   * two must agree for the life of the session — ElevenLabs derives it from the LiveKit room name
+   * and falls back to `room_<timestamp>` when that name is empty. A divergence is the tripwire
+   * firing, and the day it fires is the day it matters that both ids were written down.
+   */
+  | "row-key"
+  /**
+   * The provider's OWN handle for the call, in the provider's own namespace — OpenAI's
+   * `rtc_...` call id, which has nothing to do with the uuid the token route minted. Evidence for
+   * the operator page and the handle a server-side sideband would need; never a comparison.
+   */
+  | "provider-handle";
+
 export interface TutorTransportEvents {
   onStatus(status: TutorStatus): void;
   onTurn(line: TranscriptLine): void;
   onTurnCorrected(previous: string, corrected: string): void;
   onEnd(reason: TutorEndReason): void;
   onError(message: string): void;
-  onTransportId(id: string): void;
+  onTransportId(id: string, kind: TutorTransportIdKind): void;
   onUsage(usage: TutorUsage): void;
 }
 

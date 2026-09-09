@@ -84,7 +84,9 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
         message: "LiveKit room connected",
         data: { transportId: conversationId },
       });
-      eventsRef.current.onTransportId(conversationId);
+      // ElevenLabs mints the row key: this is the same id `onIdentified` reported, which is what
+      // makes the comparison in the session meaningful here and nowhere else.
+      eventsRef.current.onTransportId(conversationId, "row-key");
     },
     onMessage: ({ message, role }) => eventsRef.current.onTurn({ role, text: message }),
     /**

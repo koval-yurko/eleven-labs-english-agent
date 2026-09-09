@@ -473,12 +473,19 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * kickoff sent into its own conversation.
    */
   const events: TutorTransportEvents = {
-    onTransportId: (transportId) => {
+    onTransportId: (transportId, kind) => {
       if (!ownsRef.current) return;
       // ADVISORY ONLY — compared, never written to the ref. ElevenLabs derives this from the LiveKit
       // room name and falls back to `room_<timestamp>` when that name is empty, which no other
       // writer would ever produce. S3 measured them agreeing; this is the tripwire for the day they
       // stop.
+      //
+      // Only a `"row-key"` is comparable. A `"provider-handle"` is the provider's own id for the
+      // call — OpenAI's `rtc_...` — and our row key is a uuid the token route minted, so the two
+      // disagree by construction. Comparing them anyway is what made every OpenAI lesson raise a
+      // banner and an `error`-level event for a session that was working perfectly (reports
+      // `216f724b`, `ef0305f7`).
+      if (kind !== "row-key") return;
       const authoritative = conversationIdRef.current;
       if (authoritative && transportId !== authoritative) {
         // The tripwire finally leaves a trace. Until now this only ever set a string on a screen
@@ -619,7 +626,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const eventsFor = (forProvider: TutorProviderId): TutorTransportEvents => {
     const mine = () => providerRef.current === forProvider;
     return {
-      onTransportId: (id) => mine() && events.onTransportId(id),
+      onTransportId: (id, kind) => mine() && events.onTransportId(id, kind),
       onTurn: (line) => mine() && events.onTurn(line),
       onTurnCorrected: (previous, corrected) => mine() && events.onTurnCorrected(previous, corrected),
       onStatus: (next) => mine() && events.onStatus(next),

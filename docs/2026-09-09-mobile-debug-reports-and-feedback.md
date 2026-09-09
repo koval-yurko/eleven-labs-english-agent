@@ -297,7 +297,7 @@ is where the state machine is:
 | `start` takeover branch | `session.start` with `{ lessonId, version, provider, takeover: true }` |
 | `onIdentified` seam | `session.claim` with `{ conversationId, version }` |
 | `claimSession(false)` on a failed start | `session.release` with `{ reason: "start_threw" }` |
-| `onTransportId` mismatch (`:431`) | `session.id_mismatch` — today it only sets a string on screen |
+| `onTransportId` mismatch, `"row-key"` only (`:431`) | `session.id_mismatch` — today it only sets a string on screen |
 | kickoff effect | `session.kickoff` with `{ resumed: boolean, cause }` |
 | `onEnd` | `session.end` with `{ reason, lines, stillFocused }` |
 | `hold`/`release` | `pause.hold_plan` with the **plan object** from `planHold`, `{ silenced }` from `applyHold` |
