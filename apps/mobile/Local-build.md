@@ -1,13 +1,17 @@
 # Local iOS builds — the `preview` profile on your own Mac
 
-`pnpm build:preview` runs on EAS servers. The same build runs on this Mac with one extra flag:
+`pnpm build:preview` runs on EAS servers. The same build runs on this Mac with two extra flags:
 
 ```bash
 cd apps/mobile
-npx eas-cli build --platform ios --profile preview --local     # = pnpm build:preview:local
+npx eas-cli build --platform ios --profile preview --local --non-interactive   # = pnpm build:preview:local
 ```
 
-Verified 2026-08-16: **~10 minutes cold, 22 MB signed `.ipa`.**
+Verified 2026-08-16: **~10 minutes cold, 22 MB signed `.ipa`.** Re-verified 2026-08-28 with
+`--non-interactive`: same artifact, and **no prompts at all** — the Apple login and the two
+"reuse the profile?" questions live in branches eas-cli skips when it cannot ask. The one thing that
+goes quiet with the flag is device drift; see §"After registering a device" below and
+`docs/2026-08-28-one-command-local-ios-build.md` for the full trace.
 
 The flag only moves the toolchain requirement onto your machine. It does **not** make the build
 offline — EAS still serves the signing credentials, the remote build number and the `preview`
@@ -83,16 +87,29 @@ npx eas-cli whoami
 ```
 
 The `preview` profile is `"distribution": "internal"` — an ad hoc profile with device UDIDs baked
-in. The cert and profile already exist on EAS and are reused as-is. A handset that isn't in the
-profile needs `pnpm device:register`, then a rebuild.
+in. The cert and profile already exist on EAS and are reused as-is.
+
+### After registering a device
+
+`--non-interactive` never compares the profile's UDIDs against the registered ones — that check only
+exists on the path that would prompt. So `pnpm device:register` alone leaves you building an `.ipa`
+the new handset silently refuses to install. Rebuild the profile first:
+
+```bash
+pnpm --filter mobile device:register
+pnpm --filter mobile build:preview:local:refresh   # --refresh-ad-hoc-provisioning-profile
+```
+
+The refresh needs App Store Connect access — still no interactive login, but it wants an ASC API key
+from `EXPO_ASC_API_KEY_PATH` / `EXPO_ASC_KEY_ID` / `EXPO_ASC_ISSUER_ID`, or one configured on EAS.
+Without either, drop `--non-interactive` for that one run and answer the prompts by hand.
 
 ---
 
 ## Running it
 
 ```bash
-cd apps/mobile
-npx eas-cli build --platform ios --profile preview --local
+pnpm --filter mobile build:preview:local
 ```
 
 The artifact lands as `apps/mobile/build-<timestamp>.ipa` (gitignored). Install it on a provisioned
