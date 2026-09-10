@@ -33,7 +33,9 @@ export interface PromptVersion {
    *     platform has no "disabled";
    *   - **`turnTimeoutSeconds` is IGNORED and has no equivalent at all** — Vapi's only silence timer
    *     ends the call rather than re-engaging the learner. A Vapi version that wants podcast pacing
-   *     needs a client-side timer, not a field here.
+   *     needs a client-side timer, not a field here;
+   *   - `mcpTools` carries across as of 2026-09-10, as an inline `model.tools` entry — see the
+   *     field's own note below, and ../vapi-mcp.ts.
    * See ../vapi-assistant.ts, which is the one place that mapping lives.
    *
    * The knock-on effects, all of which the compiler or `sync:agents` will hold you to:
@@ -142,11 +144,11 @@ export interface PromptVersion {
    * Tools this version's tutor may call on OUR MCP server (`/api/mcp`), by name. Absent or empty —
    * which is every version but two — means the tutor is given no MCP server at all.
    *
-   * **OPENAI AND ELEVENLABS VERSIONS.** Vapi still IGNORES it rather than approximating it: that
-   * platform has its own tool vocabulary which `vapiAssistantBody` deliberately does not speak yet.
+   * **ALL THREE PROVIDERS READ IT** — Vapi joined on 2026-09-10 (it used to be listed here as
+   * ignoring the field, which was true only while `vapiAssistantBody` spoke no tool vocabulary).
    *
-   * The two providers that read it do so through very different machinery, and the difference is
-   * worth knowing before setting the field:
+   * They do so through very different machinery, and the difference is worth knowing before setting
+   * the field:
    *
    *   - **OpenAI** — `openAiMcpTools` (../openai-mcp.ts) turns this list into `allowed_tools` on a
    *     `session.tools` entry, minted per request by `/api/v2/words-agent/openai-token`. The grant
@@ -160,6 +162,13 @@ export interface PromptVersion {
    *     discipline — see §6 of docs/2026-08-27-mcp-static-token-auth.md, which was written before
    *     anyone read the API reference. It has full CRUD; the correction is
    *     docs/2026-08-28-elevenlabs-mcp-in-code.md.)
+   *   - **Vapi** — `vapiMcpTools` (../vapi-mcp.ts) turns it into an INLINE `model.tools` entry of
+   *     `type: "mcp"` on the assistant `pnpm sync:agents` provisions. No second remote object, no
+   *     lockfile key, and — like ElevenLabs — the list itself is never sent: Vapi has no allowlist
+   *     field at all, so it fetches every tool `/api/mcp` advertises when the call starts. On this
+   *     provider a non-empty list is a SWITCH with documentation attached. It is also the only
+   *     provider that stores `MCP_TOKEN` itself, in the assistant's request headers, because it has
+   *     no secret store to point at. See docs/2026-09-10-vapi-mcp-on-the-third-provider.md.
    *
    * ## Why the version names the TOOLS and not the server
    *
@@ -177,10 +186,11 @@ export interface PromptVersion {
    * be narrowed, and it becomes load-bearing the day a second tool is registered — a wildcard would
    * hand that tool to every existing version retroactively.
    *
-   * A name that matches no registered tool is NOT an error anywhere, and the two providers fail
+   * A name that matches no registered tool is NOT an error anywhere, and the three providers fail
    * differently: OpenAI filters the server's advertised list by these names, so a typo silently
    * yields a tutor with no tools; ElevenLabs never sees the names at all, so a typo yields a
-   * registration under a wrong-looking name whose agent still reaches every tool on the server.
+   * registration under a wrong-looking name whose agent still reaches every tool on the server; Vapi
+   * never sees them either and has nothing to name, so a typo is invisible and changes nothing.
    * Copy the names from `lib/mcp/add-words.ts` — or better, import them from
    * ./save-to-collection.ts, where the grant sits beside the prompt clause that describes it.
    *

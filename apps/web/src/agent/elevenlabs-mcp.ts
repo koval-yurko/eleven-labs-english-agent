@@ -37,9 +37,9 @@
  * ## The connection runs ElevenLabs → us
  *
  * Same as OpenAI, with the same consequence: `localhost` cannot work, and it fails by never
- * arriving. See `unreachableHost` in ./mcp-url.ts, which both mappers share for exactly that reason.
+ * arriving. See `unreachableHost` in ./mcp-url.ts, which every mapper shares for exactly that reason.
  */
-import { unreachableHost } from "./mcp-url";
+import { resolveProvisionedMcpUrl, type McpUrlOptions, type ProvisionedVendor } from "./mcp-url";
 import type { PromptVersion } from "./prompts";
 
 export const EL_MCP_API = "https://api.elevenlabs.io/v1/convai/mcp-servers";
@@ -47,19 +47,15 @@ export const EL_SECRETS_API = "https://api.elevenlabs.io/v1/convai/secrets";
 export const EL_SETTINGS_API = "https://api.elevenlabs.io/v1/convai/settings";
 
 /**
- * Where our MCP server lives, as ELEVENLABS will dial it.
+ * Where our MCP server lives, as ELEVENLABS will dial it — and, since 2026-09-10, as Vapi does too.
  *
- * A CONSTANT, and that is a deliberate departure from ./openai-mcp.ts, which reads `MCP_PUBLIC_URL`
- * and refuses to run without it. The two providers have different blast radii for the same mistake:
- * OpenAI's URL is baked into one minted session and affects one lesson, while this one is written
- * into a workspace resource that every environment shares. `sync:agents` run on a laptop with a
- * tunnel in `MCP_PUBLIC_URL` would therefore repoint the LIVE agents at that laptop — and the tunnel
- * then dies. A constant makes the default outcome correct no matter whose machine runs the sync.
- *
- * The override still exists (`MCP_PUBLIC_URL` + `--allow-dev-mcp-url`), because someone will one day
- * need a tunnel here too. It just has to be asked for out loud.
+ * The constant and the guard that protects it moved to ./mcp-url.ts when `vapi-mcp.ts` became the
+ * second mapper writing a URL into a provisioned object shared with production. Re-exported here
+ * because "the address ElevenLabs dials" is still a fact about this provider, and because the
+ * reasoning for it being a constant rather than an environment read is written at its new home.
  */
-export const DEPLOYED_MCP_URL = "https://eleven-labs-english-agent.vercel.app/api/mcp";
+export { DEPLOYED_MCP_URL } from "./mcp-url";
+export type { McpUrlOptions } from "./mcp-url";
 
 /**
  * The workspace secret holding the COMPLETE `Authorization` header value — `Bearer <MCP_TOKEN>`,
@@ -82,6 +78,9 @@ export const MCP_SECRET_NAME = "MCP_AUTHORIZATION_HEADER";
  * server's own would make a trace name a server nothing in this repo is called.
  */
 const SERVER_LABEL = "tutor-collection";
+
+/** How ./mcp-url.ts's shared URL guard addresses this provider's reader. */
+const EL_VENDOR: ProvisionedVendor = { vendor: "ElevenLabs", object: "registration" };
 
 /**
  * The default is `SSE`. `app/api/mcp/route.ts` is `mcp-handler`'s Streamable HTTP handler — one
@@ -159,13 +158,6 @@ export type McpRegistrationsResult =
   | { ok: true; registrations: ElevenLabsMcpRegistration[] }
   | { ok: false; reason: string };
 
-export interface McpUrlOptions {
-  /** `MCP_PUBLIC_URL`, when set. Ignored unless `allowOverride`. */
-  overrideUrl?: string | undefined;
-  /** `--allow-dev-mcp-url` — the flag that makes an override deliberate. */
-  allowOverride?: boolean;
-}
-
 /** The lockfile key / registration identity for a grant set. Sorted, so order in a module is free. */
 export function mcpGrantKey(tools: string[]): string {
   return [...tools].sort().join("+");
@@ -187,7 +179,7 @@ export function elevenLabsMcpRegistrations(
   // version grants anything runs on a workspace that never configured MCP at all.
   if (granting.length === 0) return { ok: true, registrations: [] };
 
-  const url = resolveUrl(opts);
+  const url = resolveProvisionedMcpUrl(EL_VENDOR, opts);
   if (!url.ok) return url;
 
   const byKey = new Map<string, ElevenLabsMcpRegistration>();
@@ -206,48 +198,6 @@ export function elevenLabsMcpRegistrations(
     });
   }
   return { ok: true, registrations: [...byKey.values()] };
-}
-
-function resolveUrl(opts: McpUrlOptions): { ok: true; value: string } | { ok: false; reason: string } {
-  const override = opts.overrideUrl?.trim();
-  if (!override || override === DEPLOYED_MCP_URL) return { ok: true, value: DEPLOYED_MCP_URL };
-
-  // The override is real and differs. Refuse it unless it was asked for out loud — see
-  // DEPLOYED_MCP_URL for what applying it would do to production.
-  if (!opts.allowOverride) {
-    return {
-      ok: false,
-      reason:
-        `MCP_PUBLIC_URL is set to ${override}, which differs from the deployed origin this\n` +
-        `  registration normally uses:\n      ${DEPLOYED_MCP_URL}\n` +
-        `  The ElevenLabs workspace is shared with production, so applying this would repoint the\n` +
-        `  LIVE agents' MCP server. Re-run with --allow-dev-mcp-url if that is what you want.`,
-    };
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(override);
-  } catch {
-    return { ok: false, reason: `MCP_PUBLIC_URL is not a valid absolute URL: "${override}".` };
-  }
-  if (unreachableHost(parsed.hostname)) {
-    return {
-      ok: false,
-      reason:
-        `MCP_PUBLIC_URL points at ${parsed.hostname}, which ElevenLabs cannot reach — they dial the ` +
-        `MCP server from their own network, not from this process. Use a tunnel or a deployed origin.`,
-    };
-  }
-  // https is not politeness: the registration carries a credential reference and every tool call
-  // rides this URL. ElevenLabs rejects a non-https MCP url anyway; failing here says why.
-  if (parsed.protocol !== "https:") {
-    return {
-      ok: false,
-      reason: `MCP_PUBLIC_URL must be https for an MCP server. Got "${parsed.protocol}".`,
-    };
-  }
-  return { ok: true, value: parsed.toString() };
 }
 
 /**

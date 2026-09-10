@@ -339,11 +339,15 @@ config is ignored, six OpenAI voices are unavailable (`ash`, `ballad`, `coral`, 
 traditional STT output"* — which matters, because our transcripts are a stored artifact. Tool calling
 is supported unchanged.
 
-**Tools.** If a Vapi version should reach our MCP-style word tools
-(`docs/2026-08-23-mcp-server-add-words.md`), use **server tools**, not client-side ones. Vapi's
-client-side tools are documented as fire-and-forget: *"Client-side tools cannot send a tool 'result'
-back to the model."* Anything whose output the tutor must reason about has to be a server tool
-pointing at our API, which is where the Auth0 session lives anyway.
+**Tools.** ~~If a Vapi version should reach our MCP-style word tools
+(`docs/2026-08-23-mcp-server-add-words.md`), use **server tools**, not client-side ones.~~
+**SUPERSEDED 2026-09-10 — Vapi has a first-class MCP tool type** (`CreateMcpToolDTO`, accepted inline
+in `model.tools`), so none of this is needed: the assistant dials `/api/mcp` itself and no custom
+tool is defined anywhere. What survives the correction is the half that was about direction — Vapi's
+client-side tools are documented as fire-and-forget (*"Client-side tools cannot send a tool 'result'
+back to the model"*), so a tool whose answer the tutor must reason about could never have lived on the
+device. It lives on the vendor's side of the call, which is where the MCP tool puts it.
+See `words-3.1` and docs/2026-09-10-vapi-mcp-on-the-third-provider.md.
 
 ---
 
@@ -474,6 +478,11 @@ record the assistant id in `agents.lock.json` — the same rule, the same lockfi
 - **A Squad.** One tutor, one assistant.
 - **A workflow.** Our lesson is a single prompt, not a branching flow.
 - **A knowledge base.** The word list arrives as a dynamic variable, per lesson.
+- **A tool, of any kind** (added 2026-09-10). The MCP grant that lets the tutor save a word is an
+  inline `model.tools` entry on the assistant `pnpm sync:agents` already provisions — no dashboard
+  tool object, no credential to create, nothing to attach by hand. Contrast ElevenLabs, where a
+  human must create the workspace secret and accept the MCP terms before the sync can run.
+  See docs/2026-09-10-vapi-mcp-on-the-third-provider.md.
 
 ---
 

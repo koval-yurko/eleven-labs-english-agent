@@ -40,6 +40,11 @@
 // one thing a human has to do. See ./elevenlabs-mcp.ts and
 // docs/2026-08-28-elevenlabs-mcp-in-code.md.
 //
+// **Vapi needs none of that phase.** Its MCP grant is a field of the assistant (`model.tools`), so
+// there is no second object, no ordering constraint and no lockfile key — the whole grant rides the
+// same create/patch that carries the prompt. See ./vapi-mcp.ts and
+// docs/2026-09-10-vapi-mcp-on-the-third-provider.md.
+//
 // Usage:
 //   pnpm sync:agents                 apply the plan (prune = retire)
 //   pnpm sync:agents --dry-run       print the plan, change nothing (no credentials needed)
@@ -47,14 +52,17 @@
 //   pnpm sync:agents --prune=none    never remove; just warn about orphans
 //   pnpm sync:agents --force         re-PATCH every version even if the hash is unchanged
 //   pnpm sync:agents --provider=vapi restrict the run to one provider
-//   pnpm sync:agents --allow-dev-mcp-url  point the MCP registration at MCP_PUBLIC_URL instead of
-//                                    the deployed origin. The workspace is SHARED WITH PRODUCTION,
-//                                    so this repoints the live agents — see ./elevenlabs-mcp.ts.
+//   pnpm sync:agents --allow-dev-mcp-url  point the MCP grant at MCP_PUBLIC_URL instead of the
+//                                    deployed origin — BOTH providers. Each account is SHARED WITH
+//                                    PRODUCTION, so this repoints the live agents and assistants.
+//                                    See `resolveProvisionedMcpUrl` in ./mcp-url.ts.
 //
 // Reads ELEVENLABS_API_KEY + ELEVENLABS_TEACHER_VOICE_ID and VAPI_PRIVATE_KEY (plus optional
-// LIVE_STORY_LLM, LIVE_STORY_TTS_MODEL, MCP_PUBLIC_URL) from .env / .env.local — no key ever leaves
-// your machine. MCP_TOKEN is deliberately NOT read: ElevenLabs already holds that credential as a
-// workspace secret, so nothing here has to carry it there.
+// LIVE_STORY_LLM, LIVE_STORY_TTS_MODEL, MCP_PUBLIC_URL) from .env / .env.local. No VENDOR key ever
+// leaves your machine — but MCP_TOKEN does, and only on one path: ElevenLabs already holds that
+// credential as a workspace secret, while Vapi has no secret store, so a Vapi version granting
+// `mcpTools` has the token written into its assistant. See ./vapi-mcp.ts. Without it that provider
+// is SKIPPED rather than patched with a credential-less tool block.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -70,7 +78,7 @@ import {
   type EffectiveAgentConfig,
 } from "./prompts";
 import type { PromptVersion } from "./prompts";
-import { vapiConfig } from "../lib/config";
+import { mcpClientConfig, vapiConfig } from "../lib/config";
 import {
   EL_MCP_API,
   EL_SECRETS_API,
@@ -84,6 +92,7 @@ import {
   type ElevenLabsMcpRegistration,
 } from "./elevenlabs-mcp";
 import { VAPI_API, vapiAssistantBody } from "./vapi-assistant";
+import { vapiMcpConfig, vapiMcpTools } from "./vapi-mcp";
 
 const here = dirname(fileURLToPath(import.meta.url)); // src/agent
 const root = join(here, "..", "..");
@@ -253,6 +262,14 @@ function elevenLabsHash(c: EffectiveAgentConfig): string {
  *
  * Note this makes the hash sensitive to `turnTimeoutSeconds` NOT appearing: that field has no Vapi
  * counterpart, so changing it on a Vapi version correctly produces no update.
+ *
+ * It also means the body's SECRETS are hash inputs — `VAPI_WEBHOOK_SECRET`, and since 2026-09-10 the
+ * MCP `Authorization` header. Both directions of that are deliberate: rotating either value is a
+ * changed body and therefore a PATCH, which is the only way a rotation reaches a provisioned
+ * assistant at all; and the hash is a SHA-256, so the lockfile records that the secret changed
+ * without recording the secret. The cost is that `--dry-run` on a machine missing one of them prints
+ * an update the apply would not need. That errs toward doing more, which is the same direction every
+ * other uncertainty in this file errs.
  */
 function vapiHash(c: EffectiveAgentConfig): string {
   return (
@@ -324,9 +341,9 @@ function agentBody(c: EffectiveAgentConfig) {
 
 // ── ElevenLabs MCP servers ─────────────────────────────────────────────────────────────────
 /**
- * The URL choice, made once. `MCP_PUBLIC_URL` is an OVERRIDE here, not the source — see
- * `DEPLOYED_MCP_URL` in ./elevenlabs-mcp.ts for why this provider cannot take the URL from the
- * environment the way OpenAI does.
+ * The URL choice, made once for both providers that provision a grant. `MCP_PUBLIC_URL` is an
+ * OVERRIDE here, not the source — see `DEPLOYED_MCP_URL` in ./mcp-url.ts for why neither of them can
+ * take the URL from the environment the way OpenAI does.
  */
 const mcpUrlOptions = {
   overrideUrl: process.env.MCP_PUBLIC_URL?.trim() || undefined,
@@ -425,6 +442,11 @@ function mcpKeysGettingNewIds(mcpPlan: McpAction[]): Set<string> {
  * sees, because the apply path creates registrations before it touches an agent.
  */
 function mcpServerIdsFor(c: EffectiveAgentConfig): string[] {
+  // `lock.mcpServers` holds ELEVENLABS registrations and nothing else. Before a Vapi version granted
+  // anything this check was vacuous; the moment one did, without it a Vapi assistant would be
+  // stamped with an ElevenLabs server id it has no field for — and `mcpDrifted` in `buildPlan` would
+  // then report a difference on every run, PATCHing that assistant forever.
+  if (c.provider !== "elevenlabs") return [];
   if (c.mcpTools.length === 0) return [];
   const entry = lock.mcpServers[mcpGrantKey(c.mcpTools)];
   return entry ? [entry.serverId] : [];
@@ -520,8 +542,18 @@ const vapiKey = process.env.VAPI_PRIVATE_KEY?.trim() ?? "";
 const { webhookUrl, webhookSecret } = vapiConfig();
 const vapiServer = { url: webhookUrl, secret: webhookSecret };
 
+/**
+ * The MCP half of every Vapi assistant, resolved once. `ok: false` is a reason the whole provider
+ * cannot run — see `vapi.unavailable()` below, and ./vapi-mcp.ts for why a half-applied grant is
+ * worse than a skipped one.
+ */
+const vapiMcp = vapiMcpConfig(vapiVersions(), mcpClientConfig(), mcpUrlOptions);
+
 function vapiBody(c: EffectiveAgentConfig) {
-  return vapiAssistantBody(c, vapiServer);
+  return vapiAssistantBody(c, {
+    server: vapiServer,
+    mcpTools: vapiMcpTools(c, vapiMcp.ok ? vapiMcp.mcp : null),
+  });
 }
 
 const elHeaders = () => ({ "xi-api-key": elKey });
@@ -557,7 +589,14 @@ const vapi: ProviderDriver = {
   noun: "assistant",
   versions: vapiVersions,
   hash: vapiHash,
-  unavailable: () => (vapiKey ? null : "VAPI_PRIVATE_KEY is not set"),
+  unavailable: () => {
+    if (!vapiKey) return "VAPI_PRIVATE_KEY is not set";
+    // A credential problem is a reason to SKIP this provider, not to patch its assistants with a
+    // tool block our own server would reject. `--dry-run` never asks, so a plan still prints on a
+    // machine holding nothing.
+    if (!vapiMcp.ok) return vapiMcp.reason;
+    return null;
+  },
   async create(c) {
     const data = (await callApi(
       "POST",
@@ -626,7 +665,9 @@ function buildPlan(lock: Lockfile, run: ProviderDriver[], movingMcpKeys: Set<str
      *    a registration recreated out-of-band looks like.
      */
     const mcpMoved =
-      cfg.mcpTools.length > 0 && movingMcpKeys.has(mcpGrantKey(cfg.mcpTools));
+      cfg.provider === "elevenlabs" &&
+      cfg.mcpTools.length > 0 &&
+      movingMcpKeys.has(mcpGrantKey(cfg.mcpTools));
     const mcpDrifted = !sameIds(entry?.mcpServerIds ?? [], mcpServerIdsFor(cfg));
     if (!entry) plan.push({ kind: "create", version, cfg, hash, driver });
     else if (entry.status === "retired")

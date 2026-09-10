@@ -14,6 +14,7 @@ import words11 from "./words-1.1";
 import words20 from "./words-2.0";
 import words21 from "./words-2.1";
 import words30 from "./words-3.0";
+import words31 from "./words-3.1";
 
 export type { PromptVersion } from "./types";
 
@@ -60,16 +61,27 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * same grant, on two services. A difference between 1.1 and 2.1 is a difference between ElevenLabs
  * and OpenAI and nothing else — which is what 1.0 versus 2.0 was for the lesson without the tool.
  *
- * `words-3.0` is in this list but NOT in the picker: it has a provisioned assistant and no mobile
- * adapter, so `activeVersions()` withholds it (../../lib/agent-registry.ts). This list is what
- * `sync:agents` reconciles; `activeVersions()` is what a learner can be handed. Those are different
- * questions and this is the first version where the answers differ.
+ * `words-3.0` is the same lesson again on Vapi. It was withheld from the picker while that provider
+ * had no mobile adapter — `activeVersions()` (../../lib/agent-registry.ts) is what a learner can be
+ * handed, and this list is only what `sync:agents` reconciles — and it stopped being withheld on
+ * 2026-08-28 when `apps/mobile/src/lib/transport/vapi.ts` became real. The two questions are still
+ * different ones; today's answer for Vapi just happens to be the same.
+ *
+ * `words-3.1` closes the set: the clause and the grant of 1.1 / 2.1 on the third service, so the
+ * lesson-with-a-tool is now comparable across all three the way the lesson without one already was.
  *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
  */
-export const PROMPT_VERSIONS: PromptVersion[] = [words10, words11, words20, words21, words30];
+export const PROMPT_VERSIONS: PromptVersion[] = [
+  words10,
+  words11,
+  words20,
+  words21,
+  words30,
+  words31,
+];
 
 /**
  * The version a session runs when none was asked for — and therefore the SERVICE it runs on.
@@ -115,10 +127,14 @@ export interface EffectiveAgentConfig {
    * The version's MCP grant, defaulted to `[]`. Sorted, so two versions granting the same tools in a
    * different order produce the same ElevenLabs registration key (`mcpGrantKey`).
    *
-   * Here rather than read off the raw version because `sync:agents` needs it in two places that both
-   * take an effective config: the ElevenLabs agent hash, and the lookup that turns a grant into the
-   * `mcp_server_ids` its agent body carries. Ignored entirely for Vapi and OpenAI — the first has no
-   * tool vocabulary yet, the second is not provisioned at all.
+   * Here rather than read off the raw version because `sync:agents` needs it in three places that
+   * all take an effective config: the ElevenLabs agent hash, the lookup that turns a grant into the
+   * `mcp_server_ids` its agent body carries, and — since 2026-09-10 — the `model.tools` block a Vapi
+   * assistant carries instead (`vapiMcpTools` in ../vapi-mcp.ts). Ignored for OpenAI, which is not
+   * provisioned at all: its grant is minted per request by the token route.
+   *
+   * The sort is what keys an ElevenLabs registration (`mcpGrantKey`). It means nothing on Vapi, where
+   * a non-empty list is a switch rather than an allowlist — see ../vapi-mcp.ts.
    */
   mcpTools: string[];
 }

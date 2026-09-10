@@ -39,14 +39,18 @@
  * OpenAI. The prompt is what stays constant across all three, and it is the variable that would
  * actually invalidate a comparison.
  *
- * ## Why it is not in the picker yet
+ * ## Why it was not in the picker at first — and is now
  *
- * It has an assistant — `pnpm sync:agents` provisions it like any ElevenLabs version and records the
- * id in agents.lock.json — but no MOBILE ADAPTER. `activeVersions()` (../../lib/agent-registry.ts)
- * therefore withholds it, so it cannot reach a learner's picker or a token route until
- * `apps/mobile/src/lib/transport/vapi.ts` is real. Provisioned and un-offerable is a deliberate
- * state, not a half-finished one: it lets the assistant exist, be reviewed and be corrected before
- * anyone writes a client for it.
+ * It had an assistant — `pnpm sync:agents` provisions it like any ElevenLabs version and records the
+ * id in agents.lock.json — but no MOBILE ADAPTER, so `activeVersions()`
+ * (../../lib/agent-registry.ts) withheld it from every picker and token route. Provisioned and
+ * un-offerable was a deliberate state, not a half-finished one: it let the assistant exist, be
+ * reviewed and be corrected before anyone wrote a client for it.
+ *
+ * **That state ended on 2026-08-28**, when `apps/mobile/src/lib/transport/vapi.ts` became real and
+ * `"vapi"` joined `CLIENT_READY`. This version is offered like any other now; the paragraph is kept
+ * because the two questions it separates — what the sync provisions, and what a learner may be
+ * handed — are still different ones.
  *
  * Note that "evaluate it in Vapi's dashboard" is NOT straightforwardly available: Vapi has no
  * equivalent of ElevenLabs' `dynamic_variable_placeholders`, so a test call from their console sees

@@ -15,6 +15,7 @@
  * See §7 of docs/2026-08-27-vapi-third-voice-provider.md for the field-by-field table.
  */
 import type { EffectiveAgentConfig } from "./prompts";
+import type { VapiMcpTool } from "./vapi-mcp";
 
 /** Vapi's REST base. Assistants are `POST /assistant`, `PATCH|DELETE /assistant/{id}`. */
 export const VAPI_API = "https://api.vapi.ai";
@@ -124,6 +125,11 @@ export function vapiSilenceTimeout(seconds: number): number {
  * **A transcriber.** Vapi picks a sensible default, and pinning one would be inventing a decision
  * the registry has never had a field for.
  *
+ * **The MCP grant's own reasoning.** `mcpTools` reaches this function already built, because the URL
+ * and the credential behind it are deployment facts with three ways to be wrong, all silent. They
+ * live in ./vapi-mcp.ts; what belongs here is only where the block goes (`model.tools`) and that it
+ * disappears when a version grants nothing.
+ *
  * ## The prompt goes in verbatim, `{{items_list}}` included
  *
  * Vapi's dynamic-variable syntax is the same `{{name}}` as ElevenLabs', so the shared
@@ -142,9 +148,21 @@ export interface VapiServerConfig {
   secret?: string;
 }
 
+/**
+ * Everything the body needs that is a DEPLOYMENT fact rather than a version's.
+ *
+ * `mcpTools` arrives already resolved — built by `vapiMcpTools` in ./vapi-mcp.ts, which is where the
+ * URL and the credential are checked — so this function stays pure and total: it reads no
+ * environment, and there is no configuration mistake it can make on a caller's behalf.
+ */
+export interface VapiBodyInputs {
+  server?: VapiServerConfig;
+  mcpTools?: VapiMcpTool[];
+}
+
 export function vapiAssistantBody(
   c: EffectiveAgentConfig,
-  server: VapiServerConfig = {},
+  { server = {}, mcpTools = [] }: VapiBodyInputs = {},
 ): Record<string, unknown> {
   const plans = c.turnEagerness ? SPEAKING_PLANS[c.turnEagerness] : undefined;
   return {
@@ -153,6 +171,12 @@ export function vapiAssistantBody(
       ...vapiModelRef(c.llm),
       messages: [{ role: "system", content: c.prompt }],
       ...(c.maxTokens === undefined ? {} : { maxTokens: c.maxTokens }),
+      /**
+       * The MCP grant, INLINE — no second remote object, no id, no lockfile entry. Omitted entirely
+       * when a version grants nothing, so the four versions provisioned before this field existed
+       * keep a byte-identical body and the sync does not PATCH them to send one. See ./vapi-mcp.ts.
+       */
+      ...(mcpTools.length === 0 ? {} : { tools: mcpTools }),
     },
     // NO `voice` BLOCK, AND NO TRANSCRIBER — deliberate. See "Vapi picks its own voice" above.
     // `voiceId` and `ttsModelId` are ElevenLabs settings and are IGNORED for a Vapi version, the
