@@ -1223,16 +1223,32 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
      * regresses the symptom is "the tutor doesn't say hello sometimes". This line, plus the console
      * capture that now records that warning, is what turns that into a two-event story.
      */
+    const resuming = Boolean(resumeFrom && resumeFrom.lines.length > 0);
+    /**
+     * A provider that opens the lesson by itself must not be kicked off as well.
+     *
+     * Only the FRESH case: `opensUnprompted` describes a greeting generated when the call is
+     * created, which cannot continue an interrupted lesson — the transcript it would have to
+     * continue from does not exist yet at that moment. A resume therefore still sends its context
+     * and its resume message everywhere. See `TutorCapabilities.opensUnprompted`.
+     */
+    const opensItself = tx.capabilities.opensUnprompted && !resuming;
     emit({
       level: "info",
       code: "session.kickoff",
-      message: resumeFrom ? "kickoff: resuming" : "kickoff: fresh",
+      message: opensItself
+        ? "kickoff: none — the tutor opens by itself"
+        : resumeFrom
+          ? "kickoff: resuming"
+          : "kickoff: fresh",
       data: {
-        resumed: Boolean(resumeFrom && resumeFrom.lines.length > 0),
+        resumed: resuming,
         cause: resumeFrom?.cause ?? null,
         lines: resumeFrom?.lines.length ?? 0,
+        sent: !opensItself,
       },
     });
+    if (opensItself) return;
     if (resumeFrom && resumeFrom.lines.length > 0) {
       tx.context(formatResumeContext(resumeFrom.lines, resumeFrom.cause));
       tx.say(resumeFrom.cause === "paused" ? PAUSE_RESUME_MESSAGE : RESUME_MESSAGE);

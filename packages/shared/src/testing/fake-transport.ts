@@ -38,6 +38,10 @@ const FULL: TutorCapabilities = {
   userActivity: true,
   cancelTurn: true,
   responseCorrection: true,
+  // NOT part of "everything this fake can do": a provider that opens by itself makes the session
+  // send LESS, so a default of true would silently stop exercising the kickoff in every check that
+  // does not name it. The tests that want it ask for it.
+  opensUnprompted: false,
 };
 
 export function createFakeTransport(options: FakeOptions = {}): FakeTransport {

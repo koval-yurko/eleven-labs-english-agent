@@ -231,7 +231,7 @@ function NowTab() {
         label="CAPS"
         value={
           live.capabilities
-            ? `silenceOutput ${tick(live.capabilities.silenceOutput)} · userActivity ${tick(live.capabilities.userActivity)} · cancelTurn ${tick(live.capabilities.cancelTurn)} · responseCorrection ${tick(live.capabilities.responseCorrection)}`
+            ? `silenceOutput ${tick(live.capabilities.silenceOutput)} · userActivity ${tick(live.capabilities.userActivity)} · cancelTurn ${tick(live.capabilities.cancelTurn)} · responseCorrection ${tick(live.capabilities.responseCorrection)} · opensUnprompted ${tick(live.capabilities.opensUnprompted)}`
             : "—"
         }
       />

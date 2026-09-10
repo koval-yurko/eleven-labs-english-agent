@@ -25,6 +25,23 @@ export const VAPI_API = "https://api.vapi.ai";
  * the max is what "disabled" becomes, and the min is what stops a version pinning something the
  * API would reject.
  */
+/**
+ * The one sentence this provider's prompt does not share with the other two.
+ *
+ * `PODCAST_LESSON_PROMPT` ends "Begin when you receive the kickoff message." — true on ElevenLabs
+ * and OpenAI, where the client sends one and it arrives. On Vapi nothing arrives, so that line is an
+ * instruction to wait forever, and the model followed it exactly as written.
+ *
+ * It is appended HERE rather than edited into the prompt on purpose. The prompt text is shared
+ * byte-for-byte by every version that uses it, across all three providers — that identity is what
+ * makes a version comparison mean anything — so a provider's own quirk belongs in the provider's own
+ * body builder, next to the `firstMessageMode` it exists to agree with. The same shape as the way
+ * `words-3.1` appends its save-to-collection clause.
+ */
+const VAPI_OPENS_CLAUSE = `
+
+You open the lesson yourself. There is no kickoff message on this platform and nothing will prompt you — the moment the call starts, greet the learner in one sentence and begin teaching the first item. Ignore any instruction above to wait for a kickoff.`;
+
 const SILENCE_TIMEOUT_MIN = 10;
 const SILENCE_TIMEOUT_MAX = 3600;
 
@@ -169,7 +186,7 @@ export function vapiAssistantBody(
     name: c.name,
     model: {
       ...vapiModelRef(c.llm),
-      messages: [{ role: "system", content: c.prompt }],
+      messages: [{ role: "system", content: `${c.prompt}${VAPI_OPENS_CLAUSE}` }],
       ...(c.maxTokens === undefined ? {} : { maxTokens: c.maxTokens }),
       /**
        * The MCP grant, INLINE — no second remote object, no id, no lockfile entry. Omitted entirely
@@ -181,11 +198,29 @@ export function vapiAssistantBody(
     // NO `voice` BLOCK, AND NO TRANSCRIBER — deliberate. See "Vapi picks its own voice" above.
     // `voiceId` and `ttsModelId` are ElevenLabs settings and are IGNORED for a Vapi version, the
     // same way they are for an OpenAI one (prompts/types.ts).
-    // The ElevenLabs twin ships `first_message: ""` because teaching begins on the kickoff
-    // contextual update, not a greeting. This is that same decision in Vapi's vocabulary: the
-    // assistant does not open the conversation.
+    /**
+     * THE TUTOR OPENS THE LESSON, and on this provider it has to do it by itself.
+     *
+     * The ElevenLabs twin ships `first_message: ""` because teaching begins on the kickoff message
+     * the client sends the moment it connects, and this used to be that same decision in Vapi's
+     * vocabulary — `assistant-waits-for-user`, with the opening turn left to the kickoff.
+     *
+     * It never once worked. Across every Vapi call this project has made, on both 3.0 and 3.1, the
+     * first user message in the conversation is the learner's own speech: the kickoff has never
+     * appeared in a single call's history. So the learner had to open their own lesson by saying
+     * "start", which is the complaint that produced reports df03e0cc and 5837ff35.
+     *
+     * `assistant-speaks-first-with-model-generated-message` asks Vapi for the thing we actually
+     * want: an opening turn GENERATED from `assistant.model.messages` at call start — this prompt,
+     * with `{{items_list}}` already substituted. No client round-trip, so nothing to arrive late, be
+     * dropped, or need a delivery guarantee the transport cannot give. `firstMessage` stays empty
+     * because in this mode it is the model, not the field, that speaks.
+     *
+     * The client must not ALSO send a kickoff, or the lesson opens twice — which is what
+     * `TutorCapabilities.opensUnprompted` tells the session.
+     */
     firstMessage: "",
-    firstMessageMode: "assistant-waits-for-user",
+    firstMessageMode: "assistant-speaks-first-with-model-generated-message",
     maxDurationSeconds: c.maxDurationSeconds,
     silenceTimeoutSeconds: vapiSilenceTimeout(c.silenceEndCallTimeoutSeconds),
     ...(plans ? { startSpeakingPlan: plans.start, stopSpeakingPlan: plans.stop } : {}),

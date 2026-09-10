@@ -455,6 +455,9 @@ const CAPS = (over: Partial<TutorCapabilities> = {}): TutorCapabilities => ({
   userActivity: true,
   cancelTurn: true,
   responseCorrection: true,
+  // Not a pause concern: whether the tutor opens the lesson by itself has nothing to say about how a
+  // hold is planned. Default false so these checks keep describing the common provider.
+  opensUnprompted: false,
   ...over,
 });
 

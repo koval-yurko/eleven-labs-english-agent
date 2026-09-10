@@ -60,6 +60,8 @@ const CAPABILITIES: TutorCapabilities = {
   userActivity: false,
   cancelTurn: true,
   responseCorrection: true,
+  // The kickoff arrives, now that `connected` waits for the channel that carries it.
+  opensUnprompted: false,
 };
 
 /**
@@ -137,6 +139,18 @@ function toUsage(raw: unknown): TutorUsage | null {
   return usage.inputTokens === 0 && usage.outputTokens === 0 ? null : usage;
 }
 
+/**
+ * How long `oai-events` has to open after the peer connects before the session is called failed.
+ *
+ * The two are milliseconds apart in practice — SCTP follows a completed DTLS handshake — so this
+ * only ever fires when something is genuinely wrong. It is deliberately an ERROR rather than a
+ * connect-anyway backstop, which is the opposite of the equivalent timer on Vapi: there, a call
+ * whose agent never announces itself is still a call the learner can talk to, while here the channel
+ * IS the session. Every client event goes down it, so reporting `connected` without one would hand
+ * back a lesson that can neither be kicked off nor ended nor paused, and say nothing was wrong.
+ */
+const DATA_CHANNEL_OPEN_TIMEOUT_MS = 5000;
+
 /** `pc.connectionState` → the vocabulary the session branches on. */
 function toStatus(state: string): TutorStatus {
   if (state === "connected") return "connected";
@@ -154,6 +168,24 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<ReturnType<RTCPeerConnection["createDataChannel"]> | null>(null);
+  /** Is `oai-events` open? Half of "connected" — see the `connectionstatechange` handler. */
+  const dcOpenRef = useRef(false);
+  /** Fails the session if the channel never opens under a connected peer. */
+  const dcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Is a RESPONSE running right now, as the server sees it?
+   *
+   * Not the same question as `isSpeaking`, and conflating the two is what produced both halves of
+   * report 2d0d0c04. `isSpeaking` follows `output_audio_buffer.*` — the audio PLAYING ON THIS PHONE,
+   * which outlives the response that generated it, because the buffer drains after the server is
+   * finished. So the learner still hears the tutor for a moment after the turn is over.
+   *
+   * This follows `response.created` / `response.done`, which is the server's own account of the same
+   * fact, and is therefore the only one worth sending `response.cancel` or `response.create` on.
+   */
+  const responseActiveRef = useRef(false);
+  /** A `response.create` that is waiting for the running response to finish. See `respond`. */
+  const pendingResponseRef = useRef(false);
   const localRef = useRef<MediaStreamTrack | null>(null);
   const remoteRef = useRef<MediaStreamTrack | null>(null);
   /**
@@ -243,12 +275,42 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       // right: the next `start` resets it anyway.
       if (sent) idleArmedRef.current = armed;
     },
+    /**
+     * Ask the tutor to take a turn, whatever is already happening.
+     *
+     * `response.create` is REFUSED while another response is running —
+     * `conversation_already_has_active_response`, which is the error that swallowed a resume in
+     * report 2d0d0c04: the learner paused, the microphone stayed open, the server heard the room and
+     * started a turn of its own, and the release's resume message was rejected on arrival.
+     *
+     * So the running turn is cancelled and the new one is deferred until its `response.done`
+     * confirms it has gone. Cancelling without waiting would only lose the race more quietly.
+     */
+    respond(): void {
+      if (!responseActiveRef.current) {
+        live.current.send({ type: "response.create" });
+        return;
+      }
+      pendingResponseRef.current = true;
+      live.current.send({ type: "response.cancel" });
+      // The sound stops here rather than when the cancel lands — the buffer on this phone is already
+      // full of speech the server has finished generating and the learner should stop hearing.
+      live.current.send({ type: "output_audio_buffer.clear" });
+    },
+
     /** Tear everything down and report why, exactly once. */
     teardown(reason: TutorEndReason) {
       if (endedRef.current) return;
       endedRef.current = true;
+      if (dcTimerRef.current) {
+        clearTimeout(dcTimerRef.current);
+        dcTimerRef.current = null;
+      }
       dcRef.current?.close();
       dcRef.current = null;
+      dcOpenRef.current = false;
+      responseActiveRef.current = false;
+      pendingResponseRef.current = false;
       localRef.current?.stop();
       localRef.current = null;
       remoteRef.current = null;
@@ -333,7 +395,20 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           setIsSpeaking(false);
           return;
 
+        case "response.created": {
+          responseActiveRef.current = true;
+          return;
+        }
+
         case "response.done": {
+          responseActiveRef.current = false;
+          // The turn that was in the way has ended, so the turn that was waiting for it can go. A
+          // cancelled response ends with a `response.done` too, which is what makes `respond` able
+          // to cancel and create without racing the two against each other.
+          if (pendingResponseRef.current) {
+            pendingResponseRef.current = false;
+            live.current.send({ type: "response.create" });
+          }
           const response = event.response as { usage?: unknown } | undefined;
           const usage = toUsage(response?.usage);
           if (usage) {
@@ -362,6 +437,15 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
             message,
             data: { code },
           });
+          /**
+           * "Cancellation failed: no active response found" is not a failure. It says the response
+           * we wanted stopped had already stopped — the goal, reached without us. The guard in
+           * `cancelTurn` makes it rare rather than impossible, because the server can finish a
+           * response in the time our cancel is in flight, and a race we lose harmlessly must not
+           * put an error in front of a learner mid-lesson. It stays in the timeline as the `error`
+           * above; what it does not do is interrupt.
+           */
+          if (code === "response_cancel_not_active") return;
           // The OpenAI half of what `tutorErrorMessage` does for ElevenLabs: this provider's own
           // vocabulary, worded here, because a shared branch would be right for one and misleading
           // for the other.
@@ -461,6 +545,13 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
 
         endedRef.current = false;
         hangingUpRef.current = false;
+        dcOpenRef.current = false;
+        responseActiveRef.current = false;
+        pendingResponseRef.current = false;
+        if (dcTimerRef.current) {
+          clearTimeout(dcTimerRef.current);
+          dcTimerRef.current = null;
+        }
         setStatus("connecting");
         eventsRef.current.onStatus("connecting");
 
@@ -496,6 +587,30 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
               message: `peer connection ${pc.connectionState}`,
               data: { raw: pc.connectionState, status: next },
             });
+            /**
+             * A connected PEER is not yet a reachable SERVER, and the difference is one SCTP
+             * handshake wide.
+             *
+             * Every client event this adapter sends goes down `oai-events`, and `send` drops
+             * anything offered before that channel opens — it returns `false`, and `say` does not
+             * read the return. The session sends the kickoff the moment it sees `connected`, so a
+             * `connected` reported here rather than at `open` is a race whose losing side is a lesson
+             * that never gets its opening line: the tutor sits waiting for a message it was never
+             * given, and the learner has to start the lesson themselves. Vapi lost that race on
+             * device; here the two are usually milliseconds apart, which makes it the same bug with
+             * better luck rather than a different one.
+             */
+            if (next === "connected" && !dcOpenRef.current) {
+              dcTimerRef.current ??= setTimeout(() => {
+                dcTimerRef.current = null;
+                if (dcOpenRef.current || endedRef.current) return;
+                eventsRef.current.onError(
+                  "The connection came up but the tutor could not be reached.",
+                );
+                live.current.teardown("error");
+              }, DATA_CHANNEL_OPEN_TIMEOUT_MS);
+              return;
+            }
             setStatus(next);
             eventsRef.current.onStatus(next);
             if (next !== "error" && next !== "disconnected") return;
@@ -515,6 +630,25 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
 
           const dc = pc.createDataChannel("oai-events");
           dcRef.current = dc;
+          // The other half of the gate above. Either order is possible on paper — the channel cannot
+          // open before the peer connects, but the two events can land in one tick — so whichever is
+          // second is the one that reports.
+          dc.addEventListener("open", () => {
+            dcOpenRef.current = true;
+            if (dcTimerRef.current) {
+              clearTimeout(dcTimerRef.current);
+              dcTimerRef.current = null;
+            }
+            emit({
+              level: "debug",
+              code: "transport.connect",
+              provider: "openai",
+              message: "data channel open",
+            });
+            if (pc.connectionState !== "connected" || pcRef.current !== pc) return;
+            setStatus("connected");
+            eventsRef.current.onStatus("connected");
+          });
           dc.addEventListener("message", (event) => {
             try {
               live.current.handle(JSON.parse(String(event.data)) as ServerEvent);
@@ -575,6 +709,7 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           endedRef.current = true;
           dcRef.current?.close();
           dcRef.current = null;
+          dcOpenRef.current = false;
           localRef.current?.stop();
           localRef.current = null;
           pcRef.current?.close();
@@ -605,7 +740,7 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
           type: "conversation.item.create",
           item: { type: "message", role: "user", content: [{ type: "input_text", text }] },
         });
-        live.current.send({ type: "response.create" });
+        live.current.respond();
       },
 
       /**
@@ -625,7 +760,20 @@ export function useOpenAiTransport(events: TutorTransportEvents): TutorTransport
       },
 
       cancelTurn: () => {
-        live.current.send({ type: "response.cancel" });
+        /**
+         * Only when there is something to cancel.
+         *
+         * The session decides to barge in from `isSpeaking` (`planHold`: `aborted = now.speaking`),
+         * and on this provider that flag can still be true with the response already finished — the
+         * phone is playing the tail of it. An unconditional cancel then raises
+         * `response_cancel_not_active` and puts an error in front of the learner for the one outcome
+         * that needs no repair: nothing was running, which is what was wanted.
+         *
+         * The buffer clear is NOT conditional, because that is the part that actually stops the
+         * sound, and it is exactly the case above — audio still playing, response already done —
+         * that needs it most.
+         */
+        if (responseActiveRef.current) live.current.send({ type: "response.cancel" });
         // The server holds the played-audio buffer on WebRTC, so this is what actually stops the
         // sound — and it is what makes the truncation (and therefore the correction) happen.
         live.current.send({ type: "output_audio_buffer.clear" });

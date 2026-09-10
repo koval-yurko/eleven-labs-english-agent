@@ -24,9 +24,9 @@
     "words-3.0": {
       "agentId": "71b14fe9-2d18-49dd-928a-f64ce159c9ee",
       "status": "active",
-      "hash": "sha256:1e385fdf6f437dd41c116ca02140106c5d4438649e7cb4482573e15bdd01c363",
+      "hash": "sha256:eb0342e0a14200eabfb051fc41fd812a247c282d264886f37f7b8cabe1cfb605",
       "name": "english-words-tutor (words-3.0)",
-      "updatedAt": "2026-08-28T19:23:19.068Z",
+      "updatedAt": "2026-09-10T21:07:07.339Z",
       "provider": "vapi"
     },
     "words-1.1": {
@@ -43,9 +43,9 @@
     "words-3.1": {
       "agentId": "b105c7cc-132e-4f23-9bb5-1174cb2d71a6",
       "status": "active",
-      "hash": "sha256:07daa1fb6d2f9b7371ba612d1b82bbb7e2c938d72ca642554ccca1a002d9d46f",
+      "hash": "sha256:8da4408c37ac7bbc699c9b75338f4234ce0f1583d48dce33dcd44520bad1bd7b",
       "name": "english-words-tutor (words-3.1)",
-      "updatedAt": "2026-09-10T08:17:37.081Z",
+      "updatedAt": "2026-09-10T21:07:07.339Z",
       "provider": "vapi"
     }
   }

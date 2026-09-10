@@ -56,6 +56,8 @@ const CAPABILITIES: TutorCapabilities = {
   userActivity: true,
   cancelTurn: false,
   responseCorrection: true,
+  // The kickoff arrives: `startSession` resolves only after a message has already gone through.
+  opensUnprompted: false,
 };
 
 export function useElevenLabsTransport(events: TutorTransportEvents): TutorTransport {

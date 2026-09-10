@@ -374,6 +374,9 @@ function sanitizeCapabilities(raw: unknown): TutorCapabilities | null {
     userActivity: bool(c.userActivity),
     cancelTurn: bool(c.cancelTurn),
     responseCorrection: bool(c.responseCorrection),
+    // Absent from every report filed before this capability existed, and `bool` reads a missing
+    // field as false — which is the right answer for those, since no provider opened by itself then.
+    opensUnprompted: bool(c.opensUnprompted),
   };
 }
 

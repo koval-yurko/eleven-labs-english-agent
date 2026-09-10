@@ -27,6 +27,25 @@ export interface TutorCapabilities {
   userActivity: boolean;
   cancelTurn: boolean;
   responseCorrection: boolean;
+  /**
+   * Does the tutor take the OPENING turn on its own, with nothing sent to prompt it?
+   *
+   * False on the providers where teaching begins with the kickoff message the session sends the
+   * instant it connects — that is the norm here, and the reason `first_message` is empty on both.
+   *
+   * True on Vapi, where the kickoff has never once arrived: across every call this project has made
+   * the first user message in the conversation is the learner's own speech, so the tutor sat waiting
+   * and the learner had to open their own lesson by saying "start". Its assistant is provisioned
+   * `assistant-speaks-first-with-model-generated-message` instead, which generates the opener from
+   * the prompt at call start and needs no message from us.
+   *
+   * The session reads this to decide whether to send a FRESH kickoff — sending one to a provider
+   * that has already opened would start the lesson twice. A RESUME still sends its context and its
+   * resume message on every provider: continuing an interrupted lesson is not something a call-start
+   * greeting can do, because the transcript it must continue from does not exist yet when the call
+   * is created.
+   */
+  opensUnprompted: boolean;
 }
 
 export interface TutorUsage {
