@@ -21,7 +21,9 @@ for (const file of [".env.local", ".env"]) dotenv.config({ path: join(root, file
 
 const { getServiceSupabase, hasSupabaseEnv } = await import("../src/lib/supabase/server");
 const {
+  RESOLVED_STATUS,
   debugReportFacets,
+  deleteDebugReport,
   getDebugReport,
   getSessionForConversation,
   insertDebugReport,
@@ -200,15 +202,30 @@ try {
   const triaged = await getDebugReport(ownerId, id);
   check("triage writes", triaged?.status === "open" && triaged.resolution === "verified");
 
+  // The list's one-click Resolve sends no resolution; it must not blank the one saved above.
+  await setDebugReportTriage(ownerId, id, { status: RESOLVED_STATUS });
+  const resolved = await getDebugReport(ownerId, id);
+  check(
+    "resolve keeps the resolution",
+    resolved?.status === RESOLVED_STATUS && resolved.resolution === "verified",
+  );
+
   // Ownership is in the query's own `where`, not in a check before it: a forged id must update
   // nothing rather than someone else's row.
   const stranger = await getDebugReport("auth0|not-this-owner", id);
   check("another owner cannot read it", stranger === null);
+  const strangerDeleted = await deleteDebugReport("auth0|not-this-owner", id);
+  check(
+    "another owner cannot delete it",
+    !strangerDeleted && (await getDebugReport(ownerId, id)) !== null,
+  );
 } finally {
   if (keep) {
     console.log(`\n→ kept. Open /ops/reports/${id}`);
   } else {
-    await getServiceSupabase().from("debug_reports").delete().eq("id", id);
+    // The page's own delete, so the cleanup is also the check that it works.
+    const deleted = await deleteDebugReport(ownerId, id);
+    check("the owner can delete it", deleted && (await getDebugReport(ownerId, id)) === null);
     console.log(`\n✓ deleted ${id}`);
   }
 }
