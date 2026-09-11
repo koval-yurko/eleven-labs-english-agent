@@ -228,7 +228,16 @@ export async function getSessionForConversation(
 }
 
 /**
- * Triage — the only mutable fields on a report, and the only write this page makes.
+ * The status a report is given when it is dealt with. One word, shared by the page's Resolve button
+ * and anything that later wants to sweep them (§14's retention delete keys on it).
+ */
+export const RESOLVED_STATUS = "resolved";
+
+/**
+ * Triage — the only mutable fields on a report.
+ *
+ * `resolution` is optional so a one-click Resolve on the list can change the status without
+ * blanking a note written earlier on the detail page; `undefined` leaves it alone, `null` clears it.
  *
  * Owner-scoped in the `eq` rather than only checked beforehand: the filter is what makes "not your
  * report" a no-op instead of an edit, with no window between the check and the write.
@@ -236,15 +245,36 @@ export async function getSessionForConversation(
 export async function setDebugReportTriage(
   ownerId: string,
   id: string,
-  triage: { status: string; resolution: string | null },
+  triage: { status: string; resolution?: string | null },
 ): Promise<void> {
   const { error } = await getServiceSupabase()
     .from("debug_reports")
     .update({
       status: triage.status.slice(0, 40),
-      resolution: triage.resolution?.slice(0, 2000) ?? null,
+      ...(triage.resolution !== undefined
+        ? { resolution: triage.resolution?.slice(0, 2000) ?? null }
+        : {}),
     })
     .eq("owner_id", ownerId)
     .eq("id", id);
   if (error) throw new Error(`setDebugReportTriage: ${error.message}`);
+}
+
+/**
+ * Remove a report outright — for the ones that are wrong rather than solved: a test filing, a
+ * duplicate from a retry, a report about a bug that was never a bug. A solved report should be
+ * resolved instead, so the fix stays findable next time the same `error_code` turns up.
+ *
+ * Owner-scoped in the `where` for the same reason as triage. Returns whether a row went, so a
+ * forged or stale id is distinguishable from a delete — the caller has no other way to tell.
+ */
+export async function deleteDebugReport(ownerId: string, id: string): Promise<boolean> {
+  const { data, error } = await getServiceSupabase()
+    .from("debug_reports")
+    .delete()
+    .eq("owner_id", ownerId)
+    .eq("id", id)
+    .select("id");
+  if (error) throw new Error(`deleteDebugReport: ${error.message}`);
+  return ((data as { id: string }[] | null) ?? []).length > 0;
 }

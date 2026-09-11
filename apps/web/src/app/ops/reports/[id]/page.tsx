@@ -10,9 +10,14 @@ import {
   providerConsoleUrl,
   resolveReportAgent,
 } from "../../../../lib/debug-report-links";
-import { getDebugReport, getSessionForConversation } from "../../../../lib/debug-reports";
+import {
+  RESOLVED_STATUS,
+  getDebugReport,
+  getSessionForConversation,
+} from "../../../../lib/debug-reports";
 import { formatDateTime } from "../../../../lib/format-date";
-import { triageReportAction } from "../actions";
+import { reopenReportAction, resolveReportAction, triageReportAction } from "../actions";
+import { DeleteReportButton } from "../DeleteReportButton";
 import { StateDiff } from "./StateDiff";
 import { Timeline } from "./Timeline";
 
@@ -249,9 +254,28 @@ export default async function OpsReportPage({ params }: { params: Promise<{ id: 
             rows={3}
             style={{ marginTop: "0.5rem" }}
           />
-          <button type="submit" className="btn btn--secondary" style={{ marginTop: "0.5rem" }}>
-            Save
-          </button>
+          <div className="row" style={{ marginTop: "0.5rem", flexWrap: "wrap" }}>
+            <button type="submit" className="btn btn--secondary">
+              Save
+            </button>
+            {/* `formAction` submits the same fields to a different action, so a resolution typed
+                above is saved together with the status rather than lost to a second form. */}
+            {report.status === RESOLVED_STATUS ? (
+              <button type="submit" formAction={reopenReportAction} className="btn btn--secondary">
+                Reopen
+              </button>
+            ) : (
+              <button type="submit" formAction={resolveReportAction} className="btn btn--primary">
+                Resolve
+              </button>
+            )}
+            <DeleteReportButton
+              id={report.id}
+              label={report.error_code ?? report.kind}
+              returnToList
+              size="md"
+            />
+          </div>
         </form>
       </section>
 

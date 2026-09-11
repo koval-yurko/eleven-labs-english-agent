@@ -4,12 +4,15 @@ import type { DebugReportKind } from "@tutor/shared/debug/report";
 
 import { getOwnerId } from "../../../lib/auth/session";
 import {
+  RESOLVED_STATUS,
   debugReportFacets,
   listDebugReports,
   type DebugReportFilter,
   type DebugReportSummary,
 } from "../../../lib/debug-reports";
 import { formatDateTime } from "../../../lib/format-date";
+import { reopenReportAction, resolveReportAction } from "./actions";
+import { DeleteReportButton } from "./DeleteReportButton";
 
 // Owner-scoped and changes between visits. Cookie auth, not Bearer: this one is a browser page.
 export const dynamic = "force-dynamic";
@@ -151,7 +154,7 @@ export default async function OpsReportsPage({
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
               <thead>
                 <tr>
-                  {["Status", "When", "Kind", "Provider / version", "Error", "Note"].map((h) => (
+                  {["Status", "When", "Kind", "Provider / version", "Error", "Note", ""].map((h) => (
                     <th
                       key={h}
                       style={{
@@ -192,6 +195,7 @@ function Filters({ label, children }: { label: string; children: React.ReactNode
 
 function Row({ report }: { report: DebugReportSummary }) {
   const cell = { padding: "0.5rem 0.6rem 0.5rem 0", borderBottom: "1px solid var(--border)" };
+  const resolved = report.status === RESOLVED_STATUS;
   return (
     <tr>
       <td style={{ ...cell, whiteSpace: "nowrap" }}>
@@ -219,6 +223,20 @@ function Row({ report }: { report: DebugReportSummary }) {
       </td>
       <td style={{ ...cell, maxWidth: "22ch" }}>
         <span className="muted">{report.note.slice(0, 60) || "—"}</span>
+      </td>
+      <td style={{ ...cell, whiteSpace: "nowrap", textAlign: "right" }}>
+        {/* Resolve is a plain form — no JavaScript, and Reopen undoes it. Only Delete, which cannot
+            be undone, needs the client component for its confirmation. */}
+        <form
+          action={resolved ? reopenReportAction : resolveReportAction}
+          style={{ display: "inline" }}
+        >
+          <input type="hidden" name="id" value={report.id} />
+          <button type="submit" className="btn btn--secondary btn--sm">
+            {resolved ? "Reopen" : "Resolve"}
+          </button>
+        </form>{" "}
+        <DeleteReportButton id={report.id} label={report.error_code ?? report.kind} />
       </td>
     </tr>
   );
