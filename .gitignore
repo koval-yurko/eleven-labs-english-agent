@@ -59,3 +59,7 @@ apps/web/scripts/lexicon/sources/
 # Message Batch manifests — they name a batch on Anthropic's side and mean nothing in
 # anyone else's checkout. See apps/web/scripts/level-lexicon.ts.
 apps/web/scripts/lexicon/.batches/
+
+# graffiti code map (~1 MB) — derived from the tree on every `graffiti .`, so it is
+# regenerable in any checkout and would only churn in diffs.
+.graffiti/

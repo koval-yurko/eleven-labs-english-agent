@@ -86,7 +86,7 @@ Native tooling. Verify with `pnpm config get node-linker` → must print `hoiste
   must agree on: DTOs, the items-page query grammar, the HTTP contract (`api.ts`), the tutor wire
   contract, the offline op algebra, the mirror-store interface. Nothing in `src/` may import from an
   app or from any npm package — `no-restricted-imports` and a `types: []` tsconfig make that a
-  compile error, and `dependencies` must stay empty. Import by name: `@tutor/shared/word-types`.
+  compile error, and `dependencies` must stay empty. Import by name: `@tutor/shared/words/types`.
   The test for adding something here: _if this had a bug, could I fix it by deploying the web app
   alone?_ If yes, it belongs on the server. Mobile must never copy from this package.
   See `docs/2026-08-09-shareable-core-refactor.md`.
@@ -94,7 +94,7 @@ Native tooling. Verify with `pnpm config get node-linker` → must print `hoiste
   (`lesson_id` + `word_id` + `position`). A word belongs to the learner, not a lesson, so a word in
   no lesson is a normal state. Word identity (`norm_key`) needs Postgres (unaccent + NFKC), so text →
   word id always goes through the `resolve_words` RPC, never a client-side guess. Client-side
-  normalization lives in `packages/shared/src/word-key.ts` and is deliberately *weaker* than the
+  normalization lives in `packages/shared/src/words/key.ts` and is deliberately *weaker* than the
   Postgres identity — merging less only leaves a duplicate for the server to skip, merging more would
   silently drop a word the learner typed.
 - **`words.level` and `words.details` are written only by background jobs**, never by the UI.
@@ -111,14 +111,25 @@ Native tooling. Verify with `pnpm config get node-linker` → must print `hoiste
 - **LLM access goes through LangChain.** `apps/web/src/lib/llm.ts` builds a `ChatAnthropic`
   defaulting to `claude-opus-4-5` (override with `ANTHROPIC_MODEL`); with `LANGSMITH_API_KEY` set,
   calls auto-trace to LangSmith.
-- **Transcript writes are sanitized by one function.** The action, the beacon route and the
-  post-call webhook all upsert the same `conversation_id` row and all pass through
-  `sanitizeTranscript` (`packages/shared/src/tutor.ts`), so the stored row doesn't depend on which
-  writer landed last.
+- **Transcript writes are sanitized by one function.** The action, the beacon route and the two
+  post-call webhooks (ElevenLabs and Vapi) all upsert the same `conversation_id` row and all pass
+  through `sanitizeTranscript` (`packages/shared/src/tutor/session.ts`), so the stored row doesn't
+  depend on which writer landed last. The same function is reused outside that path by
+  `sanitizeDebugReport` to bound a report's `transcriptTail` — same posture, no conversation row.
 - **Offline writes are mirror + outbox in one transaction.** A mirror write and its queued op go in
   the same `transact`, which is why the UI can never show a change whose intent wasn't queued. Op
-  rules live in `packages/shared/src/sync-ops.ts` and the storage contract in `mirror-store.ts`;
+  rules live in `packages/shared/src/offline/ops.ts` and the storage contract in `offline/mirror.ts`;
   today the only full implementation is Dexie (`apps/web/src/lib/sync/`) — mobile shares the types
   and keeps its own `expo-sqlite` session journal. Reactivity stays per-platform on purpose.
 - **Research documents live in `docs/` as date-stamped Markdown** (e.g. `docs/2026-06-26-topic.md`)
   so the research history stays traceable.
+
+<!-- graffiti:start -->
+## graffiti code map
+
+If `.graffiti/map.json` exists, this repo has a graffiti code map. For questions about the
+codebase's structure (where something lives, how parts connect, the architecture), run
+`graffiti query "<question>"` instead of grep/read — it returns a scoped subgraph. After
+editing code, run `graffiti update` to refresh the map. If no map exists yet, run
+`graffiti build .` first.
+<!-- graffiti:end -->
