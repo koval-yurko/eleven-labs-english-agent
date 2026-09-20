@@ -1,0 +1,41 @@
+name: graphify semantic cache
+
+# Regenerates graphify's LLM-extracted semantic cache for docs/ so every clone gets doc
+# coverage without re-paying for extraction. See docs/2026-09-19-graffiti-to-graphify-design.md
+# §7. This is the CI half of D8 — the manual `graphify extract .` route (skill, README) is the
+# other, and either order converges on the same cache because entries are content-hashed.
+#
+# Scoped to docs/**/*.md only: unlike the sibling repo this spec was adapted from, this repo
+# has no YAML doc worth a semantic pass (§7), so the path filter stays narrow on purpose.
+on:
+  push:
+    branches: [master]
+    paths: ['docs/**', '**/*.md']
+
+jobs:
+  extract:
+    # Same self-trigger guard .github/workflows/claude-code-review.yml would use if this repo
+    # had one yet — this is the repo's first workflow, so there is no existing precedent to
+    # copy the guard from, only the pattern.
+    if: github.actor != 'claude[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install graphify (with the sql extra — see §3)
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          pipx install "graphifyy[sql]"
+
+      - name: Extract docs into the semantic cache
+        run: graphify extract . --backend claude-cli
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+      - name: Commit cache changes, if any
+        run: |
+          git add graphify-out/cache/semantic/
+          git diff --cached --quiet || git -c user.name="graphify-bot" -c user.email="noreply@anthropic.com" commit -m "chore(repo): refresh graphify semantic cache"
+          git push

@@ -33,6 +33,42 @@ Sign in (Auth0 gates everything), then use the dashboard to confirm each integra
 linker settings, which pnpm 9 reads as unknown keys and ignores without warning. Check with
 `pnpm config get node-linker` — it must print `hoisted`.
 
+## Code map (graphify)
+
+```bash
+uv tool install "graphifyy[sql]"   # without the [sql] extra, supabase/migrations/*.sql
+                                    # silently contributes nothing to the graph
+```
+
+The `[sql]` extra is not optional the way it might look — without it, every SQL migration
+(the RLS-guarded `words`/`lesson_items` schema, every server-only RPC) is silently absent from
+the graph, with a `.sql file(s) contributed nothing` warning easy to miss. See
+[`docs/2026-09-19-graffiti-to-graphify-design.md`](./docs/2026-09-19-graffiti-to-graphify-design.md) §3.
+
+```bash
+graphify update .                        # code only, no LLM, run after editing code
+graphify query "resolve_words"           # scoped subgraph, e.g. finds the RPC at
+                                          # supabase/migrations/0007_words_m2m.sql:102
+graphify explain "resolveWords"          # plain-language explanation of one symbol
+graphify path "words" "lesson_items"     # shortest path between two nodes
+graphify god-nodes                       # most-connected nodes (architectural hubs)
+```
+
+Docs only reach the graph through a semantic (LLM) pass, and the result is cached and committed
+so nobody re-pays for it:
+
+```bash
+graphify extract . --backend claude-cli
+git add graphify-out/cache/semantic/
+```
+
+CI regenerates that cache on `master` too (`.github/workflows/graphify-semantic-cache.yml`), so
+the manual command above is a convenience, not an obligation — if CI already ran, `git pull`
+picks up the refreshed cache for free.
+
+**The git hooks that keep the graph current after commits/checkouts don't fire inside a linked
+git worktree.** From a worktree, run `graphify update .` by hand.
+
 ## Commands
 
 ```bash
