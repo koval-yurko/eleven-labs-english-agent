@@ -124,12 +124,16 @@ Native tooling. Verify with `pnpm config get node-linker` → must print `hoiste
 - **Research documents live in `docs/` as date-stamped Markdown** (e.g. `docs/2026-06-26-topic.md`)
   so the research history stays traceable.
 
-<!-- graffiti:start -->
-## graffiti code map
+## graphify code map
 
-If `.graffiti/map.json` exists, this repo has a graffiti code map. For questions about the
-codebase's structure (where something lives, how parts connect, the architecture), run
-`graffiti query "<question>"` instead of grep/read — it returns a scoped subgraph. After
-editing code, run `graffiti update` to refresh the map. If no map exists yet, run
-`graffiti build .` first.
-<!-- graffiti:end -->
+If `graphify-out/graph.json` exists, this repo has a graphify code map: tree-sitter AST over
+`apps/`, `packages/shared/` and `supabase/migrations/`, plus an LLM semantic pass over `docs/`.
+For questions about the codebase's structure (where something lives, how parts connect, the
+architecture), run `graphify query "<question>"` instead of grep/read — it returns a scoped
+subgraph. Use `graphify explain "<symbol>"` for one concept and `graphify path "A" "B"` for how
+two things connect. Matching is case-folded substring with IDF (no stemming, no synonyms), so
+query with the graph's own vocabulary — symbol and file names, not paraphrases. After editing
+code, run `graphify update .` to refresh the map (AST-only, no LLM cost). SQL migrations need the
+`graphifyy[sql]` extra installed, or `supabase/migrations/*.sql` silently drops out of the graph
+(see `docs/2026-09-19-graffiti-to-graphify-design.md` §3). Docs/`.md` files reach the graph only
+through `graphify extract .`, which calls an LLM — see that doc's §7 for the cache it commits.

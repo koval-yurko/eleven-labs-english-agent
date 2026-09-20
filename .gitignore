@@ -60,6 +60,17 @@ apps/web/scripts/lexicon/sources/
 # anyone else's checkout. See apps/web/scripts/level-lexicon.ts.
 apps/web/scripts/lexicon/.batches/
 
-# graffiti code map (~1 MB) — derived from the tree on every `graffiti .`, so it is
-# regenerable in any checkout and would only churn in diffs.
+# graphify code map — graph.json/graph.html/cache/ast are derived and regenerable in any
+# checkout (see docs/2026-09-19-graffiti-to-graphify-design.md §6). cache/semantic*/ is the
+# exception: it holds LLM-extracted doc summaries that cost money to recreate, so it is
+# re-included below. Nested re-inclusion is required — a flat negation after `graphify-out/`
+# stages nothing, silently.
+graphify-out/*
+!graphify-out/cache/
+graphify-out/cache/*
+!graphify-out/cache/semantic/
+!graphify-out/cache/semantic-deep/
+
+# graffiti code map (superseded by graphify above) — left ignored until the sibling doc's
+# gates are run and the graffiti skill/binary are actually removed (D12).
 .graffiti/
