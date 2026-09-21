@@ -60,13 +60,23 @@ export interface ActiveVersion {
  * evaluated before any client work starts.
  *
  * Delete `"vapi"` from the withheld set the moment `apps/mobile/src/lib/transport/vapi.ts` is a real
- * adapter — and not before.
+ * adapter — and not before. Same rule for `"livekit"`: `words-4.0` exists and can be provisioned
+ * (moot — LiveKit has no remote object, see `PROVISIONED` below), but
+ * `apps/mobile/src/lib/transport/livekit.ts` is a placeholder that throws on `start()`
+ * (docs/2026-09-20-livekit-spike-task-plan.md Phase 1), so it stays withheld until Phase 3.
  */
 const CLIENT_READY: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>([
   "elevenlabs",
   "openai",
   // Opened 2026-08-28, when `apps/mobile/src/lib/transport/vapi.ts` became a real adapter.
   "vapi",
+  /**
+   * Opened 2026-09-25, when `apps/mobile/src/lib/transport/livekit.ts` became a real adapter
+   * (task plan Phase 3). Unlike its three siblings this one has never run on a device yet — that
+   * is the L5 matrix, and it needs the version to be offerable before it can start. A build older
+   * than that adapter will not see the version either way, since this gate is read per request.
+   */
+  "livekit",
 ]);
 
 /**
@@ -81,7 +91,8 @@ const CLIENT_READY: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>([
  *
  * The real question was never "is this ElevenLabs" but "is there an id to look up", so it is asked
  * that way now. A provider absent from this set is one whose session config is built per request
- * (OpenAI); a provider in it must have an active lockfile entry or it is not offered at all.
+ * (OpenAI, and now LiveKit — the worker reads `words-4.0` from dispatch metadata, research doc §1);
+ * a provider in it must have an active lockfile entry or it is not offered at all.
  */
 const PROVISIONED: ReadonlySet<TutorProviderId> = new Set<TutorProviderId>(["elevenlabs", "vapi"]);
 

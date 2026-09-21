@@ -15,6 +15,7 @@ import words20 from "./words-2.0";
 import words21 from "./words-2.1";
 import words30 from "./words-3.0";
 import words31 from "./words-3.1";
+import words40 from "./words-4.0";
 
 export type { PromptVersion } from "./types";
 
@@ -70,6 +71,11 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * `words-3.1` closes the set: the clause and the grant of 1.1 / 2.1 on the third service, so the
  * lesson-with-a-tool is now comparable across all three the way the lesson without one already was.
  *
+ * `words-4.0` is the fourth service, `words-1.0`/`2.0`/`3.0` again: not offered to a learner yet
+ * (`CLIENT_READY` in `../../lib/agent-registry.ts` withholds `"livekit"` until Phase 3 of
+ * docs/2026-09-20-livekit-spike-task-plan.md has a mobile adapter), registered here so the worker's
+ * own text-only walkthrough has the real prompt to run rather than a fixture.
+ *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
@@ -81,6 +87,7 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words21,
   words30,
   words31,
+  words40,
 ];
 
 /**

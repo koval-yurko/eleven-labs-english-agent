@@ -15,6 +15,7 @@ export const API_V2_ROUTES = {
   conversationToken: `${API_V2}/words-agent/token`,
   realtimeToken: `${API_V2}/words-agent/openai-token`,
   vapiToken: `${API_V2}/words-agent/vapi-token`,
+  livekitToken: `${API_V2}/words-agent/livekit-token`,
   vapiWebhook: `${API_V2}/vapi/webhook`,
   lessonSession: `${API_V2}/lessons/session`,
   lessons: `${API_V2}/lessons`,
@@ -268,6 +269,47 @@ export function isVapiTokenResponse(body: unknown): body is VapiTokenResponse {
     // learner can open one before adding any — and refusing to start it would be a worse failure
     // than a tutor that finds its list empty and says so.
     typeof b.itemsList === "string"
+  );
+}
+
+/**
+ * `POST /api/v2/words-agent/livekit-token` — what the phone needs to join the room the tutor will
+ * be dispatched into.
+ *
+ * Four fields, and the lesson is in none of them. The prompt, the items, the turn plan and the
+ * write-back grant travel as LiveKit **dispatch metadata**, which rides inside `token` as a
+ * `roomConfig` claim and is read by the worker, not by the phone (research doc §1, §3.10). So
+ * unlike the OpenAI and Vapi responses, there is nothing here for a client to pass along, get wrong
+ * or be made to lie about — it connects to a room and the tutor is already configured.
+ */
+export interface LiveKitTokenResponse {
+  /** The LiveKit server to connect to — `wss://…`, this deployment's project. */
+  url: string;
+  /** A join token for `roomName`, scoped to it, carrying the agent dispatch. */
+  token: string;
+  /**
+   * Named after the conversation rather than the lesson: one room per session, so a second attempt
+   * at the same lesson cannot land in a room whose previous tutor has not finished leaving.
+   */
+  roomName: string;
+  /** The row key for `lesson_sessions`, minted by the server. */
+  conversationId: string;
+  version: string;
+}
+
+export function isLiveKitTokenResponse(body: unknown): body is LiveKitTokenResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const b = body as Partial<LiveKitTokenResponse>;
+  return (
+    typeof b.url === "string" &&
+    b.url.length > 0 &&
+    typeof b.token === "string" &&
+    b.token.length > 0 &&
+    typeof b.roomName === "string" &&
+    b.roomName.length > 0 &&
+    typeof b.conversationId === "string" &&
+    b.conversationId.length > 0 &&
+    typeof b.version === "string"
   );
 }
 

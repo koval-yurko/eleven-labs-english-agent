@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    // Relative imports carry an explicit ".ts" (e.g. "./claude-llm.ts"), not the usual
+    // extensionless style — `lk agent console`/`dev` run the entrypoint through Node's OWN
+    // ESM resolver (native TypeScript type-stripping, not tsx), which requires a real,
+    // resolvable extension on every relative specifier. tsx tolerates either form, so this
+    // is for the other runner, not a style choice.
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "paths": {
+      "@tutor/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

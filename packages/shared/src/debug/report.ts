@@ -267,7 +267,10 @@ function sanitizeData(raw: unknown): DebugData | undefined {
 }
 
 const LEVELS = new Set<DebugLevel>(["debug", "info", "warn", "error"]);
-const PROVIDERS = new Set<string>(["elevenlabs", "openai", "vapi"]);
+// "livekit" is here even though no build can produce one yet (agent-registry.ts's CLIENT_READY
+// withholds it) — the alternative is that this Set silently turns every LiveKit report into `null`
+// the day Phase 3 ships the adapter, which is exactly the failure mode named below.
+const PROVIDERS = new Set<string>(["elevenlabs", "openai", "vapi", "livekit"]);
 const KINDS = new Set<string>(["error", "feedback", "manual"]);
 
 function sanitizeEvent(raw: unknown): DebugEvent | null {

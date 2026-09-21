@@ -72,6 +72,32 @@ export const DEBUG_CODES = [
   "transport.error",
   "transport.usage",
   "transport.shim",
+  /**
+   * LiveKit only, and the pair exists because on this provider "the tutor is here" is a SEPARATE
+   * fact from "the room is connected" (research doc §5.3). Every other provider has one connection
+   * and the agent is the far end of it; here the phone joins a room and a worker is dispatched into
+   * it afterwards, so a lesson can be perfectly connected with no tutor in it.
+   *
+   * `agent_left` without a `tutor.ending` signal before it is a worker that died mid-lesson, which
+   * is what turns into `onEnd("error")` and the learner's "dropped" card. Its presence in a report
+   * is the difference between "the tutor crashed" and "the learner hung up".
+   */
+  "transport.agent_joined",
+  "transport.agent_left",
+  /**
+   * A control the phone sent that the worker did not accept. An RPC failure means a `say` or a
+   * `cancelTurn` was lost — the learner sees a tutor that ignored them — while a stream send is the
+   * resume context, whose loss means the tutor silently starts the lesson over.
+   */
+  "transport.rpc_failed",
+  "transport.stream_sent",
+  /**
+   * Learner's last line → the tutor starts speaking, in ms. The ONE latency number measured the
+   * same way on every provider, because it lives in the session and not in any adapter
+   * (docs/2026-09-11-livekit-claude-diy-provider.md §5.3). It is imprecise, since each provider
+   * delivers the learner's transcript at a different moment, but it is comparable.
+   */
+  "turn.gap",
   // network
   "api.request",
   "api.failed",

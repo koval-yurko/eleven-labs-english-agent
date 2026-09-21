@@ -40,6 +40,10 @@ overrides:
 allowBuilds:
   esbuild: true
   sharp: true
+  # @livekit/agents' on-device inference (end-of-turn detector + streaming VAD), pulled in by
+  # apps/voice-worker. Its "install" script is `node -e ""` — a no-op that exists only to suppress
+  # pnpm 9's implicit `node-gyp rebuild` — verified by reading the package's own package.json.
+  "@livekit/local-inference": true
   # unrs-resolver — the native module resolver behind eslint-config-expo's import plugin. Blocking
   # it does not warn, it FAILS: pnpm's deps-status check exits non-zero, so `pnpm typecheck` in
   # apps/mobile dies before tsc ever runs. Added while scaffolding apps/mobile (S0).

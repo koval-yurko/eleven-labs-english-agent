@@ -23,10 +23,12 @@
     "enrich:words:plan": "tsx scripts/enrich-words.ts --dry-run",
     "lexicon:load": "tsx scripts/lexicon/load-lexicon.ts",
     "lexicon:load:plan": "tsx scripts/lexicon/load-lexicon.ts --dry-run",
+    "dispatch:fixture": "tsx scripts/livekit-dispatch-fixture.ts",
     "report": "tsx scripts/report.ts",
     "verify:reports": "tsx scripts/verify-debug-reports.ts",
     "level:lexicon": "tsx scripts/level-lexicon.ts",
-    "level:lexicon:plan": "tsx scripts/level-lexicon.ts --dry-run"
+    "level:lexicon:plan": "tsx scripts/level-lexicon.ts --dry-run",
+    "livekit:cost": "tsx scripts/livekit-cost.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
@@ -44,6 +46,7 @@
     "dexie-react-hooks": "^4.4.0",
     "jose": "^6.2.8",
     "langsmith": "^0.7.12",
+    "livekit-server-sdk": "^2.19.1",
     "mcp-handler": "^2.1.1",
     "next": "^16.2.7",
     "react": "19.2.3",

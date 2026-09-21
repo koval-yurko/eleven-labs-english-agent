@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Sync .env files with the production environment on Vercel (web) and EAS (mobile).
+// Sync .env files with the production environment on Vercel (web), EAS (mobile) and LiveKit
+// Cloud (voice-worker).
 //
 //   node scripts/env-sync.mjs diff
-//   node scripts/env-sync.mjs push [--apply] [--target web|mobile|all]
-//   node scripts/env-sync.mjs pull [--write] [--target web|mobile|all]
+//   node scripts/env-sync.mjs push [--apply] [--target web|mobile|worker|all]
+//   node scripts/env-sync.mjs pull [--dry-run] [--target web|mobile|worker|all]
 //
 // Production is the only environment this touches (D9). Plans are the default; mutation
 // needs --apply (D6). Values are never printed — only a length and a sha256 prefix (D5).
@@ -42,10 +43,20 @@ const isDenied = (key) => DENY_EXACT.has(key) || DENY_PREFIX.some((p) => key.sta
 const UNREADABLE = new Set(["[SENSITIVE]"]);
 const isUnreadable = (v) => v === undefined || UNREADABLE.has(v);
 
+// `deny` is per-target on top of D4: keys the local .env legitimately holds but the remote injects
+// by itself. LiveKit Cloud injects its own URL and project credentials into every agent, and
+// `lk agent secrets` hides them — the worker's .env keeps them only for local `dev`/`console`.
 const TARGETS = {
   web: { remote: "vercel", dir: join(ROOT, "apps/web"), label: "web → Vercel" },
   mobile: { remote: "eas", dir: join(ROOT, "apps/mobile"), label: "mobile → EAS" },
+  worker: {
+    remote: "livekit",
+    dir: join(ROOT, "apps/voice-worker"),
+    label: "voice-worker → LiveKit Cloud",
+    deny: new Set(["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"]),
+  },
 };
+const isDeniedFor = (target, key) => isDenied(key) || Boolean(TARGETS[target].deny?.has(key));
 
 // ── output ───────────────────────────────────────────────────────────────────
 
@@ -368,7 +379,83 @@ const eas = {
   },
 };
 
-const remoteFor = (name) => (name === "vercel" ? vercel : eas);
+// ── remote: LiveKit Cloud ────────────────────────────────────────────────────
+// The build context and livekit.toml live at the repo root; env files stay in the worker app.
+// Behaviour below is read from livekit-cli's cmd/lk/agent.go (v2.18), not from its --help.
+
+const livekit = {
+  label: "LiveKit Cloud",
+  // Agent secrets have one storage class: they can be listed by name, never read back. Every
+  // key is therefore write-only here, whatever its .env.example annotation says.
+  writeOnly: true,
+
+  // Without livekit.toml, `lk agent secrets` falls back to picking any agent in the project,
+  // interactively — not something to do on the user's behalf.
+  unavailable() {
+    if (!has("lk")) return "the LiveKit CLI is not installed (`brew install livekit-cli`)";
+    if (!existsSync(join(ROOT, "livekit.toml")))
+      return "no root livekit.toml — create the agent first with `lk agent create .` (docs/2026-09-11-livekit-claude-diy-provider.md §10.2)";
+    return null;
+  },
+
+  list() {
+    const r = run(["lk"], ["agent", "secrets", "--json"], { cwd: ROOT });
+    if (r.code !== 0) fail(`lk agent secrets failed:\n${r.stderr.trim() || r.stdout.trim()}`);
+    let rows;
+    try {
+      const parsed = JSON.parse(r.stdout.slice(r.stdout.search(/[[{]/)));
+      rows = Array.isArray(parsed) ? parsed : (parsed.secrets ?? []);
+    } catch {
+      fail(`could not parse \`lk agent secrets --json\` output:\n${r.stdout.slice(0, 400)}`);
+    }
+    const meta = new Map();
+    for (const row of rows) {
+      const name = row.name ?? row.Name;
+      if (name) meta.set(name, { sensitive: true });
+    }
+    return meta;
+  },
+
+  // Names only: every value is unreadable, which pull and classify already treat as "unknown".
+  read() {
+    return new Map([...this.list().keys()].map((k) => [k, undefined]));
+  },
+
+  // Every update-secrets call restarts the agent, so all keys go in ONE call. No --overwrite:
+  // with it the server deletes every secret not in this batch; without it, it merges.
+  setMany(rows) {
+    const dir = mkdtempSync(join(tmpdir(), "env-sync-"));
+    const file = join(dir, "secrets.env");
+    try {
+      // godotenv reads this, and it understands the same double-quoted escapes formatValue emits.
+      writeFileSync(file, rows.map((r) => `${r.key}=${formatValue(r.value)}`).join("\n") + "\n", {
+        mode: 0o600,
+      });
+      const r = run(["lk"], ["agent", "update-secrets", "--secrets-file", file, "--yes"], {
+        cwd: ROOT,
+      });
+      const res =
+        r.code === 0 ? { ok: true } : { ok: false, err: r.stderr.trim() || r.stdout.trim() };
+      return rows.map(() => res);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+};
+
+const REMOTES = { vercel, eas, livekit };
+const remoteFor = (name) => REMOTES[name];
+
+// A target whose remote does not exist yet is reported and skipped, so one undeployed app does
+// not break `pnpm env:diff` for the other two.
+function available(target) {
+  const why = remoteFor(TARGETS[target].remote).unavailable?.();
+  if (why) {
+    head(`${TARGETS[target].label} — ${ENVIRONMENT}`);
+    warn(`skipped: ${why}`);
+  }
+  return !why;
+}
 
 // ── classification (§5.1) ────────────────────────────────────────────────────
 
@@ -397,7 +484,7 @@ function classify(target) {
 
   for (const key of registry.order) {
     const entry = registry.entries.get(key);
-    if (isDenied(key)) {
+    if (isDeniedFor(target, key)) {
       plan.skipped.push({ key, why: "runtime-injected (D4)" });
       continue;
     }
@@ -414,7 +501,7 @@ function classify(target) {
       continue;
     }
 
-    const sensitive = isSensitive(entry);
+    const sensitive = api.writeOnly || isSensitive(entry);
     const onRemote = remoteMeta.has(key);
     const remoteValue = remoteValues.get(key);
 
@@ -457,10 +544,10 @@ function classify(target) {
   }
 
   for (const key of local.keys())
-    if (!registry.entries.has(key) && !isDenied(key)) plan.unregistered.push({ key });
+    if (!registry.entries.has(key) && !isDeniedFor(target, key)) plan.unregistered.push({ key });
 
   for (const key of remoteMeta.keys()) {
-    if (isDenied(key)) continue;
+    if (isDeniedFor(target, key)) continue;
     const entry = registry.entries.get(key);
     if (!entry || entry.commented) plan.remoteOnly.push({ key, registered: Boolean(entry) });
   }
@@ -530,9 +617,9 @@ function report(target, plan) {
 }
 
 function cmdDiff(targets) {
-  for (const t of targets) report(t, classify(t).plan);
+  for (const t of targets) if (available(t)) report(t, classify(t).plan);
   say(
-    `\n${c.dim}Read-only. \`pnpm env:push --apply\` writes the differences to ${ENVIRONMENT}.${c.off}`,
+    `\n${c.dim}Read-only. \`pnpm env:push:apply\` writes the differences to ${ENVIRONMENT}.${c.off}`,
   );
 }
 
@@ -540,6 +627,7 @@ function cmdPush(targets, apply, secrets) {
   let pending = 0;
   const work = [];
   for (const t of targets) {
+    if (!available(t)) continue;
     const { plan } = classify(t);
     pending += report(t, plan) + (secrets ? plan.unverifiable.length : 0);
     work.push({ target: t, plan });
@@ -554,7 +642,7 @@ function cmdPush(targets, apply, secrets) {
 
   if (!apply) {
     say(
-      `\n${c.dim}Plan only — nothing was written. Re-run with --apply to push to ${ENVIRONMENT}.${c.off}`,
+      `\n${c.dim}Plan only — nothing was written. \`pnpm env:push:apply\` pushes to ${ENVIRONMENT}.${c.off}`,
     );
     return;
   }
@@ -569,8 +657,11 @@ function cmdPush(targets, apply, secrets) {
     const todo = [...plan.create, ...plan.change, ...(secrets ? plan.unverifiable : [])];
     if (!todo.length) continue;
     head(`applying — ${TARGETS[target].label}`);
-    for (const row of todo) {
-      const res = api.set(row.key, row.value, row.sensitive, row.onRemote ?? false);
+    const results = api.setMany
+      ? api.setMany(todo)
+      : todo.map((row) => api.set(row.key, row.value, row.sensitive, row.onRemote ?? false));
+    for (const [i, row] of todo.entries()) {
+      const res = results[i];
       if (res.ok) say(`  ${c.grn}✔${c.off} ${row.key}`);
       else {
         failed++;
@@ -581,12 +672,13 @@ function cmdPush(targets, apply, secrets) {
   say("");
   if (failed) fail(`${failed} key(s) failed to write.`);
   say(
-    `${c.grn}Done.${c.off} Vercel needs a redeploy and EAS needs a rebuild for these to take effect.`,
+    `${c.grn}Done.${c.off} Vercel needs a redeploy and EAS needs a rebuild for these to take effect; LiveKit restarts the agent by itself.`,
   );
 }
 
 function cmdPull(targets, dryRun) {
   for (const target of targets) {
+    if (!available(target)) continue;
     const { dir, remote, label } = TARGETS[target];
     const envPath = join(dir, ".env");
     const registry = parseRegistry(readFileSync(join(dir, ".env.example"), "utf8"));
@@ -600,7 +692,7 @@ function cmdPull(targets, dryRun) {
     const kept = new Map();
     const writeOnly = [];
     for (const [key, value] of values) {
-      if (isDenied(key)) continue; // strips the injected VERCEL_OIDC_TOKEN (§2.3)
+      if (isDeniedFor(target, key)) continue; // strips the injected VERCEL_OIDC_TOKEN (§2.3)
       if (registry.entries.get(key)?.commented) continue; // a pull must not clobber APP_BASE_URL / APP_ENV (D2)
       if (isUnreadable(value) || value === "") {
         writeOnly.push(key);
@@ -624,7 +716,7 @@ function cmdPull(targets, dryRun) {
     for (const key of local.keys())
       if (
         !kept.has(key) &&
-        !isDenied(key) &&
+        !isDeniedFor(target, key) &&
         !registry.entries.get(key)?.commented &&
         !writeOnly.includes(key)
       )
@@ -632,7 +724,7 @@ function cmdPull(targets, dryRun) {
     // Everything local the remote does not supply: #commented registry keys whose value must
     // differ per environment (APP_BASE_URL, APP_ENV), keys the remote never held, and the
     // write-only ones. Pull UPDATES .env rather than replacing it, so all of them survive.
-    const preserved = [...local.keys()].filter((k) => !kept.has(k) && !isDenied(k));
+    const preserved = [...local.keys()].filter((k) => !kept.has(k) && !isDeniedFor(target, k));
 
     for (const k of added)
       say(`  ${c.grn}+ ${k}${c.off}  ${c.dim}${fingerprint(kept.get(k))}${c.off}`);
@@ -684,14 +776,14 @@ function cmdPull(targets, dryRun) {
       const append = [...kept.keys()].filter((k) => !seen.has(k));
       if (append.length) {
         if (!text.endsWith("\n")) text += "\n";
-        text += `\n# Added by \`pnpm env:pull\` from ${remote} ${ENVIRONMENT} on ${new Date().toISOString().slice(0, 10)}.\n`;
+        text += `\n# Added by \`pnpm env:pull:apply\` from ${remote} ${ENVIRONMENT} on ${new Date().toISOString().slice(0, 10)}.\n`;
         for (const key of append) text += `${key}=${formatValue(kept.get(key))}\n`;
       }
     } else {
       // No file yet — the restore-a-machine case. Here the registry's ordering and comments are
       // the only layout there is, so generate from it.
       const lines = [
-        `# Written by \`pnpm env:pull\` from ${remote} ${ENVIRONMENT} on ${new Date().toISOString()}`,
+        `# Written by \`pnpm env:pull:apply\` from ${remote} ${ENVIRONMENT} on ${new Date().toISOString()}`,
         "",
       ];
       const written = new Set();
@@ -720,7 +812,7 @@ function cmdPull(targets, dryRun) {
     say(`  ${c.grn}updated ${envPath}${c.off}`);
   }
   if (dryRun)
-    say(`\n${c.dim}--dry-run: no file was written. Re-run without it to update .env.${c.off}`);
+    say(`\n${c.dim}--dry-run: no file was written. \`pnpm env:pull:apply\` updates .env.${c.off}`);
 }
 
 // ── entry ────────────────────────────────────────────────────────────────────
@@ -744,9 +836,9 @@ const opt = (name) => {
 };
 
 const targetOpt = opt("target") ?? "all";
-if (!["web", "mobile", "all"].includes(targetOpt))
-  fail(`--target must be web, mobile or all (got ${targetOpt})`);
-const targets = targetOpt === "all" ? ["web", "mobile"] : [targetOpt];
+if (!["web", "mobile", "worker", "all"].includes(targetOpt))
+  fail(`--target must be web, mobile, worker or all (got ${targetOpt})`);
+const targets = targetOpt === "all" ? Object.keys(TARGETS) : [targetOpt];
 
 switch (command) {
   case "diff":
@@ -759,16 +851,16 @@ switch (command) {
     cmdPull(targets, flag("dry-run"));
     break;
   default:
-    say(`env-sync — local .env ⇄ ${ENVIRONMENT} on Vercel (web) and EAS (mobile)
+    say(`env-sync — local .env ⇄ ${ENVIRONMENT} on Vercel (web), EAS (mobile) and LiveKit Cloud (worker)
 
-  pnpm env:diff                    report drift; changes nothing
-  pnpm env:push                    plan the upload
-  pnpm env:push --apply            perform it
-  pnpm env:push --apply --secrets  also rewrite values the remote will not read back
-  pnpm env:pull                    update .env from the remote (backs up to .env.bak)
-  pnpm env:pull --dry-run          show the diff, write nothing
+  pnpm env:diff                     report drift; changes nothing
+  pnpm env:push                     plan the upload
+  pnpm env:push:apply               perform it
+  pnpm env:push:apply --secrets     also rewrite values the remote will not read back
+  pnpm env:pull                     show what a pull would change; writes nothing
+  pnpm env:pull:apply               update .env from the remote (backs up to .env.bak)
 
-  --target web | mobile | all      default: all
+  --target web | mobile | worker | all   default: all
 
 Design: docs/2026-08-28-env-variable-sync.md`);
     process.exit(command ? 1 : 0);

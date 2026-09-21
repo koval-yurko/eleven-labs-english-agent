@@ -2,6 +2,7 @@ import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import type { TutorTransportHook } from "./types";
 import { useElevenLabsTransport } from "./elevenlabs";
+import { useLiveKitTransport } from "./livekit";
 import { useOpenAiTransport } from "./openai";
 import { useVapiTransport } from "./vapi";
 
@@ -29,6 +30,9 @@ export const TUTOR_PROVIDERS = {
   // server withholds every Vapi version from the picker (`CLIENT_READY` in
   // apps/web/src/lib/agent-registry.ts), so this is a second lock on a door that is already shut.
   vapi: useVapiTransport,
+  // Registered, not implemented — see ./livekit.ts's own docblock. Same shut door as vapi above:
+  // CLIENT_READY withholds "livekit" until Phase 3 of docs/2026-09-20-livekit-spike-task-plan.md.
+  livekit: useLiveKitTransport,
 } as const satisfies Record<TutorProviderId, TutorTransportHook>;
 
 /**

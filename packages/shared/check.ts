@@ -20,10 +20,21 @@ import {
   MAX_TRANSCRIPT_LINE_CHARS,
   PAUSE_STOP_MESSAGE,
   UNHEARD_RESUME_MESSAGE,
+  formatResumeContext,
   sanitizeTranscript,
   type TranscriptLine,
 } from "./src/tutor/session";
 import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor/pause";
+import {
+  LIVEKIT_CAPABILITIES,
+  RPC_PAYLOAD_MAX_BYTES,
+  channelForBytes,
+  channelForText,
+  decodeWireMessage,
+  encodeWireMessage,
+  utf8ByteLength,
+  type TutorWireMessage,
+} from "./src/tutor/livekit-wire";
 import {
   MAX_DEBUG_DATA_KEYS,
   MAX_DEBUG_DATA_VALUE,
@@ -626,6 +637,81 @@ for (const speaking of [false, true])
 }
 
 console.log(`checked held-pause properties (${pauseCases} cases)`);
+
+// ── LiveKit wire contract (R10) ──────────────────────────────────────────────────────────────
+// docs/2026-09-11-livekit-claude-diy-provider.md §4 L0. The worker and the phone (Phase 3) compile
+// against this module directly, so its three properties are pinned here rather than trusted by
+// inspection: a round trip, the size-based RPC/stream routing decision, and that the held-pause
+// cross-product above already covers this provider's own capability set.
+
+// 1. ROUND TRIP: decode(encode(x)) === x, ASCII and non-ASCII, empty and typical sizes.
+const wireFixtures: TutorWireMessage[] = [
+  { text: "" },
+  { text: "Let's begin." },
+  { text: "мимолётный — fleeting" },
+  { text: "a".repeat(20_000) },
+];
+for (const fixture of wireFixtures) {
+  const roundTripped = decodeWireMessage(encodeWireMessage(fixture));
+  eq(`wire: round trip ${JSON.stringify(fixture.text.slice(0, 20))}…`, roundTripped, fixture);
+}
+if (
+  (() => {
+    try {
+      decodeWireMessage("not json");
+      return false;
+    } catch {
+      return true;
+    }
+  })() !== true
+) {
+  failures.push("wire: decodeWireMessage must throw on malformed input");
+}
+
+// 2. SIZE ROUTING: anything over 15 KiB routes to a text stream, never RPC. The Cyrillic 20-turn
+//    resume context is the real failure case named in the research doc — UTF-8 is 2 bytes/char, so
+//    a `.length`-based proxy (as `debug/report.ts`'s soft cap deliberately uses) would under-count
+//    it by half and silently route a 16 KB payload onto a 15 KiB RPC.
+eq("wire: at the cap routes to rpc", channelForBytes(RPC_PAYLOAD_MAX_BYTES), "rpc");
+eq("wire: one byte over the cap routes to stream", channelForBytes(RPC_PAYLOAD_MAX_BYTES + 1), "stream");
+eq("wire: ASCII byte length is the string length", utf8ByteLength("hello"), 5);
+eq("wire: a 2-byte-per-char Cyrillic string is NOT under-counted as its .length", utf8ByteLength("мир"), 6);
+
+const cyrillicTurn: TranscriptLine = {
+  role: "agent",
+  // Solid Cyrillic with no spaces, well past the 400-char-per-line cap `formatResumeContext`
+  // allows: every one of the 20 turns below is truncated AT the cap, at close to the true 2
+  // bytes/char UTF-8 weight (a natural sentence's spaces and punctuation are 1 byte each, and pull
+  // the average down enough to matter at exactly this boundary — this fixture proves the routing
+  // decision at its actual worst case, not at whatever density a hand-written sentence happened to have).
+  text: "мимолётныйпереходмеждудвумяпохожимигласнымизвуками".repeat(10),
+};
+const twentyCyrillicTurns = Array.from({ length: 20 }, () => cyrillicTurn);
+const cyrillicResume = formatResumeContext(twentyCyrillicTurns);
+const cyrillicBytes = utf8ByteLength(cyrillicResume);
+if (cyrillicBytes <= RPC_PAYLOAD_MAX_BYTES) {
+  failures.push(
+    `wire: the 20-turn Cyrillic resume fixture is only ${cyrillicBytes} bytes — too small to prove the routing decision; grow the fixture`,
+  );
+}
+eq("wire: the Cyrillic resume routes to a stream, never RPC", channelForText(cyrillicResume), "stream");
+
+// 3. PAUSE COVERAGE: the held-pause cross-product above already sweeps every capability
+//    combination, which by construction includes LiveKit's — but "included in a sweep" is not the
+//    same as "named", so this instantiates the fake transport with the PROVIDER'S OWN capability
+//    set and re-asserts the two branches that set applies to (see `pause.ts`: only `cancelTurn` and
+//    `userActivity` affect `planHold`/`planRelease`; `responseCorrection` governs `onTurnCorrected`,
+//    which those functions don't touch, and `opensUnprompted` governs the kickoff, not a pause).
+{
+  const fake = createFakeTransport({ capabilities: LIVEKIT_CAPABILITIES });
+  const hold = planHold(fake.controls.capabilities, { speaking: true, muted: false, lineCount: 0, at: 0 });
+  eq("wire: LiveKit's cancelTurn:true barges in by cancelling, never a spoken message", hold.bargeIn, "cancel");
+  eq("wire: LiveKit's userActivity:false needs no heartbeat", hold.heartbeat, false);
+  applyHold(fake.controls, hold);
+  eq("wire: cancelling a LiveKit hold never calls say", fake.calls.some((c) => c.method === "say"), false);
+}
+
+console.log("checked LiveKit wire-contract properties");
 
 // ── debug reports (R9) ───────────────────────────────────────────────────────────────────────
 // The report is built on a phone, in the middle of the failure it describes, and read by a person

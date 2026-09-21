@@ -440,10 +440,10 @@ allowlist.
 ```bash
 pnpm env:diff                      # report only; local vs all three environments, both remotes
 pnpm env:push                      # plan: what would change
-pnpm env:push --apply              # do it, all environments
-pnpm env:push --target web --apply
-pnpm env:pull                      # updates .env from production, backing up to .env.bak
-pnpm env:pull --dry-run            # shows the diff, writes nothing
+pnpm env:push:apply                # do it (= push --apply)
+pnpm env:push:apply --target web
+pnpm env:pull                      # shows the diff, writes nothing (= pull --dry-run)
+pnpm env:pull:apply                # updates .env from production, backing up to .env.bak
 ```
 
 `--target` ∈ `web | mobile | all` (default `all`). No `--env` (D9).

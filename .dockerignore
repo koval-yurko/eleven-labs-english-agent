@@ -1,0 +1,48 @@
+# Build context for the root Dockerfile, which builds from the REPO ROOT (see its header).
+# Everything here is either reinstalled inside the image, irrelevant to a Node worker, or a secret
+# that must never be baked into one.
+
+# Reinstalled by pnpm inside the image, and by far the largest thing in the repo.
+node_modules
+**/node_modules
+
+.git
+.github
+.claude
+.vscode
+.idea
+
+# Secrets. The worker's own arrive through `lk agent update-secrets`, never through the image.
+**/.env
+**/.env.local
+**/.env.bak
+**/.env.*
+**/.local
+.vercel
+.agents
+.codex
+credentials
+**/credentials.json
+
+# The other two apps' build output and platform projects. Their sources are not copied either — the
+# Dockerfile takes only packages/shared and apps/voice-worker.
+apps/web/.next
+apps/web/tsconfig.tsbuildinfo
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/.expo
+apps/mobile/dist
+
+# Local worker artifacts: the dispatch fixture, the JSONL ledgers, and recordings of a real voice.
+apps/voice-worker/.local
+apps/voice-worker/console-recordings
+
+# Repo furniture with no bearing on a running worker.
+docs
+spec
+supabase
+graphify-out
+.graffiti
+**/.DS_Store
+
+.pnpm-store

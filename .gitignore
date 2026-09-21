@@ -51,6 +51,8 @@ apps/mobile/ios/
 apps/mobile/android/
 .vercel
 .env*
+# Templates are committed. apps/web and apps/mobile were force-added before this line existed.
+!.env.example
 
 # Lexicon build inputs (~21 MB: WikDict SQLite + CEFR CSVs). Fetched on demand, never
 # committed — see apps/web/scripts/lexicon/README.md. Only the derived data/ artifact ships.
@@ -74,3 +76,17 @@ graphify-out/cache/*
 # graffiti code map (superseded by graphify above) — left ignored until the sibling doc's
 # gates are run and the graffiti skill/binary are actually removed (D12).
 .graffiti/
+
+# apps/voice-worker's manual-walkthrough fixture (`pnpm dispatch:fixture` in apps/web, see
+# apps/voice-worker/src/agent.ts) — a local JSON dump of a real prompt, regenerable on demand
+# and meaningless outside the checkout that made it.
+apps/voice-worker/.local/
+
+# `lk agent console --record` writes the lesson's audio and session report here. It is a recording
+# of a real person's voice, megabytes per walkthrough, and regenerable by running the walkthrough
+# again — three separate reasons it does not belong in the repo. One was committed by accident on
+# 2026-09-25 and rewritten out of the branch before it was pushed; this is so that cannot recur.
+apps/voice-worker/console-recordings/
+
+# Local package-manager cache
+.pnpm-store/

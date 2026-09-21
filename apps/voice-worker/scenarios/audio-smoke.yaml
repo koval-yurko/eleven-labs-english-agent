@@ -1,0 +1,12 @@
+# Pipeline smoke test against the deployed fallback prompt, not an L4/L8 measurement.
+name: LiveKit spike audio smoke
+scenarios:
+  - label: English and Russian short exchange
+    instructions: >-
+      You are testing a voice tutor. Say hello and ask to practise the word resilient.
+      Explain briefly that you sometimes answer in Russian. Say: Я хочу попробовать ещё раз.
+      Answer the tutor's next question in a short English sentence, then say goodbye.
+      End after at most four replies. Do not keep the conversation going indefinitely.
+    agent_expectations: >-
+      The agent responds audibly and coherently, handles the Russian phrase without crashing,
+      and continues the short exchange without a stalled turn.

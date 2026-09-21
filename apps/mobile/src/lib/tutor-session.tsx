@@ -246,6 +246,8 @@ function useTutorTransports(
     // because "it does nothing anyway" would make the hook sequence depend on which providers
     // happen to be implemented, which is the failure the fixed call order exists to prevent.
     vapi: TUTOR_PROVIDERS.vapi(eventsFor("vapi")),
+    // Same placeholder shape as vapi's, above — see transport/livekit.ts.
+    livekit: TUTOR_PROVIDERS.livekit(eventsFor("livekit")),
   };
 }
 
@@ -303,6 +305,12 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    */
   const usageRef = useRef<TutorUsage | null>(null);
   const kickedOffRef = useRef(false);
+  /**
+   * When the learner's last line landed, or `null` when no tutor reply is owed. `turn.gap` measures
+   * from here to `isSpeaking` going true. The probe lives here and not in an adapter, so it measures
+   * every provider the same way (docs/2026-09-11-livekit-claude-diy-provider.md §5.3).
+   */
+  const userTurnAtRef = useRef<number | null>(null);
   const statusRef = useRef<TutorStatus>("disconnected");
   const startingRef = useRef(false);
   /**
@@ -509,6 +517,10 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       setLines(linesRef.current);
       // Journal as we go: a crash or a force-quit never runs the disconnect path.
       journal();
+      // A learner line that lands while the tutor is ALREADY speaking (OpenAI can deliver its
+      // transcript after the reply has started) owes no gap. Arming on it would time the tutor's
+      // NEXT reply from the wrong line.
+      if (role === "user") userTurnAtRef.current = speakingRef.current ? null : Date.now();
     },
     /**
      * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
@@ -553,6 +565,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     },
     onEnd: (reason) => {
       if (!ownsRef.current) return;
+      userTurnAtRef.current = null;
       emit({
         level: reason === "error" ? "error" : "info",
         code: "session.end",
@@ -690,6 +703,15 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     speakingRef.current = isSpeaking;
   });
+  /** `turn.gap`: the tutor started speaking, so the reply the learner's last line was owed has begun. */
+  useEffect(() => {
+    if (!isSpeaking) return;
+    const from = userTurnAtRef.current;
+    userTurnAtRef.current = null;
+    if (from === null || !ownsRef.current) return;
+    const ms = Date.now() - from;
+    emit({ level: "debug", code: "turn.gap", message: `${ms} ms`, data: { ms } });
+  }, [isSpeaking]);
   const [silenced, setSilenced] = useState(true);
   /**
    * The mute bit is NOT stored here — `useConversation` already owns it. This ref exists only
@@ -716,6 +738,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
      * that is the point: this branch used to be reachable only on a phone, in a billed session, and
      * getting it wrong shows up as the tutor saying a plausible wrong thing.
      */
+    // A pause is not a slow tutor: a reply that starts after the learner comes back owes no gap.
+    userTurnAtRef.current = null;
     const plan = planHold(tx.capabilities, {
       speaking: speakingRef.current,
       muted: mutedRef.current,

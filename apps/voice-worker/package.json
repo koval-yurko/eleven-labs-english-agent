@@ -1,0 +1,39 @@
+{
+  "name": "voice-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/agent.ts dev",
+    "start": "tsx src/agent.ts start",
+    "console": "lk agent console --text src/agent.ts",
+    "console:voice": "lk agent console src/agent.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "check": "tsx src/check.ts",
+    "smoke": "tsx src/smoke.ts",
+    "stt:check": "tsx src/stt-language-check.ts",
+    "replay": "tsx src/replay.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "@livekit/agents": "^1.9.0",
+    "@livekit/agents-plugin-deepgram": "1.9.0",
+    "@livekit/agents-plugin-elevenlabs": "1.9.0",
+    "@livekit/rtc-node": "^0.13.35",
+    "@tutor/shared": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "livekit-server-sdk": "^2.19.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
+  }
+}

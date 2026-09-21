@@ -97,6 +97,25 @@ export function providerConsoleUrl(
       url: `https://dashboard.vapi.ai/calls/${encodeURIComponent(conversationId)}`,
     };
   }
+  /**
+   * LiveKit is the one provider whose console link is NOT a deep link, and the honest version of
+   * "we could not do better" is a link to the right project plus the room name to search for.
+   *
+   * Two reasons it stops there. A LiveKit session is not addressable by `conversationId`: the room
+   * is `lesson-<conversationId>` (the token route's naming convention), but the dashboard keys its
+   * session pages on its own session id, which nothing on our side ever sees. And the project id is
+   * deployment configuration, not a constant — `LIVEKIT_URL` does not contain it, so it has to be
+   * given. Unset, this returns null exactly as it did before, and the operator page simply shows no
+   * link rather than a broken one.
+   */
+  if (provider === "livekit") {
+    const project = process.env.LIVEKIT_PROJECT_ID?.trim();
+    if (!project) return null;
+    return {
+      label: `LiveKit project (room lesson-${conversationId})`,
+      url: `https://cloud.livekit.io/projects/${encodeURIComponent(project)}/sessions`,
+    };
+  }
   return null;
 }
 

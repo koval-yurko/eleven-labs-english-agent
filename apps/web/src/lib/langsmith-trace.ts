@@ -21,6 +21,8 @@ import { Client, RunTree } from "langsmith";
 import type { TranscriptLine } from "@tutor/shared/tutor/session";
 import type { TutorUsage } from "@tutor/shared/tutor/transport";
 
+import { listTurnLedger } from "./livekit-ledger";
+
 // ── Payload types (only the fields we consume; the real payload has more) ──────
 // Mirrors ElevenLabs' `post_call_transcription` data object / Get-Conversation schema.
 
@@ -372,6 +374,155 @@ export async function traceClientLesson(
         // An ESTIMATE, and named one: it is our arithmetic over a rate card that can move, not a
         // figure the platform reported.
         estimated_cost_usd: usage ? estimateCostUsd(usage) : undefined,
+      }),
+    });
+  } catch (e) {
+    await root.end({ error: e instanceof Error ? e.message : String(e) });
+    throw e;
+  } finally {
+    await root.patchRun();
+    await client.awaitPendingTraceBatches();
+  }
+}
+
+/**
+ * Push one LiveKit lesson to LangSmith, one child run per TURN, read from the stored ledger.
+ *
+ * ## Why this is not `traceClientLesson` with a different provider string
+ *
+ * That function's own docblock names what it cannot do: "per-TURN usage and timing are not here —
+ * the transport contract carries neither a turn id nor a timestamp, so usage is summed onto the
+ * root". On this provider they ARE here. The worker runs the model itself, so each turn's exact
+ * prompt, completion and — the number the pricing note cares about — cache read/write split is in
+ * the ledger (`TurnRecord`, research doc §5.2). Each turn therefore carries its real usage and its
+ * real latency, and the root sums what happened instead of what a rate card predicts.
+ *
+ * **No `estimateCostUsd` here, deliberately.** That estimate exists because the other providers
+ * report nothing usable, and the pricing note found it overstates cost by 60-170%. Beside exact
+ * counts it would be a worse number wearing the same name.
+ *
+ * Best-effort by contract, like its siblings: the caller runs it in `after()` and swallows failures.
+ */
+export async function traceLiveKitLesson(
+  lesson: {
+    conversationId: string;
+    lessonId: string;
+    ownerId: string;
+    version: string | null;
+    durationSecs: number | null;
+  },
+  opts: { projectName?: string } = {},
+): Promise<void> {
+  /**
+   * The WHOLE ledger, not the turns one request carried. With partial batching the final post may
+   * hold only the last few, and a trace of the last few turns of a lesson is worse than none.
+   */
+  const turns = await listTurnLedger(lesson.ownerId, lesson.conversationId);
+  if (turns.length === 0) return;
+
+  const client = new Client();
+  const root = new RunTree({
+    // Deterministic for the same reason as `traceClientLesson`, and it matters more here: partial
+    // batching means one lesson posts many times, and every post must patch this trace rather than
+    // file another.
+    ...(UUID.test(lesson.conversationId) ? { id: lesson.conversationId } : {}),
+    name: `lesson ${lesson.conversationId}`,
+    run_type: "chain",
+    client,
+    project_name: opts.projectName ?? process.env.LANGSMITH_PROJECT,
+    inputs: clean({
+      lesson_id: lesson.lessonId,
+      agent_version: lesson.version,
+      provider: "livekit",
+      user_id: lesson.ownerId,
+    }),
+    extra: {
+      metadata: clean({
+        conversation_id: lesson.conversationId,
+        provider: "livekit",
+        agent_version: lesson.version,
+        environment: process.env.APP_ENV?.trim(),
+        // The transcript came from OUR worker — not from a phone, not from a vendor's webhook.
+        source: "worker",
+      }),
+    },
+  });
+  await root.postRun();
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+
+  try {
+    for (const turn of turns) {
+      inputTokens += turn.inputTokens;
+      outputTokens += turn.outputTokens;
+      cacheReadTokens += turn.cacheReadTokens;
+      cacheWriteTokens += turn.cacheWriteTokens;
+
+      const child = await root.createChild({
+        name: `Turn ${turn.seq} @${Math.round(turn.atSecs)}s`,
+        run_type: "llm",
+        inputs: clean({ message: turn.userText }),
+        extra: {
+          metadata: clean({
+            model: turn.model,
+            // The latency budget per turn — what L4 tunes the turn plans against. The ledger writes
+            // -1 for "not applicable" (a kickoff owes no end-of-turn delay), so those are dropped
+            // rather than averaged into a lie.
+            end_of_turn_delay_ms: turn.endOfTurnDelayMs >= 0 ? turn.endOfTurnDelayMs : undefined,
+            transcription_delay_ms:
+              turn.transcriptionDelayMs >= 0 ? turn.transcriptionDelayMs : undefined,
+            llm_ttft_ms: turn.llmTtftMs >= 0 ? turn.llmTtftMs : undefined,
+            tts_ttfb_ms: turn.ttsTtfbMs >= 0 ? turn.ttsTtfbMs : undefined,
+            e2e_latency_ms: turn.e2eLatencyMs >= 0 ? turn.e2eLatencyMs : undefined,
+            interrupted: turn.interrupted,
+            false_interruption_resumed: turn.falseInterruptionResumed,
+            // Preemptive generations that were discarded. They are billed, so a turn that looks
+            // expensive for its length is explained here instead of being a mystery.
+            preemptive_attempts: turn.preemptiveAttempts,
+            tool_calls: turn.toolCalls.length > 0 ? turn.toolCalls : undefined,
+            errors: turn.errors.length > 0 ? turn.errors : undefined,
+          }),
+        },
+      });
+      await child.postRun();
+      await child.end({
+        outputs: clean({
+          // What Claude generated, and — when a barge-in cut it off — what the learner actually
+          // heard. Both, because the difference between them IS the interruption.
+          message: turn.agentText,
+          heard: turn.agentHeardText === turn.agentText ? undefined : turn.agentHeardText,
+          usage_metadata: {
+            input_tokens: turn.inputTokens + turn.cacheReadTokens + turn.cacheWriteTokens,
+            output_tokens: turn.outputTokens,
+            total_tokens:
+              turn.inputTokens + turn.cacheReadTokens + turn.cacheWriteTokens + turn.outputTokens,
+            input_token_details: {
+              cache_read: turn.cacheReadTokens,
+              cache_creation: turn.cacheWriteTokens,
+            },
+          },
+        }),
+      });
+      await child.patchRun();
+    }
+
+    await root.end({
+      outputs: clean({
+        turns: turns.length,
+        duration_secs: lesson.durationSecs,
+        usage_metadata: {
+          input_tokens: inputTokens + cacheReadTokens + cacheWriteTokens,
+          output_tokens: outputTokens,
+          total_tokens: inputTokens + cacheReadTokens + cacheWriteTokens + outputTokens,
+          input_token_details: { cache_read: cacheReadTokens, cache_creation: cacheWriteTokens },
+        },
+        // Broken out as well, so L7 can read $/min off a trace as easily as off the table.
+        uncached_input_tokens: inputTokens,
+        cache_read_tokens: cacheReadTokens,
+        cache_write_tokens: cacheWriteTokens,
       }),
     });
   } catch (e) {

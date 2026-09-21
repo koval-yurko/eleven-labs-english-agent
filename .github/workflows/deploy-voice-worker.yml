@@ -1,0 +1,91 @@
+name: Deploy voice worker
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/voice-worker/**'
+      - 'packages/shared/**'
+      - 'apps/web/package.json'
+      - 'apps/mobile/package.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'livekit.toml'
+      - '.github/workflows/deploy-voice-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Remote builds continue after a CLI disconnect. Do not cancel an in-flight deploy.
+concurrency:
+  group: livekit-tutor-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter voice-worker...
+      - name: Check worker and shared contracts
+        run: |
+          pnpm --filter voice-worker typecheck
+          pnpm --filter voice-worker lint
+          pnpm --filter voice-worker check
+          pnpm --filter @tutor/shared typecheck
+          pnpm --filter @tutor/shared lint
+          pnpm check:shared
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment credentials
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: |
+          for key in LIVEKIT_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $key"
+              exit 1
+            fi
+          done
+      - name: Install the verified LiveKit CLI version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LK_VERSION: '2.18.8'
+        run: |
+          install_dir="$RUNNER_TEMP/livekit-cli"
+          mkdir -p "$install_dir/bin"
+          gh release download "v$LK_VERSION" --repo livekit/livekit-cli \
+            --pattern "lk_${LK_VERSION}_linux_amd64.tar.gz" \
+            --pattern checksums.txt --dir "$install_dir"
+          cd "$install_dir"
+          sha256sum --check --ignore-missing checksums.txt
+          tar -xzf "lk_${LK_VERSION}_linux_amd64.tar.gz" -C bin lk
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+      - name: Deploy existing tutor agent from the repository root
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        # SDK detection only examines the root manifest; our SDK is in apps/voice-worker.
+        # Existing runtime secrets are retained. Do not pass a secrets file from CI.
+        run: |
+          lk agent deploy . --skip-sdk-check --yes
+          lk agent status
