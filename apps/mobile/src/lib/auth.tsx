@@ -15,6 +15,7 @@ import { useAuth0 } from "react-native-auth0";
 
 import type { TokenSource } from "@/api";
 import { env } from "@/env";
+import { errorType, isTerminalCredentialError } from "@/lib/credential-errors";
 import { useTheme } from "@/theme";
 // The leaf modules rather than the `@/ui` barrel, deliberately: `AppHeader` reads `useSession` from
 // this file, so the barrel would close a cycle (ui → AppHeader → lib/auth → ui). None of the three
@@ -94,34 +95,6 @@ export const LOGIN_SCOPE = "openid profile email offline_access";
  */
 const MIN_TTL_SECONDS = 30;
 
-/**
- * Credential failures no retry can fix — the session is structurally over, so end it.
- *
- * Every code here describes the *stored entry*, not the moment: there is no refresh token, or it is
- * for a key pair this build cannot use, or the identity provider's own session ceiling has passed.
- * Trying again in a minute cannot change any of them.
- *
- * **`RENEW_FAILED` is deliberately NOT in this set.** iOS has no separate network code for a
- * renewal — Auth0.swift reports an unreachable token endpoint as `renewFailed`, exactly as it
- * reports a revoked refresh token. Treating it as terminal would mean a tunnel, a captive portal or
- * a dropped connection *deleting a working refresh token*, and the learner re-authenticating
- * because a train went into a hill. It is reported as an ordinary, retryable error instead
- * (`RENEW_FAILED_MESSAGE`); if the token really was revoked, every attempt keeps failing and the
- * account screen's **Log out** is one link away in the header.
- */
-const TERMINAL_CREDENTIAL_ERRORS: ReadonlySet<string> = new Set([
-  "NO_CREDENTIALS",
-  "NO_REFRESH_TOKEN",
-  "INVALID_CREDENTIALS",
-  "SESSION_EXPIRED",
-  // The DPoP family: credentials bound to a key pair this build cannot use. `useDPoP={false}` in
-  // app/_layout.tsx means we never mint these, but a build that once had DPoP on leaves them
-  // behind, and they are exactly as unrecoverable as a missing refresh token.
-  "DPOP_KEY_MISSING",
-  "DPOP_NOT_CONFIGURED",
-  "DPOP_KEY_MISMATCH",
-]);
-
 /** What a failed renewal says instead of Auth0's "Failed to renew credentials". */
 const RENEW_FAILED_MESSAGE = "Couldn’t refresh your session — check your connection and try again.";
 
@@ -162,15 +135,6 @@ type Session = {
 
 const SessionContext = createContext<Session | null>(null);
 
-/** Read `type` off an Auth0 error (`CredentialsManagerError`, `WebAuthError`, …) without casting. */
-function errorType(e: unknown): string | null {
-  if (typeof e !== "object" || e === null) return null;
-  const { type, code } = e as { type?: unknown; code?: unknown };
-  if (typeof type === "string") return type;
-  if (typeof code === "string") return code;
-  return null;
-}
-
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -196,6 +160,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     hasValidCredentials,
     user,
     isLoading,
+    // What the provider's own launch-time `getCredentials()` threw, if it did. See the probe below.
+    error: providerError,
   } = useAuth0();
 
   const [error, setError] = useState<string | null>(null);
@@ -276,11 +242,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return credentials?.accessToken ?? null;
       } catch (e) {
-        const type = errorType(e);
-        if (type && TERMINAL_CREDENTIAL_ERRORS.has(type)) {
+        if (isTerminalCredentialError(e)) {
           await endSession(SESSION_ENDED);
           throw new SignedOutError(SESSION_ENDED);
         }
+        const type = errorType(e);
         // Retryable, and the SDK's own wording ("Failed to renew credentials") reads as final.
         if (type === "RENEW_FAILED") throw new Error(RENEW_FAILED_MESSAGE);
         throw e;
@@ -357,6 +323,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isLoading || user) return;
     let cancelled = false;
     void (async () => {
+      // The provider already tried to renew at launch and the server refused (see
+      // `REJECTED_REFRESH_CODES` in lib/credential-errors.ts). `hasValidCredentials()` would still say "renewable" — it only
+      // checks that a refresh token EXISTS — so without this the dead token is kept and the app sits
+      // signed in with no profile until a request happens to classify the same error.
+      if (providerError && isTerminalCredentialError(providerError)) {
+        await endSession(SESSION_ENDED);
+        return;
+      }
       let usable = false;
       try {
         usable = await hasValidCredentials();
@@ -371,7 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isLoading, user, hasValidCredentials, clearCredentials]);
+  }, [isLoading, user, providerError, hasValidCredentials, clearCredentials, endSession]);
 
   /**
    * Signed in means "this device holds credentials", not "a profile was parsed".

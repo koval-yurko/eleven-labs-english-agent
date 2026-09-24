@@ -24,6 +24,7 @@ import {
 import { itemLine } from "@tutor/shared/lessons/types";
 import { tutorErrorMessage } from "./src/lib/tutor-error";
 import { isFinalRefusal } from "./src/lib/retry-policy";
+import { isTerminalCredentialError } from "./src/lib/credential-errors";
 
 let failures = 0;
 function check(name: string, ok: boolean) {
@@ -225,6 +226,32 @@ check("0 is retryable — ApiFetchError carries 0 for a request that never compl
 // A 2xx never reaches this predicate (no throw), but a caller that passed one in must not be told
 // to retry a success.
 check("200 is not a refusal", !isFinalRefusal(200));
+
+// ── credential errors: end the session, or keep the token ────────────────────────────────────────
+// Shapes are what the iOS bridge produces: `type` normalized, `code` the raw bridge/OAuth code.
+// The 2026-09-24 lock-out: Auth0 rejected the refresh token, the bridge said RENEW_FAILED, and the
+// app kept the dead token forever with no profile and no way to log out.
+const rejected = { type: "RENEW_FAILED", code: "invalid_grant", message: "Unknown or invalid refresh token." };
+check("a refresh token Auth0 rejected ends the session", isTerminalCredentialError(rejected));
+check(
+  "an invalid_refresh_token code ends the session",
+  isTerminalCredentialError({ type: "RENEW_FAILED", code: "invalid_refresh_token" }),
+);
+// The other side of the same type: nobody answered. Deleting the token here signs a learner out
+// because a train went into a tunnel.
+check(
+  "a renewal that never reached Auth0 keeps the token",
+  !isTerminalCredentialError({ type: "RENEW_FAILED", code: "a0.network_error" }),
+);
+check(
+  "a bare RENEW_FAILED keeps the token",
+  !isTerminalCredentialError({ type: "RENEW_FAILED", code: "RENEW_FAILED" }),
+);
+check("no refresh token ends the session", isTerminalCredentialError({ type: "NO_REFRESH_TOKEN", code: "NO_REFRESH_TOKEN" }));
+check("no credentials ends the session", isTerminalCredentialError({ type: "NO_CREDENTIALS" }));
+check("LARGE_MIN_TTL is not a session problem", !isTerminalCredentialError({ type: "LARGE_MIN_TTL" }));
+check("a plain Error is not terminal", !isTerminalCredentialError(new Error("boom")));
+check("a non-object is not terminal", !isTerminalCredentialError("invalid_grant"));
 
 // `throw` rather than `process.exit`: this file is typechecked by the app's tsconfig, which has no
 // Node types by design (it is a React Native project). A non-zero exit is all the gate needs.

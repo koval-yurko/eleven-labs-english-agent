@@ -78,9 +78,14 @@ export function AppHeader() {
  * `signed in as you@example.com`, the address linking to the account screen.
  *
  * The STATUS decides whether this says signed in, and the label only names who: `label` comes from
- * the id token, which a launch that could not reach Auth0 never parsed. With no address there is
- * nothing to hang the link on, so that case is plain text — the account screen is still reachable
- * from the sign-in flow, and a bare "Account" link here would earn its place on no other screen.
+ * the id token, which a launch that could not reach Auth0 never parsed.
+ *
+ * **Signed in ALWAYS renders a link to `/auth`.** That screen holds Log out, and this link is the
+ * only way to it. The no-address case used to be plain text on the theory that the account screen
+ * was "reachable from the sign-in flow" — but a signed-in app never shows the sign-in flow, so a
+ * learner whose launch could not renew (no profile, a stored token Auth0 had stopped accepting) got
+ * a header saying "signed in", screens that could not load, and no way to log out or back in
+ * (2026-09-24). With no address the link says "account" instead.
  *
  * In practice `AuthGate` means every screen drawing this header is signed in; the other two states
  * are what the header shows in the frame before that is settled, rather than dead branches.
@@ -91,13 +96,12 @@ function SignedInAs() {
   const { status, label } = useSession();
 
   if (status !== "signed-in") return <Faint style={styles.signedIn}>signed out</Faint>;
-  if (!label) return <Faint style={styles.signedIn}>signed in</Faint>;
 
   return (
     <View style={styles.identity}>
-      <Faint style={styles.signedIn}>signed in as </Faint>
+      <Faint style={styles.signedIn}>{label ? "signed in as " : "signed in · "}</Faint>
       <Link href="/auth" style={styles.account} numberOfLines={1}>
-        {label}
+        {label ?? "account"}
       </Link>
     </View>
   );
