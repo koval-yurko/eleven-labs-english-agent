@@ -137,6 +137,7 @@ const FIELD_ORDER: (keyof SessionSnapshot)[] = [
   "metaTitle",
   "provider",
   "version",
+  "preferredVersion",
   "status",
   "owns",
   "starting",

@@ -53,6 +53,7 @@ import {
   writePauseMarker,
 } from "@/lib/session-journal";
 import { DEFAULT_TUTOR_PROVIDER, TUTOR_PROVIDERS } from "@/lib/transport";
+import { readPreferredVersion, writePreferredVersion } from "@/lib/tutor-preference";
 
 /**
  * The live tutor session, hoisted out of the screen that used to own it.
@@ -182,6 +183,16 @@ export type TutorSessionState = {
   error: string | null;
   /** The agent prompt version chosen for, or reported by, this session. */
   version: string | null;
+  /**
+   * The version this device last had chosen, read back from storage — the answer to debug report
+   * `9158f95b`. A HINT and not a selection: it is the picker's value only when no session of this
+   * lesson's is running and the registry still offers it, which is `resolveTutorVersion`'s job.
+   *
+   * `null` both while the read is in flight and when nothing has ever been chosen. The two are
+   * deliberately not distinguished — there is nothing either case would do differently, and a
+   * `loaded` flag would be a second piece of state for a read that finishes in milliseconds.
+   */
+  preferredVersion: string | null;
   /** Bumped when a transcript reaches the server, so the screen can refetch its history. */
   lastPersisted: { lessonId: string; at: number } | null;
 };
@@ -271,6 +282,12 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
 
   // ── the session ────────────────────────────────────────────────────────────────────────────
   const [version, setVersion] = useState<string | null>(null);
+  /**
+   * Device-wide and NOT cleared by `focusLesson`, which is the whole of the fix: `version` is what
+   * this lesson is running or was set to, and it is right that moving lesson clears it. The
+   * preference outlives that move, and the app.
+   */
+  const [preferredVersion, setPreferredVersion] = useState<string | null>(null);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [carried, setCarried] = useState<TranscriptLine[]>([]);
   const [starting, setStarting] = useState(false);
@@ -1117,7 +1134,40 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     setMeta(next);
   }, []);
 
-  const chooseVersion = useCallback((next: string) => setVersion(next), []);
+  /**
+   * Read the remembered choice once, at mount.
+   *
+   * Nothing is cancelled if the provider unmounts first — it wraps the whole app and unmounts when
+   * the process does. `setPreferredVersion` on a dead component is a no-op in React 18+, and a
+   * cancellation flag here would be ceremony around an event that cannot happen.
+   *
+   * It does NOT touch `version`. A preference is not a selection: applying it to the session state
+   * would make a lesson report a version it is not running, and `resolveTutorVersion` exists so
+   * that the picker can prefer it without the session pretending it was chosen.
+   */
+  useEffect(() => {
+    void (async () => {
+      const stored = await readPreferredVersion();
+      if (stored) setPreferredVersion(stored);
+    })();
+  }, []);
+
+  /**
+   * The picker's only writer — and the one place a choice becomes durable.
+   *
+   * The state write and the storage write are both here rather than the storage one living in an
+   * effect on `version`: `version` is ALSO set by `start` from the descriptor the server resolved
+   * (below), and persisting that would let a server-side fallback silently overwrite what the
+   * learner picked. Only a tap is a preference.
+   *
+   * The write is not awaited. A picker that waits on disk to move is a picker that feels broken,
+   * and `writePreferredVersion` cannot reject — it reports its own failure and returns.
+   */
+  const chooseVersion = useCallback((next: string) => {
+    setVersion(next);
+    setPreferredVersion(next);
+    void writePreferredVersion(next);
+  }, []);
 
   const discardParked = useCallback((forLesson: string) => {
     if (lessonIdRef.current === forLesson) {
@@ -1493,8 +1543,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
    * something asks, which while the modal is closed is only the bus freezing a copy on the first
    * error. So the "no cost when closed" property is a property of the BODY, not of the deps.
    *
-   * It cannot be `[]`. The five values below that are state rather than refs (`provider`,
-   * `silenced`, `carried`, `error`, `tx.capabilities`) would then be pinned to the first render,
+   * It cannot be `[]`. The six values below that are state rather than refs (`provider`,
+   * `preferredVersion`, `silenced`, `carried`, `error`, `tx.capabilities`) would then be pinned to
+   * the first render,
    * and routing them through a mutable ref instead — the `latest`/`latestControls` pattern this
    * file uses elsewhere — is rejected by the React Compiler's immutability rule the moment that ref
    * is read from inside a hook argument. Re-registering is the cheaper of the two answers anyway.
@@ -1515,6 +1566,10 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       status: statusRef.current,
       provider,
       version: versionRef.current === "" ? null : versionRef.current,
+      // State, not a ref, so it joins the list in the docblock above — and it must be here for
+      // the same reason the refs are: it is invisible from the screen and it decides which tutor
+      // a lesson opens on.
+      preferredVersion,
       held: heldRef.current,
       silenced,
       muted: mutedRef.current,
@@ -1575,6 +1630,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       pause,
       error,
       version,
+      preferredVersion,
       lastPersisted,
     }),
     [
@@ -1592,6 +1648,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       pause,
       error,
       version,
+      preferredVersion,
       lastPersisted,
     ],
   );

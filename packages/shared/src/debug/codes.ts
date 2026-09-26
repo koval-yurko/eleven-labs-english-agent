@@ -60,6 +60,19 @@ export const DEBUG_CODES = [
   "journal.clear_failed",
   "pausemarker.write",
   "pausemarker.restore",
+  /**
+   * The remembered tutor choice (`lib/tutor-preference.ts`).
+   *
+   * `pref.version_dropped` is the one that explains a surprise: a learner who picked a tutor once
+   * and finds a different one selected is looking at a stored version the registry has since
+   * retired. Without the code, the app and the phone agree on a default and nobody can see that a
+   * preference was overruled.
+   *
+   * There is deliberately no `pref.version_restored`. It would fire on every launch and say only
+   * that the feature works; `session.start` already carries the version a lesson actually ran on.
+   */
+  "pref.version_dropped",
+  "pref.write_failed",
   "persist.ok",
   "persist.failed",
   "persist.skipped",

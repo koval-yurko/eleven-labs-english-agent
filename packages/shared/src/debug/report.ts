@@ -92,6 +92,14 @@ export interface SessionSnapshot {
   status: TutorStatus;
   provider: TutorProviderId | null;
   version: string | null;
+  /**
+   * The tutor version this DEVICE remembers, which is not necessarily the one running.
+   *
+   * Here for §5.1's reason: it is state the learner cannot see, whose wrong value looks like the
+   * app choosing a tutor nobody picked. Without it, "it started the wrong tutor" is a conversation
+   * rather than a lookup — `version` says what ran, this says what the phone would have offered.
+   */
+  preferredVersion: string | null;
   held: boolean;
   silenced: boolean;
   muted: boolean;
@@ -321,6 +329,7 @@ const EMPTY_SNAPSHOT: SessionSnapshot = {
   status: "disconnected",
   provider: null,
   version: null,
+  preferredVersion: null,
   held: false,
   silenced: true,
   muted: false,
@@ -399,6 +408,7 @@ function sanitizeSnapshot(raw: unknown): SessionSnapshot {
       ? (s.provider as TutorProviderId)
       : null,
     version: nullableStr(s.version, 64),
+    preferredVersion: nullableStr(s.preferredVersion, 64),
     held: bool(s.held),
     silenced: bool(s.silenced),
     muted: bool(s.muted),

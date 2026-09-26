@@ -23,12 +23,14 @@ import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
 import { DiagnosticsModal } from "@/lib/diagnostics-modal";
+import { emit } from "@/lib/diagnostics";
 import {
   useActiveSession,
   useTutorControls,
   useTutorSession,
   type LessonMeta,
 } from "@/lib/tutor-session";
+import { resolveTutorVersion } from "@/lib/tutor-version";
 import { useTheme } from "@/theme";
 import {
   Autocomplete,
@@ -380,7 +382,44 @@ export default function LessonScreen() {
   const error = isOurs ? session.error : null;
   const lines = isOurs ? session.lines : EMPTY_LINES;
   const carried = isOurs ? session.carried : EMPTY_LINES;
-  const selectedVersion = (isOurs ? session.version : null) ?? versions?.defaultVersion ?? null;
+  /**
+   * What the picker shows: this lesson's live session, else the version this device last chose,
+   * else the registry default. The middle step is the answer to debug report `9158f95b` — see
+   * `resolveTutorVersion`, which owns the precedence and the staleness check.
+   */
+  const resolvedVersion = useMemo(
+    () =>
+      resolveTutorVersion({
+        sessionVersion: isOurs ? session.version : null,
+        preferred: session.preferredVersion,
+        offered: versions?.versions.map((v) => v.version) ?? null,
+        defaultVersion: versions?.defaultVersion ?? null,
+      }),
+    [isOurs, session.version, session.preferredVersion, versions],
+  );
+  const selectedVersion = resolvedVersion.version;
+
+  /**
+   * A remembered version the registry no longer offers, said out loud ONCE.
+   *
+   * Without it, a learner who picked a tutor months ago and finds a different one selected has no
+   * way to know a preference was overruled rather than lost — and neither has anyone reading the
+   * report they file about it. Keyed on the stale value rather than fired from the resolver, which
+   * runs on every render.
+   */
+  const staleVersion = resolvedVersion.stale;
+  const reportedStaleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!staleVersion || reportedStaleRef.current === staleVersion) return;
+    reportedStaleRef.current = staleVersion;
+    emit({
+      level: "info",
+      code: "pref.version_dropped",
+      message: "remembered tutor version is no longer offered",
+      data: { stored: staleVersion, using: versions?.defaultVersion ?? null },
+    });
+  }, [staleVersion, versions?.defaultVersion]);
+
   /**
    * Which service the chosen version runs on. Looked up rather than stored beside the selection,
    * because the version IS the choice (§13 Q1/Q2 of

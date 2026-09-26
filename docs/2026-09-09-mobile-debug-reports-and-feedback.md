@@ -855,6 +855,11 @@ the date range, so the label states what the button will actually do rather than
 No confirmation dialog, unlike Delete: Unarchive restores the row exactly, so nothing is at risk.
 That is the same reasoning that gives Resolve a bare form button and Delete a `ConfirmDialog`.
 
+**The first report to be closed by a feature rather than a fix** was `9158f95b`, `kind: feedback` —
+"keep my selection about prompt/agent version". It is the evidence for §1.5's claim that the note is
+the only part of a report a machine could not have produced: everything else in that row said the
+session was healthy. See `docs/2026-09-26-remembered-tutor-version.md`.
+
 ### 12.3 The joins that make it worth opening
 
 | From | To | How |

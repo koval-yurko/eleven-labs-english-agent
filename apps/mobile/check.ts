@@ -1,10 +1,12 @@
 /**
  * Checks for the pure logic whose bugs are invisible on a device.
  *
- * Two things qualify so far: the lock-screen intent resolver
+ * Three things qualify so far: the lock-screen intent resolver
  * (`src/lib/lesson-activity-state.ts`) — a press stream that resolves wrongly looks exactly like a
  * press that did not land — and the retry policy (`src/lib/retry-policy.ts`), which decides whether
- * a transcript that exists only on this phone is kept or thrown away.
+ * a transcript that exists only on this phone is kept or thrown away — and now the tutor-version
+ * precedence (`src/lib/tutor-version.ts`), where resolving to the wrong version is indistinguishable
+ * from the picker having forgotten the choice.
  * The cases below are the ones the design argues about — a batch replayed after a background
  * relaunch, and the state diff that decides whether a push reaches iOS at all.
  *
@@ -25,6 +27,7 @@ import { itemLine } from "@tutor/shared/lessons/types";
 import { tutorErrorMessage } from "./src/lib/tutor-error";
 import { isFinalRefusal } from "./src/lib/retry-policy";
 import { isTerminalCredentialError } from "./src/lib/credential-errors";
+import { resolveTutorVersion } from "./src/lib/tutor-version";
 
 let failures = 0;
 function check(name: string, ok: boolean) {
@@ -252,6 +255,45 @@ check("no credentials ends the session", isTerminalCredentialError({ type: "NO_C
 check("LARGE_MIN_TTL is not a session problem", !isTerminalCredentialError({ type: "LARGE_MIN_TTL" }));
 check("a plain Error is not terminal", !isTerminalCredentialError(new Error("boom")));
 check("a non-object is not terminal", !isTerminalCredentialError("invalid_grant"));
+
+// ── which tutor version the picker shows ────────────────────────────────────────────────────
+// The order is the whole rule: a running session outranks a preference, a preference outranks the
+// server default, and a preference the registry no longer offers loses to the default rather than
+// being sent to a route that cannot honour it.
+const OFFERED = ["words-1.1", "words-4.0"];
+const resolve = (over: Partial<Parameters<typeof resolveTutorVersion>[0]>) =>
+  resolveTutorVersion({
+    sessionVersion: null,
+    preferred: null,
+    offered: OFFERED,
+    defaultVersion: "words-4.0",
+    ...over,
+  });
+
+check("the live session wins over a preference", resolve({ sessionVersion: "words-1.1", preferred: "words-4.0" }).version === "words-1.1");
+check(
+  "a running session is never reported as a preference",
+  resolve({ sessionVersion: "words-1.1", preferred: "words-1.1" }).source === "session",
+);
+check("a remembered version is used", resolve({ preferred: "words-1.1" }).version === "words-1.1");
+check("and is labelled as remembered", resolve({ preferred: "words-1.1" }).source === "preference");
+check("nothing remembered falls back to the default", resolve({}).version === "words-4.0");
+check("a retired preference falls back to the default", resolve({ preferred: "words-2.0" }).version === "words-4.0");
+check("a retired preference is reported once, by value", resolve({ preferred: "words-2.0" }).stale === "words-2.0");
+check("a live preference is not stale", resolve({ preferred: "words-1.1" }).stale === null);
+// Before `/api/v2/agent-versions` answers there is nothing to validate against. Showing the
+// preference here and correcting it a moment later is worse than showing nothing: it looks like
+// the app changed its mind unprompted, on the one control whose whole job is to be remembered.
+check("a preference is held back until the registry answers", resolve({ preferred: "words-1.1", offered: null }).version === null);
+check("holding back is not the same as defaulting", resolve({ preferred: "words-1.1", offered: null }).source === "unknown");
+check(
+  "a running session still shows while the registry is unknown",
+  resolve({ sessionVersion: "words-1.1", offered: null }).version === "words-1.1",
+);
+// The registry answered with nothing usable — a deploy mid-`sync:agents`. Null beats guessing:
+// `start` sends `version: null` and the server resolves its own default, which is the rule the
+// `agent-versions` route exists to keep on the server.
+check("no default and no preference resolves to nothing", resolve({ offered: [], defaultVersion: null }).version === null);
 
 // `throw` rather than `process.exit`: this file is typechecked by the app's tsconfig, which has no
 // Node types by design (it is a React Native project). A non-zero exit is all the gate needs.
