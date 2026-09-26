@@ -515,8 +515,10 @@ a failure you want what just happened at the top, not three minutes of scrolling
 the right.
 
 **Send.** A `TextField` for "what happened / what you expected", the transcript toggle (§6), a size
-readout ("48 KB, 216 events"), and the button. On success it shows the report id in a copyable short
-form and — the useful part — the exact string to paste to Claude: `report 4f2a1c9e`.
+readout ("48 KB, 216 events"), and the button. On success the report id is shown in a copyable short
+form and — the useful part — the exact string to paste to Claude: `report 4f2a1c9e`. **Since
+2026-09-26 that readout is on the surface behind the modal rather than inside it**, because filing a
+report now closes the modal — see §7.5.
 
 ### 7.3 What a modal is not
 
@@ -531,6 +533,41 @@ config plugin, no prebuild change) for a "Copy JSON" button; or use RN's built-i
 needs nothing and hands the report to Mail/Messages/Files. **Recommend `Share`** for S1 and defer the
 clipboard dependency until the send path proves it needs one. Copy is the offline escape hatch, and
 Share is a better offline escape hatch than a clipboard.
+
+### 7.5 Filing a report ends the composer. BUILT 2026-09-26.
+
+Closes debug report `113f2603`, `kind: error` but really a behaviour note:
+
+> afrer problem/feedback has sent - need to clear input and close Diagnostics modal
+
+Both halves were real, and the second one hid a worse bug than it looked. The composer's state
+lives on `DiagnosticsModal` and not on the Send tab (§7.2's own reason: a tab switch must not eat a
+draft) — and the modal is **never unmounted**, only hidden. So the note survived the send, survived
+the close, and was still in the field the next time Diagnostics was opened. The next report would
+then arrive describing the previous report's problem, with no sign that it had been left over.
+
+So a filed report now clears the note, the kind and the transcript toggle, resets the tab to `Now`,
+and closes the modal.
+
+**Success only.** A `dropped` report — the hourly cap, or a refusal — is gone, and the note is the
+only part of it a machine could not reproduce. Clearing it would destroy the one thing worth
+keeping, so a failure holds the modal open with the text where it is and says so. `spooled` counts
+as success: the report is on the device and the note travelled with it.
+
+**And the id had to survive the close.** §7.2 calls the `report 4f2a1c9e` line "the useful part",
+and closing the modal on success would take it with it. So the two success outcomes are rendered by
+`DiagnosticsReceipt`, exported from the modal and drawn by whoever hosts it — on the lesson screen,
+directly under the Diagnostics link, where it stays until Diagnostics is opened again. A receipt is
+a confirmation and not a record; the record is on the server and `pnpm report --list` is where it is
+read from.
+
+That split is why `Outcome` is now two components. `SendFailure` is the only one still inside the
+modal, because it is the only outcome that keeps the modal open.
+
+**Not built: a toast.** The app has no transient-notification primitive, and inventing one whose
+sole caller is this receipt would be a new piece of the design system built to serve one line of
+text — while the thing it displays is a short id that someone is going to read off the screen and
+type, which is exactly the content a message that fades out is worst at.
 
 ---
 

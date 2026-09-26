@@ -6,7 +6,7 @@ import {
   type SessionSnapshot,
 } from "@tutor/shared/debug/report";
 import { type Palette } from "@tutor/shared/theme";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
 import { useAccessToken } from "@/lib/auth";
@@ -27,6 +27,7 @@ import {
   Checkbox,
   Chip,
   ChipRow,
+  Body,
   ErrorText,
   Faint,
   Muted,
@@ -62,9 +63,16 @@ import {
 export function DiagnosticsModal({
   open,
   onOpenChange,
+  onFiled,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * A report left the composer — sent, or parked in the spool. The modal closes on both, so this
+   * is how the receipt (the id to quote) reaches a surface the learner can still see. Not called
+   * for a dropped report: that one stays here, with the note that produced it.
+   */
+  onFiled?: (outcome: SendOutcome) => void;
 }) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -79,6 +87,36 @@ export function DiagnosticsModal({
   const [note, setNote] = useState("");
   const [kind, setKind] = useState<DebugReportKind | null>(null);
   const [includeTranscript, setIncludeTranscript] = useState(false);
+
+  /**
+   * A filed report empties the composer and closes the modal — debug report `113f2603`.
+   *
+   * Before this, the note survived the send: the modal stayed open on the outcome, and the next
+   * time it was opened the previous report's text was still in the field. That is worse than an
+   * inconvenience. The composer state lives up here on purpose (see above) and the modal is never
+   * unmounted, so the draft persisted across every open until it was manually deleted — which
+   * makes the next report arrive describing the previous one's problem.
+   *
+   * **Success only.** A `dropped` report is gone and the note is the only part of it a machine
+   * could not reproduce; clearing it would destroy the one thing worth keeping. So a failure keeps
+   * the modal open and the text where it is, and the learner can press Send again.
+   *
+   * The tab is reset too. Reopening onto a Send tab whose fields were just emptied looks like a
+   * form that lost its contents; `Now` is where the modal opens from cold, and that is what this
+   * should look like.
+   */
+  const handleFiled = useCallback(
+    (outcome: SendOutcome) => {
+      if (outcome.kind === "dropped") return;
+      setNote("");
+      setKind(null);
+      setIncludeTranscript(false);
+      setTab("now");
+      onFiled?.(outcome);
+      onOpenChange(false);
+    },
+    [onFiled, onOpenChange],
+  );
 
   return (
     <Modal
@@ -113,6 +151,7 @@ export function DiagnosticsModal({
               onKind={setKind}
               includeTranscript={includeTranscript}
               onIncludeTranscript={setIncludeTranscript}
+              onFiled={handleFiled}
             />
           )}
 
@@ -305,6 +344,7 @@ function SendTab({
   onKind,
   includeTranscript,
   onIncludeTranscript,
+  onFiled,
 }: {
   note: string;
   onNote: (next: string) => void;
@@ -312,6 +352,7 @@ function SendTab({
   onKind: (next: DebugReportKind) => void;
   includeTranscript: boolean;
   onIncludeTranscript: (next: boolean) => void;
+  onFiled: (outcome: SendOutcome) => void;
 }) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -406,48 +447,68 @@ function SendTab({
             setBusy(true);
             setOutcome(null);
             void sendOrSpool(preview, accessToken)
-              .then(setOutcome)
+              .then((next) => {
+                // Both, in this order. `setOutcome` is what renders the failure below; `onFiled`
+                // is what empties the composer and closes on a success, and it unmounts this tab
+                // — so the state write has to have happened by then for the failure case to have
+                // anything to show.
+                setOutcome(next);
+                onFiled(next);
+              })
               .finally(() => setBusy(false));
           }}
         />
       </ButtonRow>
 
-      {outcome ? <Outcome outcome={outcome} /> : null}
+      {outcome?.kind === "dropped" ? <SendFailure /> : null}
     </ScrollView>
   );
 }
 
 /**
- * What actually happened to the report, said plainly.
+ * The only outcome that stays inside the modal.
  *
- * The `sent` case shows the id in the exact form to quote — `report 4f2a1c9e` — because the handoff
- * script takes that and nothing else. The `spooled` case is not an error and must not read like
- * one: the report is safe on the device and will go on its own.
+ * A dropped report is not retried and does not exist anywhere — so the composer keeps the note, the
+ * modal stays open, and this sits under the button where the next Send press is. The two SUCCESS
+ * outcomes close the modal, and are rendered by `DiagnosticsReceipt` on the surface behind it.
  */
-function Outcome({ outcome }: { outcome: SendOutcome }) {
+function SendFailure() {
+  return (
+    <ErrorText style={{ marginTop: space.row }}>
+      The server took the report and did not keep it. That is the hourly cap, or a report it
+      refused — either way it will not be retried. Your note is still here.
+    </ErrorText>
+  );
+}
+
+/**
+ * The receipt for a filed report, rendered by whoever hosts the modal — because the modal has by
+ * then closed itself (`113f2603`).
+ *
+ * It exists so that closing does not throw away the one thing a learner has to carry out of here.
+ * The `sent` case shows the id in the exact form to quote — `report 4f2a1c9e` — because the handoff
+ * script takes that and nothing else, and §7.2 calls it "the useful part". The `spooled` case is
+ * not an error and must not read like one: the report is safe on the device and will go on its own.
+ *
+ * `selectable`, like it was in the modal: the id is there to be read off a screen or copied out.
+ */
+export function DiagnosticsReceipt({ outcome }: { outcome: SendOutcome }) {
   if (outcome.kind === "sent") {
     return (
-      <View style={{ marginTop: space.row }}>
-        <Muted>Sent. Quote this:</Muted>
-        <Text selectable style={{ marginTop: space.chipGap }}>
+      <View>
+        <Muted>Report sent. Quote this:</Muted>
+        <Body selectable style={{ marginTop: space.chipGap }}>
           report {outcome.id?.slice(0, 8) ?? "?"}
-        </Text>
+        </Body>
       </View>
     );
   }
   if (outcome.kind === "spooled") {
     return (
-      <Muted style={{ marginTop: space.row }}>
-        Saved on this device — it will send when you are back online. ({outcome.reason})
-      </Muted>
+      <Muted>Report saved on this device — it will send when you are back online.</Muted>
     );
   }
-  return (
-    <ErrorText style={{ marginTop: space.row }}>
-      The server took the report and did not keep it. That is the hourly cap, or a report it
-      refused — either way it will not be retried.
-    </ErrorText>
-  );
+  return null;
 }
 
 // ── Log ──────────────────────────────────────────────────────────────────────────────────────

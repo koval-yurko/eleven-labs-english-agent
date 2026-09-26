@@ -22,7 +22,8 @@ import { useAccessToken } from "@/lib/auth";
 import { clearSuggestionCache, fetchSuggestions } from "@/lib/suggestions";
 import { newId } from "@/lib/ids";
 import { fetchLessonItems, lessonTitleOrFallback, postOp } from "@/lib/lessons";
-import { DiagnosticsModal } from "@/lib/diagnostics-modal";
+import { DiagnosticsModal, DiagnosticsReceipt } from "@/lib/diagnostics-modal";
+import type { SendOutcome } from "@/lib/diagnostics-spool";
 import { emit } from "@/lib/diagnostics";
 import {
   useActiveSession,
@@ -189,6 +190,21 @@ export default function LessonScreen() {
    * point is the one beside the error, at the moment it happens.
    */
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  /**
+   * The last report filed from this screen, kept so that closing the modal does not throw away the
+   * id the learner is meant to quote. Here rather than in the modal for the same reason as `open`:
+   * it has to outlive the thing that produced it.
+   */
+  const [filed, setFiled] = useState<SendOutcome | null>(null);
+  /**
+   * Both entry points go through here, so neither can forget the second half. A new visit clears
+   * last visit's receipt: it is a confirmation, not a record — the record is on the server, and
+   * `pnpm report --list` is where it is read from.
+   */
+  const openDiagnostics = useCallback(() => {
+    setFiled(null);
+    setDiagnosticsOpen(true);
+  }, []);
 
   /** Active rows in display order — what the learner edits, and what the tutor will be given. */
   const active = useMemo(
@@ -806,7 +822,7 @@ export default function LessonScreen() {
                 variant="secondary"
                 size="sm"
                 label="Diagnostics"
-                onPress={() => setDiagnosticsOpen(true)}
+                onPress={openDiagnostics}
               />
             </ButtonRow>
           </>
@@ -817,11 +833,23 @@ export default function LessonScreen() {
             same person. If that ever stops being true, gate this one on `__DEV__ || variant !==
             "production"` and keep the error-side entry above for everyone. */}
         <View style={{ marginTop: space.row, alignItems: "flex-start" }}>
-          <Button variant="inline" label="Diagnostics" onPress={() => setDiagnosticsOpen(true)} />
+          <Button variant="inline" label="Diagnostics" onPress={openDiagnostics} />
         </View>
+        {/* The modal closes itself once a report is filed (`113f2603`), which would take the id to
+            quote with it. So the receipt lands here instead, under the link that opened it, and
+            stays until Diagnostics is opened again. */}
+        {filed ? (
+          <View style={{ marginTop: space.row }}>
+            <DiagnosticsReceipt outcome={filed} />
+          </View>
+        ) : null}
       </Panel>
 
-      <DiagnosticsModal open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen} />
+      <DiagnosticsModal
+        open={diagnosticsOpen}
+        onOpenChange={setDiagnosticsOpen}
+        onFiled={setFiled}
+      />
 
       {/* ── Live transcript ────────────────────────────────────────────────────────────────── */}
       {transcript.length > 0 ? (
