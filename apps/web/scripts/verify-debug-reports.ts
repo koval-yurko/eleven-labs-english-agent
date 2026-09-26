@@ -28,6 +28,7 @@ const {
   getSessionForConversation,
   insertDebugReport,
   listDebugReports,
+  setDebugReportArchived,
   setDebugReportTriage,
 } = await import("../src/lib/debug-reports");
 const { langsmithTraceName, langsmithTraceUrl, providerConsoleUrl, resolveReportAgent } =
@@ -208,6 +209,37 @@ try {
   check(
     "resolve keeps the resolution",
     resolved?.status === RESOLVED_STATUS && resolved.resolution === "verified",
+  );
+
+  // Archive: out of the default list, into the archived one, and still readable by id — which is
+  // the property that makes it the right thing to reach for instead of a delete.
+  //
+  // `setDebugReportArchived` only, never `archiveResolvedDebugReports`: this script runs against
+  // the real database as the real owner, and a bulk archive would sweep up reports that have
+  // nothing to do with the row it created.
+  await setDebugReportArchived(ownerId, id, true);
+  const afterArchive = await getDebugReport(ownerId, id);
+  check("archive stamps archived_at", afterArchive?.archived_at !== null);
+  check(
+    "archive leaves triage alone",
+    afterArchive?.status === RESOLVED_STATUS && afterArchive.resolution === "verified",
+  );
+  check(
+    "the default list drops it",
+    !(await listDebugReports(ownerId, { kind: "error" })).some((r) => r.id === id),
+  );
+  check(
+    "the archived list has it",
+    (await listDebugReports(ownerId, { kind: "error", scope: "archived" })).some(
+      (r) => r.id === id,
+    ),
+  );
+  check("it is still readable by id", (await getDebugReport(ownerId, id)) !== null);
+
+  await setDebugReportArchived(ownerId, id, false);
+  check(
+    "unarchive puts it back",
+    (await listDebugReports(ownerId, { kind: "error" })).some((r) => r.id === id),
   );
 
   // Ownership is in the query's own `where`, not in a check before it: a forged id must update

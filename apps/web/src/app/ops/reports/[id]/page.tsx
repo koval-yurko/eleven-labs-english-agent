@@ -16,7 +16,13 @@ import {
   getSessionForConversation,
 } from "../../../../lib/debug-reports";
 import { formatDateTime } from "../../../../lib/format-date";
-import { reopenReportAction, resolveReportAction, triageReportAction } from "../actions";
+import {
+  archiveReportAction,
+  reopenReportAction,
+  resolveReportAction,
+  triageReportAction,
+  unarchiveReportAction,
+} from "../actions";
 import { DeleteReportButton } from "../DeleteReportButton";
 import { StateDiff } from "./StateDiff";
 import { Timeline } from "./Timeline";
@@ -112,6 +118,11 @@ export default async function OpsReportPage({ params }: { params: Promise<{ id: 
         </Field>
         <Field label="API">{client.apiBaseUrl ?? "—"}</Field>
         <Field label="Kind">{report.kind}</Field>
+        {report.archived_at ? (
+          <Field label="Archived">
+            <span className="muted">{formatDateTime(report.archived_at)}</span>
+          </Field>
+        ) : null}
       </section>
 
       <section className="panel">
@@ -275,6 +286,22 @@ export default async function OpsReportPage({ params }: { params: Promise<{ id: 
               returnToList
               size="md"
             />
+          </div>
+        </form>
+        {/* Its own form, deliberately outside the triage one: a `formAction` here would carry
+            whatever is currently typed in Status and save a half-finished edit as a side effect of
+            archiving. Separate forms, separate effects — see `archiveReportAction`. */}
+        <form action={report.archived_at ? unarchiveReportAction : archiveReportAction}>
+          <input type="hidden" name="id" value={report.id} />
+          <div className="row" style={{ marginTop: "0.75rem", alignItems: "center", gap: "0.5rem" }}>
+            <button type="submit" className="btn btn--secondary">
+              {report.archived_at ? "Unarchive" : "Archive"}
+            </button>
+            <span className="muted">
+              {report.archived_at
+                ? `Archived ${formatDateTime(report.archived_at)} — out of the list, and this page still works.`
+                : "Out of the list, still in the table. Status and resolution are left alone."}
+            </span>
           </div>
         </form>
       </section>

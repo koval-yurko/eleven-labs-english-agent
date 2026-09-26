@@ -6,13 +6,15 @@ import { redirect } from "next/navigation";
 import { getOwnerId } from "../../../lib/auth/session";
 import {
   RESOLVED_STATUS,
+  archiveResolvedDebugReports,
   deleteDebugReport,
+  setDebugReportArchived,
   setDebugReportTriage,
 } from "../../../lib/debug-reports";
 
 /**
- * The operator page's writes: triage (status + resolution), the one-click Resolve / Reopen, and
- * Delete.
+ * The operator page's writes: triage (status + resolution), the one-click Resolve / Reopen,
+ * Archive / Unarchive, and Delete.
  *
  * `FormData` rather than a typed argument wherever the caller is a plain `<form action={…}>` with
  * no client component behind it: the pages stay server components, and triage costs one round trip
@@ -63,6 +65,49 @@ async function setStatus(form: FormData, status: string): Promise<void> {
 
   await setDebugReportTriage(ownerId, id, { status, resolution });
   revalidateReport(id);
+}
+
+/**
+ * Archive one report — out of the list, still in the table.
+ *
+ * It does NOT submit alongside triage. On the detail page this is its own small form under the
+ * triage one rather than a `formAction` on it, because the two say different things: `formAction`
+ * would carry whatever is typed in the Status box at that moment, so archiving would silently
+ * save a half-edited triage. Separate forms, separate effects.
+ */
+export async function archiveReportAction(form: FormData): Promise<void> {
+  await setArchived(form, true);
+}
+
+/** Undo an Archive — back into the list, with status and resolution untouched. */
+export async function unarchiveReportAction(form: FormData): Promise<void> {
+  await setArchived(form, false);
+}
+
+async function setArchived(form: FormData, archived: boolean): Promise<void> {
+  const ownerId = await getOwnerId();
+  if (!ownerId) return;
+
+  const id = String(form.get("id") ?? "");
+  if (!id) return;
+
+  await setDebugReportArchived(ownerId, id, archived);
+  revalidateReport(id);
+}
+
+/**
+ * Archive every resolved report at once — the list page's one bulk control.
+ *
+ * Takes no id and reads nothing from the form: what it archives is defined by the query in
+ * `archiveResolvedDebugReports`, not by the filters the page happens to be showing. See that
+ * function for why.
+ */
+export async function archiveResolvedAction(): Promise<void> {
+  const ownerId = await getOwnerId();
+  if (!ownerId) return;
+
+  await archiveResolvedDebugReports(ownerId);
+  revalidatePath("/ops/reports");
 }
 
 /**

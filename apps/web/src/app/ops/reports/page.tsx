@@ -5,19 +5,40 @@ import type { DebugReportKind } from "@tutor/shared/debug/report";
 import { getOwnerId } from "../../../lib/auth/session";
 import {
   RESOLVED_STATUS,
+  countResolvedActiveDebugReports,
   debugReportFacets,
   listDebugReports,
   type DebugReportFilter,
+  type DebugReportScope,
   type DebugReportSummary,
 } from "../../../lib/debug-reports";
 import { formatDateTime } from "../../../lib/format-date";
-import { reopenReportAction, resolveReportAction } from "./actions";
+import {
+  archiveReportAction,
+  archiveResolvedAction,
+  reopenReportAction,
+  resolveReportAction,
+  unarchiveReportAction,
+} from "./actions";
 import { DeleteReportButton } from "./DeleteReportButton";
 
 // Owner-scoped and changes between visits. Cookie auth, not Bearer: this one is a browser page.
 export const dynamic = "force-dynamic";
 
 const KINDS: DebugReportKind[] = ["error", "feedback", "manual"];
+
+/**
+ * The archive is a filter, not a second page.
+ *
+ * "Active" is the default and the reason the column exists. The other two are here so archiving
+ * never feels like losing something: whatever was archived is one chip away, in the same table,
+ * with the same filters still applied.
+ */
+const SCOPES: { key: DebugReportScope; label: string }[] = [
+  { key: "active", label: "Active" },
+  { key: "archived", label: "Archived" },
+  { key: "all", label: "All" },
+];
 
 /** The date ranges worth having, as the shortest thing that can be a query parameter. */
 const RANGES: { key: string; label: string; hours: number | null }[] = [
@@ -72,17 +93,23 @@ export default async function OpsReportsPage({
   const params = await searchParams;
   const rangeKey = one(params, "range") ?? "7d";
   const range = RANGES.find((r) => r.key === rangeKey) ?? RANGES[1];
+  const scope = SCOPES.find((s) => s.key === one(params, "show"))?.key ?? "active";
   const filter: DebugReportFilter = {
     kind: KINDS.find((k) => k === one(params, "kind")),
     provider: one(params, "provider"),
     errorCode: one(params, "code"),
     status: one(params, "status"),
+    scope,
     ...(range?.hours ? { since: new Date(Date.now() - range.hours * 3600_000).toISOString() } : {}),
   };
 
-  const [reports, facets] = await Promise.all([
+  const [reports, facets, resolvedActive] = await Promise.all([
     listDebugReports(ownerId, filter),
-    debugReportFacets(ownerId),
+    debugReportFacets(ownerId, scope),
+    // Owner-wide and unaffected by the range: the button says what it will actually do, which is
+    // not the same as what is on screen. A 7-day view hiding four older resolved reports must not
+    // advertise "Archive resolved (1)" and then archive five.
+    countResolvedActiveDebugReports(ownerId),
   ]);
 
   /** Rebuild the query string with one key changed — an absent value clears that filter. */
@@ -114,13 +141,16 @@ export default async function OpsReportsPage({
     <>
       <h1>Reports</h1>
       <p className="muted">
-        Filed from the phone. {reports.length} shown
+        Filed from the phone. {reports.length} {scope === "archived" ? "archived, " : ""}shown
         {range?.hours ? ` from the last ${range.label.toLowerCase()}` : ""}.
       </p>
 
       <section className="panel">
         <Filters label="When">
           {RANGES.map((r) => chip("range", r.key, r.label))}
+        </Filters>
+        <Filters label="Show">
+          {SCOPES.map((sc) => chip("show", sc.key === "active" ? undefined : sc.key, sc.label))}
         </Filters>
         <Filters label="Kind">
           {chip("kind", undefined, "Any")}
@@ -147,8 +177,26 @@ export default async function OpsReportsPage({
       </section>
 
       <section className="panel">
+        {resolvedActive > 0 ? (
+          <form
+            action={archiveResolvedAction}
+            className="row"
+            style={{ marginBottom: "0.75rem", alignItems: "center", gap: "0.5rem" }}
+          >
+            <button type="submit" className="btn btn--secondary btn--sm">
+              Archive resolved ({resolvedActive})
+            </button>
+            {/* No confirmation: Unarchive undoes it row by row, and unlike Delete nothing is lost
+                — which is the entire argument for having an archive at all. */}
+            <span className="muted">Out of the list, still in the table.</span>
+          </form>
+        ) : null}
         {reports.length === 0 ? (
-          <p className="muted">Nothing matches. Widen the range, or clear a filter.</p>
+          <p className="muted">
+            {scope === "archived"
+              ? "Nothing archived in this range."
+              : "Nothing matches. Widen the range, or clear a filter."}
+          </p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
@@ -196,10 +244,16 @@ function Filters({ label, children }: { label: string; children: React.ReactNode
 function Row({ report }: { report: DebugReportSummary }) {
   const cell = { padding: "0.5rem 0.6rem 0.5rem 0", borderBottom: "1px solid var(--border)" };
   const resolved = report.status === RESOLVED_STATUS;
+  const archived = report.archived_at !== null;
   return (
     <tr>
       <td style={{ ...cell, whiteSpace: "nowrap" }}>
-        <span className={report.status === "new" ? "warn" : "muted"}>{report.status}</span>
+        <span className={report.status === "new" && !archived ? "warn" : "muted"}>
+          {report.status}
+        </span>
+        {/* Only in the Archived and All views — in the default one every row is active, and a
+            column that says the same thing on every row says nothing. */}
+        {archived ? <span className="muted"> · archived</span> : null}
       </td>
       <td style={{ ...cell, whiteSpace: "nowrap" }}>
         <Link href={`/ops/reports/${report.id}`}>{formatDateTime(report.captured_at)}</Link>
@@ -234,6 +288,15 @@ function Row({ report }: { report: DebugReportSummary }) {
           <input type="hidden" name="id" value={report.id} />
           <button type="submit" className="btn btn--secondary btn--sm">
             {resolved ? "Reopen" : "Resolve"}
+          </button>
+        </form>{" "}
+        <form
+          action={archived ? unarchiveReportAction : archiveReportAction}
+          style={{ display: "inline" }}
+        >
+          <input type="hidden" name="id" value={report.id} />
+          <button type="submit" className="btn btn--secondary btn--sm">
+            {archived ? "Unarchive" : "Archive"}
           </button>
         </form>{" "}
         <DeleteReportButton id={report.id} label={report.error_code ?? report.kind} />

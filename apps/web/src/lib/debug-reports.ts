@@ -95,6 +95,7 @@ export interface DebugReportSummary {
   error_message: string | null;
   status: string;
   resolution: string | null;
+  archived_at: string | null;
 }
 
 /** The whole row. Only the detail page asks for this. */
@@ -113,7 +114,16 @@ export interface DebugReportRow extends DebugReportSummary {
  * cost `error_code` was denormalized out of the blob to avoid (§9).
  */
 const SUMMARY_COLUMNS =
-  "id, created_at, captured_at, kind, note, lesson_id, conversation_id, provider, agent_version, error_code, error_message, status, resolution";
+  "id, created_at, captured_at, kind, note, lesson_id, conversation_id, provider, agent_version, error_code, error_message, status, resolution, archived_at";
+
+/**
+ * Which half of the table a read is about.
+ *
+ * `"active"` is the default everywhere and the reason the column exists: the list is what still
+ * wants attention. `"archived"` is how an archived report is found again — nothing is hidden, it
+ * is one chip away — and `"all"` exists for the sweeps that must not miss a row.
+ */
+export type DebugReportScope = "active" | "archived" | "all";
 
 /** What the list can be narrowed by. Every field is optional; an absent one means "any". */
 export interface DebugReportFilter {
@@ -123,6 +133,18 @@ export interface DebugReportFilter {
   status?: string;
   /** ISO date-time. Rows created before this are excluded. */
   since?: string;
+  /** Archived rows are excluded unless this says otherwise. Defaults to `"active"`. */
+  scope?: DebugReportScope;
+}
+
+/**
+ * Apply `scope` to a query. Inlined at each call site rather than wrapped in a generic helper for
+ * the reason `scripts/report.ts` spells out: PostgREST's builder types are parameterised over the
+ * selected columns, so a `<T extends { is(…): T }>` wrapper needs a cast to compile.
+ */
+function scopePredicate(scope: DebugReportScope | undefined): "active" | "archived" | null {
+  if (scope === "all") return null;
+  return scope === "archived" ? "archived" : "active";
 }
 
 /**
@@ -148,6 +170,9 @@ export async function listDebugReports(
   if (filter.errorCode) query = query.eq("error_code", filter.errorCode);
   if (filter.status) query = query.eq("status", filter.status);
   if (filter.since) query = query.gte("created_at", filter.since);
+  const scope = scopePredicate(filter.scope);
+  if (scope === "active") query = query.is("archived_at", null);
+  else if (scope === "archived") query = query.not("archived_at", "is", null);
 
   const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
   if (error) throw new Error(`listDebugReports: ${error.message}`);
@@ -164,13 +189,19 @@ export async function listDebugReports(
  */
 export async function debugReportFacets(
   ownerId: string,
+  scope: DebugReportScope = "active",
 ): Promise<{ providers: string[]; errorCodes: string[]; statuses: string[] }> {
-  const { data, error } = await getServiceSupabase()
+  // Scoped like the list it sits above, or the chips lie: a `resolved` filter offered over rows
+  // that have all been archived leads to an empty table, which reads as a bug in the filter.
+  let facets = getServiceSupabase()
     .from("debug_reports")
     .select("provider, error_code, status")
-    .eq("owner_id", ownerId)
-    .order("created_at", { ascending: false })
-    .limit(500);
+    .eq("owner_id", ownerId);
+  const predicate = scopePredicate(scope);
+  if (predicate === "active") facets = facets.is("archived_at", null);
+  else if (predicate === "archived") facets = facets.not("archived_at", "is", null);
+
+  const { data, error } = await facets.order("created_at", { ascending: false }).limit(500);
   if (error) throw new Error(`debugReportFacets: ${error.message}`);
   const rows =
     (data as { provider: string | null; error_code: string | null; status: string }[] | null) ?? [];
@@ -261,9 +292,72 @@ export async function setDebugReportTriage(
 }
 
 /**
+ * Archive or unarchive one report.
+ *
+ * Archiving is not triage and does not touch `status`: a resolved report stays resolved, and an
+ * archived report that is still `new` is a perfectly ordinary row — it says "never worth
+ * triaging", which is a real answer. It is also not a delete. Every archived report is one chip
+ * away on the list and is still reachable by id from `pnpm report`, which is the whole reason to
+ * prefer it over `deleteDebugReport` for anything that was genuinely observed.
+ *
+ * Owner-scoped in the `eq` for the same reason as triage — "not your report" is a no-op, with no
+ * window between a check and the write.
+ */
+export async function setDebugReportArchived(
+  ownerId: string,
+  id: string,
+  archived: boolean,
+): Promise<void> {
+  const { error } = await getServiceSupabase()
+    .from("debug_reports")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("owner_id", ownerId)
+    .eq("id", id);
+  if (error) throw new Error(`setDebugReportArchived: ${error.message}`);
+}
+
+/**
+ * Archive every resolved report that is not archived yet, and say how many went.
+ *
+ * The one bulk write on this table, and it exists because clearing a backlog one row at a time is
+ * how a list stops being cleared at all. It is deliberately narrow: `status = 'resolved'` only —
+ * never the current filter, never "everything shown". A button that archives what happens to be
+ * on screen is a button whose effect depends on a query string, and the undo for a mistaken bulk
+ * archive is N clicks rather than one.
+ *
+ * `archived_at is null` in the `where` keeps it idempotent AND keeps the returned count honest:
+ * running it twice archives nothing the second time and says zero, instead of re-stamping rows
+ * that were archived last week with today's date.
+ */
+export async function archiveResolvedDebugReports(ownerId: string): Promise<number> {
+  const { data, error } = await getServiceSupabase()
+    .from("debug_reports")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("owner_id", ownerId)
+    .eq("status", RESOLVED_STATUS)
+    .is("archived_at", null)
+    .select("id");
+  if (error) throw new Error(`archiveResolvedDebugReports: ${error.message}`);
+  return ((data as { id: string }[] | null) ?? []).length;
+}
+
+/** How many resolved reports are still in the list — what the "Archive resolved" button counts. */
+export async function countResolvedActiveDebugReports(ownerId: string): Promise<number> {
+  const { count, error } = await getServiceSupabase()
+    .from("debug_reports")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", ownerId)
+    .eq("status", RESOLVED_STATUS)
+    .is("archived_at", null);
+  if (error) throw new Error(`countResolvedActiveDebugReports: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
  * Remove a report outright — for the ones that are wrong rather than solved: a test filing, a
  * duplicate from a retry, a report about a bug that was never a bug. A solved report should be
- * resolved instead, so the fix stays findable next time the same `error_code` turns up.
+ * resolved instead, so the fix stays findable next time the same `error_code` turns up, and one
+ * that is merely finished should be ARCHIVED — same effect on the list, still readable after.
  *
  * Owner-scoped in the `where` for the same reason as triage. Returns whether a row went, so a
  * forged or stale id is distinguishable from a delete — the caller has no other way to tell.

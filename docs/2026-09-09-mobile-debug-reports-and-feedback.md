@@ -809,6 +809,52 @@ that separates "a thing that happened" from "a thing that is happening".
 - **Transcript**, from the joined `lesson_sessions` row rather than the report.
 - **Triage:** two controls, `status` and `resolution`, as a small server action.
 
+### 12.4 Archive — the third thing to do with a report. BUILT 2026-09-26.
+
+Resolve and Delete were not enough. A resolved report stays in the list forever, which is right for
+a week and wrong for a year: after five of them the list stops being "what wants attention" and
+starts being a log, and a log is the thing nobody reads. Delete solves the list and loses the
+report — including the `error_code` that makes the next occurrence recognisable, and the resolution
+note that says what fixed it last time.
+
+So a third verb: **archive**, `debug_reports.archived_at` (migration `0021`).
+
+**Why a column and not `status = 'archived'`.** 0019 made `status` unconstrained text exactly so a
+new state needs no migration, so this was the cheap option and it is wrong. The two are independent
+axes: status says *what a report turned out to be*, archive says *whether it still belongs in front
+of someone*. Overwriting `resolved` with `archived` destroys the first to express the second — and
+`resolved` is what §14's retention sweep keys on and what makes the resolution note readable. A
+report can be archived and still `new` (never worth triaging), or resolved and not archived (fixed
+today). Both are real states and neither is expressible in one column.
+
+**A timestamp, not a boolean**, for the reason `captured_at` is not a flag: archiving is an event
+and the only follow-up question is when. Same eight bytes, same `is null` predicate.
+
+**What it changes.**
+
+- `listDebugReports` takes a `scope` of `active | archived | all`, defaulting to `active`. So does
+  `debugReportFacets` — chips computed over rows the table below is not showing offer a filter that
+  leads to an empty list, which reads as a bug in the filter.
+- The list gains a **Show** chip row (Active / Archived / All, `?show=`), a per-row
+  Archive / Unarchive button next to Resolve, and one bulk control: **Archive resolved (N)**.
+- The detail page gains its own Archive form, deliberately *outside* the triage form. A
+  `formAction` on the triage form would carry whatever is typed in the Status box at that moment,
+  so archiving would save a half-finished edit as a side effect.
+- `pnpm report --list` and `--since` hide archived rows; `--archived` includes them, marked
+  `resolved · archived`. **Looking a report up by id never hides anything** — an id quoted in a
+  message must still resolve months later, which is the whole property archive preserves over
+  delete.
+- A partial index `where archived_at is null` on `(owner_id, created_at desc)`: the default list is
+  the only query that runs on every page load, and the archive is unbounded by design.
+
+**The bulk button archives `status = 'resolved'` only — never "everything currently shown".** A
+button whose effect depends on the query string is a button nobody can predict, and the undo for a
+mistaken bulk archive is N clicks rather than one. The count next to it is owner-wide and ignores
+the date range, so the label states what the button will actually do rather than what is on screen.
+
+No confirmation dialog, unlike Delete: Unarchive restores the row exactly, so nothing is at risk.
+That is the same reasoning that gives Resolve a bare form button and Delete a `ConfirmDialog`.
+
 ### 12.3 The joins that make it worth opening
 
 | From | To | How |
@@ -881,8 +927,11 @@ Single-learner app, so the numbers are small and should be kept small deliberate
   8 GB; even at a hundred reports a month this is under 100 MB a year.
 - The transcript is **not duplicated** (§6), which is what keeps the row small — a long lesson
   transcript alone can exceed the whole rest of the report.
-- Retention: nothing automatic at this volume. If it becomes worth it, a `where created_at < now() -
-  interval '180 days' and status = 'done'` delete in a migration or a script beats a cron.
+- Retention: nothing automatic at this volume, and **archive (§12.4) is the step before retention**
+  — it costs no storage and takes the row out of the list, which is the actual complaint. If
+  deleting ever becomes worth it, a `where archived_at < now() - interval '180 days'` delete in a
+  script beats a cron, and keying it on `archived_at` rather than `status` means nothing is deleted
+  that a human has not already decided is finished.
 - The one real risk is a **retry loop**: a spooled report that fails to send, is retried on every
   foreground, and eventually succeeds a hundred times because the failure was on the response rather
   than the write. Mitigation: the spool deletes on any 2xx **and on any 4xx** (a report the server

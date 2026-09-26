@@ -25,6 +25,7 @@
 //   pnpm report --list            the ten newest, so an id is never needed from memory
 //   pnpm report <id> --json       the raw row
 //   pnpm report --since 7d        what has been breaking, grouped by error code
+//   pnpm report ... --archived    include archived reports, which --list and --since hide
 //   pnpm report ... --owner=<sub> narrow to one Auth0 sub
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -69,9 +70,18 @@ const owner = value("owner");
  * `--list` and `--since` deliberately ask for a narrower set below.
  */
 const FULL =
-  "id, owner_id, created_at, captured_at, kind, note, lesson_id, conversation_id, provider, agent_version, error_code, error_message, client, state, events, transcript_tail, status, resolution";
+  "id, owner_id, created_at, captured_at, kind, note, lesson_id, conversation_id, provider, agent_version, error_code, error_message, client, state, events, transcript_tail, status, resolution, archived_at";
 const SLIM =
-  "id, created_at, captured_at, kind, note, provider, agent_version, error_code, error_message, status";
+  "id, created_at, captured_at, kind, note, provider, agent_version, error_code, error_message, status, archived_at";
+
+/**
+ * The two LIST modes hide archived reports; looking one up BY ID never does.
+ *
+ * Same split as `/ops/reports` (§12.4), and for the same reason: archiving answers "stop showing
+ * me this in the list", not "make this unreadable". An id quoted in a message still resolves
+ * months later, which is the property the archive exists to preserve over a delete.
+ */
+const archived = flag("archived");
 
 interface Row {
   id: string;
@@ -92,6 +102,7 @@ interface Row {
   transcript_tail: { role: string; text: string }[];
   status: string;
   resolution: string | null;
+  archived_at: string | null;
 }
 
 /**
@@ -112,6 +123,7 @@ interface Row {
 if (flag("list")) {
   let listing = getServiceSupabase().from("debug_reports").select(SLIM);
   if (owner) listing = listing.eq("owner_id", owner);
+  if (!archived) listing = listing.is("archived_at", null);
   const { data, error } = await listing
     .order("created_at", { ascending: false })
     .limit(Number(value("limit") ?? 10));
@@ -123,11 +135,14 @@ if (flag("list")) {
     console.log("| id | filed | kind | status | provider / version | error |");
     console.log("|---|---|---|---|---|---|");
     for (const r of rows) {
+      const status = r.archived_at ? `${r.status} · archived` : r.status;
       console.log(
-        `| \`${r.id.slice(0, 8)}\` | ${iso(r.captured_at)} | ${r.kind} | ${r.status} | ${r.provider ?? "—"} / ${r.agent_version ?? "—"} | ${r.error_code ?? "—"} |`,
+        `| \`${r.id.slice(0, 8)}\` | ${iso(r.captured_at)} | ${r.kind} | ${status} | ${r.provider ?? "—"} / ${r.agent_version ?? "—"} | ${r.error_code ?? "—"} |`,
       );
     }
-    console.log(`\nRun \`pnpm report <id>\` for any of these.`);
+    console.log(
+      `\nRun \`pnpm report <id>\` for any of these.${archived ? "" : " Add --archived to include archived ones."}`,
+    );
   }
   process.exit(0);
 }
@@ -140,6 +155,7 @@ if (value("since")) {
   }
   let recent = getServiceSupabase().from("debug_reports").select(SLIM);
   if (owner) recent = recent.eq("owner_id", owner);
+  if (!archived) recent = recent.is("archived_at", null);
   const { data, error } = await recent
     .gte("created_at", new Date(Date.now() - since).toISOString())
     .order("created_at", { ascending: false })
@@ -172,7 +188,9 @@ if (value("since")) {
 
 const wanted = positional[0];
 if (!wanted) {
-  console.error("Usage: pnpm report <id> | --list | --since 7d   (add --json for the raw row)");
+  console.error(
+    "Usage: pnpm report <id> | --list | --since 7d   (--json for the raw row, --archived to include archived)",
+  );
   process.exit(1);
 }
 
@@ -268,7 +286,9 @@ const spooled = new Date(report.created_at).getTime() - new Date(report.captured
 say(`| | |`);
 say(`|---|---|`);
 say(`| **Kind** | ${report.kind} |`);
-say(`| **Status** | ${report.status}${report.resolution ? ` — ${report.resolution}` : ""} |`);
+say(
+  `| **Status** | ${report.status}${report.archived_at ? " · archived" : ""}${report.resolution ? ` — ${report.resolution}` : ""} |`,
+);
 say(`| **Captured** | ${iso(report.captured_at)} |`);
 // The GAP, not a reason for it. "The phone could not reach the server for that long" is an
 // inference, and on a report whose own timeline contains a successful 200 it is an inference that
