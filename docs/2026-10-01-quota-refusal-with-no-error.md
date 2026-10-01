@@ -46,9 +46,32 @@ The report itself shows the gap: with no error of ours on the bus, the snapshot 
   headline (added 2026-10-02). Both surfaces call `reportVerdicts`, so they cannot disagree about
   which conversations a report covers.
 
-## §4 — Not done
+## §4 — The pre-check on the token route
 
-- **A pre-flight on the token route.** `/v1/user/subscription` could refuse a Start with a 402
-  before a room is opened. It costs a round trip on every Start to predict something the platform
-  reports anyway, and it cannot cover the mid-lesson case. Worth revisiting only if the silent shape
-  recurs in a form the adapter check misses.
+_Added 2026-10-02._ First listed here as not done, on the grounds that it costs a round trip per
+Start. It does not have to: the check runs **beside** the mint rather than in front of it.
+
+`POST /api/v2/words-agent/token` now asks `GET /v1/user/subscription` in parallel with the mint
+(`apps/web/src/lib/elevenlabs-credits.ts`). When the account is spent and not allowed to go over,
+the route answers **402 `quota`** with the sentence in the envelope — "The tutor account is out of
+ElevenLabs credits. Lessons will work again once it is topped up or the quota resets on …" — and
+`apiFetch` on the phone already puts a server message on screen, so **no mobile release is needed**.
+The room is never opened.
+
+The account as it stood the day after, which is the response the check was built against:
+
+```json
+"character_count": 30000, "character_limit": 30000,
+"can_extend_character_limit": false, "allowed_to_extend_character_limit": false,
+"next_character_count_reset_unix": 1791748122
+```
+
+Three properties worth knowing:
+
+- **It needs `user_read` on the API key**, which the key did not have (the endpoint answered 401
+  `missing_permissions`). Each deployment's key needs it granted separately.
+- **It fails open.** A non-200, a timeout (2.5 s), an unexpected shape, or overage being allowed all
+  mean "proceed as before". A wrong refusal blocks a lesson that would have worked, which is worse
+  than the failure this explains — so a key without the permission simply skips the check.
+- **It does not cover the mid-lesson case** (§2, shape 1), and nothing on this route can. The
+  adapter's `REFUSED_BEFORE_FIRST_TURN` stays as the floor for a refusal this check misses.

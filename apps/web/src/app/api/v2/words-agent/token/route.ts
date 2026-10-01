@@ -3,6 +3,10 @@ import type { ConversationTokenResponse } from "@tutor/shared/api";
 import { resolveAgent, resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { elevenLabsConfig } from "../../../../../lib/config";
+import {
+  creditsExhaustedMessage,
+  elevenLabsCreditsExhausted,
+} from "../../../../../lib/elevenlabs-credits";
 import { apiError, json, preflight } from "../../../../../lib/http";
 
 // Read the registry at request time, not build time (the lockfile may change between deploys).
@@ -57,11 +61,26 @@ export const POST = withBearer(async (req) => {
   }
 
   try {
-    const res = await fetch(
-      "https://api.elevenlabs.io/v1/convai/conversation/token" +
-        `?agent_id=${encodeURIComponent(agent.agentId)}`,
-      { headers: { "xi-api-key": apiKey } },
-    );
+    /**
+     * The credit check rides BESIDE the mint, not in front of it: the two are independent calls to
+     * the same host, and serialising them would add a round trip to every Start in order to catch
+     * something that happens a few times a year. The cost of running both is one token minted and
+     * thrown away on the day the account is dry.
+     *
+     * It cannot be skipped in favour of the mint's own answer — an exhausted account still mints
+     * (200), and the refusal only arrives after the room connects. See `lib/elevenlabs-credits.ts`.
+     */
+    const [exhausted, res] = await Promise.all([
+      elevenLabsCreditsExhausted(apiKey),
+      fetch(
+        "https://api.elevenlabs.io/v1/convai/conversation/token" +
+          `?agent_id=${encodeURIComponent(agent.agentId)}`,
+        { headers: { "xi-api-key": apiKey } },
+      ),
+    ]);
+    // 402, with the sentence in the envelope: `apiFetch` on the phone throws the server's own
+    // message and `start` puts it on screen, so this needs no client change to be read.
+    if (exhausted) return apiError(402, "quota", creditsExhaustedMessage(exhausted));
     if (!res.ok) {
       return apiError(502, "elevenlabs", `ElevenLabs returned HTTP ${res.status}`);
     }
