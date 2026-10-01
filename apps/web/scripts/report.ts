@@ -44,6 +44,10 @@ const { changedFields, diagnoseSnapshot, orderedFields } = await import(
 const { langsmithTraceName, langsmithTraceUrl, providerConsoleUrl, resolveReportAgent } =
   await import("../src/lib/debug-report-links");
 const { getSessionForConversation } = await import("../src/lib/debug-reports");
+const { elevenLabsVerdict, isQuotaVerdict } = await import("../src/lib/debug-report-verdict");
+
+/** How many conversations' verdicts one report asks the provider for. */
+const MAX_VERDICTS = 5;
 
 type SessionSnapshot = import("@tutor/shared/debug/report").SessionSnapshot;
 type DebugEvent = import("@tutor/shared/debug/report").DebugEvent;
@@ -382,6 +386,55 @@ if (report.error_code) {
   say("_No error was recorded. This is a report about behaviour rather than a failure._");
 }
 say();
+
+// ── the provider's verdict ───────────────────────────────────────────────────────────────────
+/**
+ * EVERY conversation in the timeline, not only the one the report is filed under.
+ *
+ * A report carries one `conversation_id` — the last — and the ring carries whatever came before it.
+ * On `470ddc9f` that was three conversations: the lesson that died and two refused retries, and the
+ * one the report named was the least informative of the three. `session.claim` is the event that
+ * records a row key, so it is the list of conversations this phone actually opened.
+ */
+if (report.provider === "elevenlabs") {
+  const claimed = [...(report.events ?? [])]
+    .sort((a, b) => a.seq - b.seq)
+    .filter((e) => e.code === "session.claim")
+    .map((e) => e.data?.conversationId)
+    .filter((c): c is string => typeof c === "string");
+  const conversations = [...new Set([...claimed, report.conversation_id ?? ""])]
+    .filter(Boolean)
+    // The newest few: a ring can hold a long day, and each row is a network call.
+    .slice(-MAX_VERDICTS);
+  const verdicts = (await Promise.all(conversations.map(elevenLabsVerdict))).filter(
+    (v) => v !== null,
+  );
+  if (verdicts.length > 0) {
+    say(`## What ElevenLabs recorded`);
+    say();
+    say(
+      "Read from the provider's own record of each conversation in the timeline, oldest first. The phone never sees these fields — a refusal reaches it as `Unknown error`, or as no error at all.",
+    );
+    say();
+    say(`| conversation | status | duration | ended because |`);
+    say(`|---|---|---|---|`);
+    for (const v of verdicts) {
+      const why = v.reason
+        ? `${[v.errorType, v.code && `code ${v.code}`].filter(Boolean).join(" · ") || "—"} — ${v.reason}`
+        : "no reason recorded — an ordinary hangup";
+      say(
+        `| \`${v.conversationId}\` | ${v.status ?? "?"} | ${v.durationSecs !== null ? `${v.durationSecs}s` : "?"} | ${why.replace(/\|/g, "\\|")} |`,
+      );
+    }
+    say();
+    if (verdicts.some(isQuotaVerdict)) {
+      say(
+        "**The ElevenLabs account was out of credits.** That is the cause, and it is not in this repository: the account needs topping up. Read the rest of this document for how the app behaved while it was refused, not for why.",
+      );
+      say();
+    }
+  }
+}
 
 // ── the state ────────────────────────────────────────────────────────────────────────────────
 const live = report.state?.live;

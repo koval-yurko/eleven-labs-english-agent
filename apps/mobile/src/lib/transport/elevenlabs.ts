@@ -16,7 +16,7 @@ import { apiFetch } from "@/api";
 import { setAgentAudioVolume } from "@/lib/agent-audio";
 import { useAccessToken } from "@/lib/auth";
 import { emit } from "@/lib/diagnostics";
-import { tutorErrorMessage } from "@/lib/tutor-error";
+import { REFUSED_BEFORE_FIRST_TURN, tutorErrorMessage } from "@/lib/tutor-error";
 
 /**
  * The ElevenLabs Conversational AI transport.
@@ -77,6 +77,9 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
     eventsRef.current = events;
   });
 
+  /** Has the tutor said anything in THIS conversation? Lowered by `start`, read on disconnect. */
+  const agentSpokeRef = useRef(false);
+
   const conversation = useConversation({
     onConnect: ({ conversationId }) => {
       emit({
@@ -90,7 +93,10 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
       // makes the comparison in the session meaningful here and nowhere else.
       eventsRef.current.onTransportId(conversationId, "row-key");
     },
-    onMessage: ({ message, role }) => eventsRef.current.onTurn({ role, text: message }),
+    onMessage: ({ message, role }) => {
+      if (role === "agent") agentSpokeRef.current = true;
+      eventsRef.current.onTurn({ role, text: message });
+    },
     /**
      * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
      * in an app whose whole premise is interrupting freely.
@@ -109,6 +115,24 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
         message: `disconnected (${details.reason})`,
         data: { reason: details.reason },
       });
+      /**
+       * A refused Start that carries no error. The platform admits the room and then closes it as
+       * an ordinary agent-side hangup — `onError` never fires — so without this the learner sees a
+       * Start that connected and went quiet. See `REFUSED_BEFORE_FIRST_TURN` for the reports.
+       *
+       * Only `"agent"`: an `"error"` disconnect has already been through `onError`, and a `"user"`
+       * one is the learner pressing End before the tutor got a word in.
+       */
+      if (details.reason === "agent" && !agentSpokeRef.current) {
+        emit({
+          level: "error",
+          code: "transport.error",
+          provider: "elevenlabs",
+          message: "the agent ended the conversation before its first turn",
+          data: { errorType: null, code: null, debugMessage: null },
+        });
+        eventsRef.current.onError(REFUSED_BEFORE_FIRST_TURN);
+      }
       eventsRef.current.onEnd(details.reason);
     },
     /**
@@ -275,6 +299,7 @@ export function useElevenLabsTransport(events: TutorTransportEvents): TutorTrans
         // each is fatal on the other side of the connect.
         await onIdentified({ conversationId: res.conversationId, version: res.version });
 
+        agentSpokeRef.current = false;
         latest.current.startSession({
           conversationToken: res.token,
           connectionType: "webrtc", // the only transport the RN SDK supports; websocket throws

@@ -24,7 +24,7 @@ import {
   ACTIVITY_WORD_WINDOW,
 } from "./src/lib/lesson-activity-state";
 import { itemLine } from "@tutor/shared/lessons/types";
-import { tutorErrorMessage } from "./src/lib/tutor-error";
+import { REFUSED_BEFORE_FIRST_TURN, tutorErrorMessage } from "./src/lib/tutor-error";
 import { isFinalRefusal } from "./src/lib/retry-policy";
 import { isTerminalCredentialError } from "./src/lib/credential-errors";
 import { resolveTutorVersion } from "./src/lib/tutor-version";
@@ -100,6 +100,11 @@ check("a local error is not called a server refusal", !local.includes("refused t
 // `context` is typed `any` by the SDK, so junk must not reach the screen as "[object Object]".
 const junk = tutorErrorMessage("Could not start audio", { errorType: {}, code: "", debugMessage: 0 });
 check("unusable context fields are ignored", !junk.includes("[object Object]") && !junk.includes("()"));
+
+// The refusal with no error at all (reports `47a7f19c`, `470ddc9f`): the adapter raises this when
+// the agent hangs up before its first turn. Same two properties as the bare server error above.
+check("a silent refusal drops the microphone hint", !REFUSED_BEFORE_FIRST_TURN.includes(MIC_HINT));
+check("a silent refusal points at credits", REFUSED_BEFORE_FIRST_TURN.includes("credits"));
 
 // ── the phase ───────────────────────────────────────────────────────────────────────────────
 check("held outranks muted", phaseOf({ connected: true, held: true, muted: true }) === "held");

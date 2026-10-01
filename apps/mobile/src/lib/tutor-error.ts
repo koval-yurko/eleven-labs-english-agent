@@ -95,3 +95,21 @@ export function tutorErrorMessage(message: string, context?: unknown): string {
 
   return `${detail} — if you haven't allowed the microphone yet, that looks like this too.`;
 }
+
+/**
+ * The refusal that arrives as NOTHING — no `error_event`, so `onError` never fires.
+ *
+ * On 2026-10-01 the account ran dry mid-lesson (reports `47a7f19c`, `470ddc9f`). The lesson in
+ * progress died with the bare `Server error:` the branch above was written for. The two Starts that
+ * followed did not: the token route minted (200), the room connected, and the platform closed it
+ * ~100 ms later as an ordinary `reason: "agent"` disconnect. The real reason — `[quota_exceeded]
+ * You've run out of credits`, a `call_initialization_error` — was only on the conversation's
+ * server-side record. On screen that was a Start button that connected and then did nothing, twice,
+ * with `start` having just cleared the one sentence that explained it.
+ *
+ * An agent that hangs up before it has said a word has not ended a lesson; it never began one. The
+ * adapter raises this sentence for that shape. Credits are offered as the usual cause rather than
+ * asserted, for the same reason as the generic server branch: the wire said nothing.
+ */
+export const REFUSED_BEFORE_FIRST_TURN =
+  "The tutor service ended the session before the lesson began. This is usually the ElevenLabs account being out of credits; it is not a problem with this phone or your microphone.";
