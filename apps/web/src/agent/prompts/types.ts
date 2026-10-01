@@ -113,6 +113,10 @@ export interface PromptVersion {
    * This is a BACKSTOP for a prompt-level turn budget, never the budget itself — the model is cut
    * off mid-sentence when it hits this, and TTS speaks the fragment. Set it comfortably above what
    * the prompt asks for. See docs/2026-08-17-short-turns-and-chunked-pause.md §3 L2.
+   *
+   * **On a Vapi version unset still MEANS unlimited, but it is not omitted** — that platform's
+   * default is a 250-token ceiling, so `vapiMaxTokens` (../vapi-assistant.ts) sends its maximum
+   * instead. Leaving the field out there is what cut podcast turns mid-sentence.
    */
   maxTokens?: number;
   /**

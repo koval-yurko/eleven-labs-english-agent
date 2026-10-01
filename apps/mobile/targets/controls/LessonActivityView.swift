@@ -106,15 +106,21 @@ struct LessonActivityView: View {
   /// four sentences this replaces run to sixty characters and would truncate to "⏸ Paused — microph…"
   /// next to a title. The distinction those sentences carry — that pause and mute look identical
   /// from outside, and only a pause runs the heartbeat that stops the tutor re-engaging — survives
-  /// in the glyphs and in the extra line above for the one case that genuinely needs prose.
+  /// in the words themselves and in the extra line above for the one case that genuinely needs prose.
+  ///
+  /// `muted` and `live` are WORDS ONLY. They used to read "🎤 Muted" and "● Listening", and a
+  /// microphone in front of "Muted" reads as a mute/unmute button — on a card where the real one
+  /// (`MuteButton`) sits immediately to its left, and where nothing can be pressed while the phone
+  /// is locked anyway (report 39a81f79). `⏸` stays on a hold: it is not a control on this card, and
+  /// it is what tells a pause from a mute at a glance.
   private var statusChip: String {
     switch state.phase {
     case .held:
       return "⏸ Paused"
     case .muted:
-      return "🎤 Muted"
+      return "Muted"
     case .live:
-      return "● Listening"
+      return "Listening"
     case .over:
       return "Ended"
     }

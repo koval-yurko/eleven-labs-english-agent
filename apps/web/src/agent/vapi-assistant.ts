@@ -60,8 +60,9 @@ const SILENCE_TIMEOUT_MAX = 3600;
  * interrupted, and backs off longer when it is.
  *
  * Emitted ONLY when a version sets `turnEagerness`, so an unset value keeps Vapi's own defaults
- * rather than freezing today's guesses into every future assistant — the same rule `agentBody`
- * follows for `max_tokens`.
+ * rather than freezing today's guesses into every future assistant. (`maxTokens` used to follow the
+ * same rule here and must not: Vapi's default for it is a ceiling, not an absence. See
+ * `vapiMaxTokens`.)
  */
 const SPEAKING_PLANS: Record<
   "patient" | "normal" | "eager",
@@ -108,6 +109,38 @@ export function vapiModelRef(llm: string): { provider: string; model: string } {
 export function vapiSilenceTimeout(seconds: number): number {
   if (seconds < 0) return SILENCE_TIMEOUT_MAX;
   return Math.min(Math.max(seconds, SILENCE_TIMEOUT_MIN), SILENCE_TIMEOUT_MAX);
+}
+
+/**
+ * Vapi's accepted range for `model.maxTokens`, and — the half that matters — its DEFAULT of 250.
+ * Read from the platform's own OpenAPI document (`AnthropicModel.maxTokens`), not inferred.
+ */
+const MAX_TOKENS_MIN = 50;
+const MAX_TOKENS_MAX = 10000;
+
+/**
+ * `maxTokens` → `model.maxTokens`, with "unset" translated rather than passed through.
+ *
+ * Our field carries ElevenLabs' vocabulary, where **unset means unlimited** (that platform's default
+ * is -1), and the podcast lesson leaves it unset on purpose: its turns are 200–300-word weaves with
+ * no sentence budget in the prompt, and "a ceiling with no prompt behind it does not shorten a turn —
+ * it truncates one mid-word and lets TTS speak the fragment" (words-1.0.ts).
+ *
+ * On Vapi, unset is not unlimited. It is **250 tokens per turn**, which is almost exactly the length
+ * of one of those weaves — so this body used to omit the field "to keep Vapi's default", and what
+ * that kept was a ceiling nobody chose. Every long teaching turn stopped mid-sentence ("the plaintiff
+ * or the defendant can be", "context makes it") and the lesson only moved when the learner said
+ * "continue". Reports 6e611176, d938ae7e and 9b047667 are one call, filed three times.
+ *
+ * So this is `vapiSilenceTimeout`'s rule again: Vapi has no "disabled", and "disabled" becomes the
+ * largest value the platform accepts. A turn that long is not a cost exposure — `maxDurationSeconds`
+ * is the limit that bounds a session, and the learner's voice stops a turn long before 10 000 tokens.
+ *
+ * A pinned value outside the range is clamped rather than rejected, for the reason given there.
+ */
+export function vapiMaxTokens(maxTokens: number | undefined): number {
+  if (maxTokens === undefined) return MAX_TOKENS_MAX;
+  return Math.min(Math.max(maxTokens, MAX_TOKENS_MIN), MAX_TOKENS_MAX);
 }
 
 /**
@@ -187,7 +220,9 @@ export function vapiAssistantBody(
     model: {
       ...vapiModelRef(c.llm),
       messages: [{ role: "system", content: `${c.prompt}${VAPI_OPENS_CLAUSE}` }],
-      ...(c.maxTokens === undefined ? {} : { maxTokens: c.maxTokens }),
+      // ALWAYS sent — the one field here where leaving Vapi's default alone is the bug. See
+      // `vapiMaxTokens`.
+      maxTokens: vapiMaxTokens(c.maxTokens),
       /**
        * The MCP grant, INLINE — no second remote object, no id, no lockfile entry. Omitted entirely
        * when a version grants nothing, so the four versions provisioned before this field existed

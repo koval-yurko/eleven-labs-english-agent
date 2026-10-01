@@ -326,7 +326,7 @@ Mapping `PromptVersion` (`apps/web/src/agent/prompts/types.ts`) onto Vapi's assi
 | `llm` | `model.provider` + `model.model` | Any of OpenAI / Anthropic / Google. NOT where this version earns its keep — an ElevenLabs agent already names its own LLM, and `DEFAULT_LLM` is Claude. What Vapi adds is its ORCHESTRATION: `startSpeakingPlan` / `stopSpeakingPlan` and `end-of-call-report`. |
 | `voiceId` | — | **IGNORED.** No `voice` block is sent; Vapi uses its own default. See §9.2. |
 | `ttsModelId` | — | **IGNORED**, for the same reason. |
-| `maxTokens` | `model.maxTokens` | |
+| `maxTokens` | `model.maxTokens` | **Always sent.** Vapi's default is **250**, not unlimited (range 50–10000), so an unset `maxTokens` — which means "no ceiling" on ElevenLabs — is sent as 10000. Omitting it cut every long podcast turn mid-sentence (reports 6e611176, d938ae7e, 9b047667; fixed 2026-10-01). See `vapiMaxTokens`. |
 | `maxDurationSeconds` | `maxDurationSeconds` | Vapi default 600 — **the same 600 that silently cut sessions in S1**. Pin it, for the same reason and with the same care. |
 | `silenceEndCallTimeoutSeconds` | `silenceTimeoutSeconds` | The held-pause backstop. |
 | `turnTimeoutSeconds` | ⚠️ No direct equivalent | Vapi has no "re-engage the learner after N seconds of silence" timer; its silence timer *ends the call*. Podcast pacing (`words-1.5`, `words-2.0`) would need `vapi.say()` driven by a client-side timer — which, given §5.1, is actually a **cleaner** mechanism than either the EL re-engage timer or OpenAI's `idle_timeout_ms`. |
