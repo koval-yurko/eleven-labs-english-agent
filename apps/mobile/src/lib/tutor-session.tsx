@@ -809,11 +809,17 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       // pushing it out (`transport/openai.ts`), the suspension may as well be in place before the
       // pause is announced. Harmless on ElevenLabs: one extra `user_activity` ping.
       tx.keepAlive();
-      heartbeatRef.current = setInterval(() => tx.keepAlive(), HEARTBEAT_MS);
+      heartbeatRef.current = setInterval(() => {
+        // `statusRef` moves synchronously with the transport; the `status` the effect below reads
+        // is a render behind. A tick landing in between pings a line that is already gone, and a
+        // throw in a timer takes the app down — so the timer checks for itself.
+        if (statusRef.current !== "connected") return stopHeartbeat();
+        tx.keepAlive();
+      }, HEARTBEAT_MS);
     }
     heldRef.current = true;
     setHeld(true);
-  }, [tx]);
+  }, [tx, stopHeartbeat]);
 
   const release = useCallback(() => {
     if (!heldRef.current) return;
@@ -909,9 +915,14 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     resumeContextRef.current = null;
     const forLesson = convLessonRef.current;
     if (forLesson) void clearPauseMarker(forLesson);
+    // Before the hangup, not after it. The SDK drops its conversation synchronously inside
+    // `endSession` and then keeps reporting `connected` while it disconnects, so the effect above
+    // does not run yet — and the next keep-alive throws "No active conversation" from inside a
+    // timer, which is fatal. Report d13be4f6: End pressed on a held pause.
+    stopHeartbeat();
     tx.end();
     void persistSession();
-  }, [tx, persistSession]);
+  }, [tx, persistSession, stopHeartbeat]);
 
   /**
    * A session that ends takes the conversation with it.

@@ -834,15 +834,27 @@ for (const a of plan) {
     switch (a.kind) {
       case "create": {
         const id = await a.driver.create(a.cfg);
-        lock.agents[a.version] = {
+        const created: LockEntry = {
           agentId: id,
           status: "active",
           hash: a.hash,
           name: a.cfg.name,
           updatedAt: now,
           provider: a.driver.id,
-          ...mcpIdsRecord(a.cfg),
         };
+        lock.agents[a.version] = created;
+        /**
+         * The attachment is PATCHed on, not trusted to the create. words-1.1 was created with
+         * `mcp_server_ids` in the body and came back with `[]` — never updated since, so the lock
+         * said "attached" for a month while the tutor answered "Added" and called nothing (report
+         * d13be4f6). The entry is written without the ids first: if the PATCH fails, the next run
+         * sees `mcpDrifted` and repeats it instead of losing the new agent's id.
+         */
+        if (mcpServerIdsFor(a.cfg).length > 0) {
+          writeLock(lock);
+          await a.driver.update(id, a.cfg);
+          lock.agents[a.version] = { ...created, ...mcpIdsRecord(a.cfg) };
+        }
         console.log(`  ＋ ${a.version} → ${id}  [${a.driver.id} ${a.driver.noun}]`);
         applied++;
         break;
