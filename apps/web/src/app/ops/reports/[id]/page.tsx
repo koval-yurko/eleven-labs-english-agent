@@ -10,6 +10,7 @@ import {
   providerConsoleUrl,
   resolveReportAgent,
 } from "../../../../lib/debug-report-links";
+import { reportVerdicts } from "../../../../lib/debug-report-verdict";
 import {
   RESOLVED_STATUS,
   getDebugReport,
@@ -26,6 +27,7 @@ import {
 import { DeleteReportButton } from "../DeleteReportButton";
 import { StateDiff } from "./StateDiff";
 import { Timeline } from "./Timeline";
+import { Verdicts } from "./Verdicts";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,9 @@ export const dynamic = "force-dynamic";
  *
  * **The note is first**, quoted, where it cannot be missed: it is the only part of a report a
  * machine could not have produced, and it is routinely the fastest route to the cause (§1.5).
+ *
+ * **Then what the provider recorded**, when it recorded anything (`Verdicts`): a cause named by
+ * the far end outranks everything the phone observed about it.
  *
  * Then the identity and the join keys — because the first question is always "which build, which
  * provider, which conversation" — then the state, then the story. The transcript comes from the
@@ -61,11 +66,14 @@ export default async function OpsReportPage({ params }: { params: Promise<{ id: 
   const conversationId = report.conversation_id;
   // In parallel: both are independent lookups keyed on the same conversation id, and the LangSmith
   // one talks to a third party — serialising them would add its latency to the transcript's.
-  const [session, langsmith] = await Promise.all([
+  const [session, langsmith, verdicts] = await Promise.all([
     // The transcript, joined. Null when the session never connected — not an error but the very
     // case this table exists for, so it is said out loud rather than rendered as an empty list.
     conversationId ? getSessionForConversation(ownerId, conversationId) : null,
     conversationId ? langsmithTraceUrl(conversationId) : null,
+    // Keyed on the timeline rather than on `conversationId`: a report names its LAST conversation,
+    // and the one that explains it is often an earlier one. Bounded and swallowing, like LangSmith.
+    reportVerdicts(report),
   ]);
   const agent = resolveReportAgent(report.agent_version);
   const console_ = conversationId ? providerConsoleUrl(report.provider, conversationId) : null;
@@ -98,6 +106,8 @@ export default async function OpsReportPage({ params }: { params: Promise<{ id: 
       )}
 
       {report.error_message ? <p className="error">{report.error_message}</p> : null}
+
+      <Verdicts verdicts={verdicts} />
 
       <section className="panel">
         <h2>Identity</h2>

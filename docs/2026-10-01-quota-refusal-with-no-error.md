@@ -42,6 +42,9 @@ The report itself shows the gap: with no error of ours on the bus, the snapshot 
   duration and `metadata.error` for every conversation in the timeline (`session.claim` events), not
   only the one the report is filed under. A quota verdict is called out as such. This is the lookup
   that settled both outages by hand (`apps/web/src/lib/debug-report-verdict.ts`).
+- **The operator page** (`/ops/reports/[id]`) — the same table, as a panel directly under the
+  headline (added 2026-10-02). Both surfaces call `reportVerdicts`, so they cannot disagree about
+  which conversations a report covers.
 
 ## §4 — Not done
 
@@ -49,5 +52,3 @@ The report itself shows the gap: with no error of ours on the bus, the snapshot 
   before a room is opened. It costs a round trip on every Start to predict something the platform
   reports anyway, and it cannot cover the mid-lesson case. Worth revisiting only if the silent shape
   recurs in a form the adapter check misses.
-- **The operator page** (`/ops/reports/[id]`) does not show the verdict yet; the script is the
-  handoff that gets read first.

@@ -1,3 +1,5 @@
+import type { DebugEvent } from "@tutor/shared/debug/report";
+
 import { elevenLabsConfig } from "./config";
 
 /**
@@ -74,6 +76,48 @@ export async function elevenLabsVerdict(conversationId: string): Promise<Provide
   } catch {
     return null;
   }
+}
+
+/** How many conversations' verdicts one report asks the provider for. */
+const MAX_VERDICTS = 5;
+
+/**
+ * The verdict on EVERY conversation in a report's timeline, oldest first — not only the one the
+ * report is filed under.
+ *
+ * A report carries one `conversation_id` — the last — and the ring carries whatever came before it.
+ * On `470ddc9f` that was three conversations: the lesson that died and two refused retries, and the
+ * one the report named was the least informative of the three. `session.claim` is the event that
+ * records a row key, so it is the list of conversations this phone actually opened.
+ *
+ * One function for `pnpm report` and the operator page, so the two cannot disagree about which
+ * conversations a report is about. Empty for any provider but ElevenLabs, and whenever the provider
+ * could not be asked.
+ */
+export async function reportVerdicts(report: {
+  provider: string | null;
+  conversation_id: string | null;
+  events: DebugEvent[] | null;
+}): Promise<ProviderVerdict[]> {
+  if (report.provider !== "elevenlabs") return [];
+  const claimed = [...(report.events ?? [])]
+    .sort((a, b) => a.seq - b.seq)
+    .filter((e) => e.code === "session.claim")
+    .map((e) => e.data?.conversationId)
+    .filter((c): c is string => typeof c === "string");
+  const conversations = [...new Set([...claimed, report.conversation_id ?? ""])]
+    .filter(Boolean)
+    // The newest few: a ring can hold a long day, and each row is a network call.
+    .slice(-MAX_VERDICTS);
+  return (await Promise.all(conversations.map(elevenLabsVerdict))).filter((v) => v !== null);
+}
+
+/** `dependency_error · code 1002`, or null when the provider recorded no error. */
+export function verdictErrorLabel(verdict: ProviderVerdict): string | null {
+  const label = [verdict.errorType, verdict.code && `code ${verdict.code}`]
+    .filter(Boolean)
+    .join(" · ");
+  return label || null;
 }
 
 /** Is this the account being out of credits? The one verdict that is not a bug in this repo. */

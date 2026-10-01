@@ -44,10 +44,9 @@ const { changedFields, diagnoseSnapshot, orderedFields } = await import(
 const { langsmithTraceName, langsmithTraceUrl, providerConsoleUrl, resolveReportAgent } =
   await import("../src/lib/debug-report-links");
 const { getSessionForConversation } = await import("../src/lib/debug-reports");
-const { elevenLabsVerdict, isQuotaVerdict } = await import("../src/lib/debug-report-verdict");
-
-/** How many conversations' verdicts one report asks the provider for. */
-const MAX_VERDICTS = 5;
+const { isQuotaVerdict, reportVerdicts, verdictErrorLabel } = await import(
+  "../src/lib/debug-report-verdict"
+);
 
 type SessionSnapshot = import("@tutor/shared/debug/report").SessionSnapshot;
 type DebugEvent = import("@tutor/shared/debug/report").DebugEvent;
@@ -388,27 +387,10 @@ if (report.error_code) {
 say();
 
 // ── the provider's verdict ───────────────────────────────────────────────────────────────────
-/**
- * EVERY conversation in the timeline, not only the one the report is filed under.
- *
- * A report carries one `conversation_id` — the last — and the ring carries whatever came before it.
- * On `470ddc9f` that was three conversations: the lesson that died and two refused retries, and the
- * one the report named was the least informative of the three. `session.claim` is the event that
- * records a row key, so it is the list of conversations this phone actually opened.
- */
-if (report.provider === "elevenlabs") {
-  const claimed = [...(report.events ?? [])]
-    .sort((a, b) => a.seq - b.seq)
-    .filter((e) => e.code === "session.claim")
-    .map((e) => e.data?.conversationId)
-    .filter((c): c is string => typeof c === "string");
-  const conversations = [...new Set([...claimed, report.conversation_id ?? ""])]
-    .filter(Boolean)
-    // The newest few: a ring can hold a long day, and each row is a network call.
-    .slice(-MAX_VERDICTS);
-  const verdicts = (await Promise.all(conversations.map(elevenLabsVerdict))).filter(
-    (v) => v !== null,
-  );
+// Every conversation in the timeline, not only the one the report is filed under — see
+// `reportVerdicts`, which the operator page shares.
+{
+  const verdicts = await reportVerdicts(report);
   if (verdicts.length > 0) {
     say(`## What ElevenLabs recorded`);
     say();
@@ -420,7 +402,7 @@ if (report.provider === "elevenlabs") {
     say(`|---|---|---|---|`);
     for (const v of verdicts) {
       const why = v.reason
-        ? `${[v.errorType, v.code && `code ${v.code}`].filter(Boolean).join(" · ") || "—"} — ${v.reason}`
+        ? `${verdictErrorLabel(v) ?? "—"} — ${v.reason}`
         : "no reason recorded — an ordinary hangup";
       say(
         `| \`${v.conversationId}\` | ${v.status ?? "?"} | ${v.durationSecs !== null ? `${v.durationSecs}s` : "?"} | ${why.replace(/\|/g, "\\|")} |`,
