@@ -62,8 +62,18 @@ import { emit } from "@/lib/diagnostics";
  * in that module and this adapter calls it, the way `openai.ts` does.
  */
 
-/** How long to wait for the worker after the room is up, before calling the lesson a failure. */
-const AGENT_READY_TIMEOUT_MS = 15_000;
+/**
+ * How long to wait for the worker after the room is up, before calling the lesson a failure.
+ *
+ * Sized for a COLD worker, not a warm one. On LiveKit's Build plan the deployed agent scales to
+ * zero once its last session ends, and the next dispatch has to wake it: LiveKit documents "up to
+ * 10 to 20 seconds of delay before the agent joins the room", and a probe against the sleeping
+ * production agent measured ~19 s to the join against ~1 s warm — with `session.start` still to run
+ * before `tutor.ready`. The 15 s this used to be was shorter than the wake it was waiting for, so
+ * the first lesson after any idle stretch failed and only the retry (now warm) connected — report
+ * `327f1b26`, docs/2026-10-01-livekit-cold-start-ready-timeout.md.
+ */
+const AGENT_READY_TIMEOUT_MS = 45_000;
 
 export function useLiveKitTransport(events: TutorTransportEvents): TutorTransport {
   const [status, setStatus] = useState<TutorStatus>("disconnected");
@@ -95,8 +105,18 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
   const hangingUpRef = useRef(false);
   const readyRef = useRef(false);
   const readyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * When the room came up, so the wait for the worker lands in the report as a number. A cold start
+   * and a worker that is not there at all look identical from the lesson screen; `waitedMs` on the
+   * join and on `connected` is what tells them apart afterwards.
+   */
+  const roomUpAtRef = useRef<number | null>(null);
 
   const live = useRef({
+    waitedMs(): number | null {
+      return roomUpAtRef.current === null ? null : Date.now() - roomUpAtRef.current;
+    },
+
     /**
      * The one place `connected` is announced. Called from the `tutor.ready` RPC, and deliberately
      * from nowhere else — not from `RoomEvent.Connected`, not from the agent merely joining.
@@ -108,6 +128,13 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
         clearTimeout(readyTimerRef.current);
         readyTimerRef.current = null;
       }
+      emit({
+        level: "info",
+        code: "transport.connected",
+        provider: "livekit",
+        message: "tutor ready",
+        data: { waitedMs: live.current.waitedMs() },
+      });
       setStatus("connected");
       eventsRef.current.onStatus("connected");
     },
@@ -226,6 +253,7 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
         endingRef.current = false;
         hangingUpRef.current = false;
         readyRef.current = false;
+        roomUpAtRef.current = null;
         setIsMuted(false);
         setStatus("connecting");
         eventsRef.current.onStatus("connecting");
@@ -265,6 +293,7 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
               code: "transport.agent_joined",
               provider: "livekit",
               message: p.identity,
+              data: { waitedMs: live.current.waitedMs() },
             });
           });
 
@@ -329,15 +358,31 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
           // And once more, now that a local track exists and the unit has started.
           await applyVoiceLessonCategory();
 
+          roomUpAtRef.current = Date.now();
+          emit({
+            level: "debug",
+            code: "transport.connect",
+            provider: "livekit",
+            message: "joined the room, waiting for the tutor",
+          });
+
           /**
            * The room is up; the tutor may not be. Dispatch, cold start and model warm-up all sit
            * between here and the first word, so this is generous — but it is a hard failure rather
            * than a connect-anyway backstop, because a lesson with no tutor in it has nothing to say
            * and the learner would be left talking to an empty room.
+           *
+           * The two messages are two different failures. A worker that never joined was not woken
+           * or is not deployed; one that joined and never said `tutor.ready` started and then got
+           * stuck in its own setup, which is a worker bug rather than a dispatch one.
            */
           readyTimerRef.current = setTimeout(() => {
             if (readyRef.current || endedRef.current) return;
-            eventsRef.current.onError("The tutor never joined the lesson.");
+            eventsRef.current.onError(
+              agentRef.current
+                ? "The tutor joined but never became ready."
+                : "The tutor never joined the lesson.",
+            );
             live.current.teardown("error");
           }, AGENT_READY_TIMEOUT_MS);
         } catch (e) {

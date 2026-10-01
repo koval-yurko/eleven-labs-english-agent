@@ -136,8 +136,10 @@ includes existing write-only values. `LIVEKIT_URL` and project credentials are r
 and are not uploaded by this sync. Do not change the grant secret on only one side.
 
 After deployment, run a short mobile lesson and check the transcript/ledger write-back. A `Running`
-status confirms the deployment, not the full lesson flow. The Build plan can cold-start; dispatch
-readiness remains part of the device checks.
+status confirms the deployment, not the full lesson flow. `Sleeping` is not a failed deployment
+either: on the Build plan the agent scales to zero when idle and the next dispatch wakes it, which
+measured ~19 s to the join against ~1 s warm. The phone waits 45 s for `tutor.ready` for that
+reason (`docs/2026-10-01-livekit-cold-start-ready-timeout.md`).
 
 A prompt-only edit under `apps/web/src/agent/prompts/` needs a backend deployment: the prompt is
 sent with each new lesson. Worker logic, turn plans, dependencies and shared protocol changes
