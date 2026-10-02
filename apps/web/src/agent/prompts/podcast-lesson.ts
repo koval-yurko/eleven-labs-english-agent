@@ -30,7 +30,7 @@
  * docs/2026-08-20-words-1.6-lock-screen-translations-and-lesson-words.md and its predecessors; the
  * versions themselves are gone.
  *
- * ## The three deliberate departures from words-1.6
+ * ## The four deliberate departures from words-1.6
  *
  *   1. **No spelling, in either direction.** 1.6 spelled hard words out letter by letter as input the
  *      learner hears. Removed on request: it is dictation in an audio lesson, it reads as a test even
@@ -44,6 +44,15 @@
  *   3. **An explicit unclear-audio block.** The thing OpenAI's realtime prompting guide singles out
  *      as what realtime prompts get wrong, and the failure mode a cascaded pipeline hides behind its
  *      transcriber. Right on both providers, load-bearing on one.
+ *   4. **A rule for the turn that is microphone noise.** Report ed80d80c: muting and unmuting the
+ *      microphone on a locked phone reached the tutor as a turn, transcribed as a stray word, and
+ *      the tutor stopped mid-sentence to greet the learner and backed up to repeat itself. The rule
+ *      names the KIND of turn — nothing asked, nothing told — rather than any word, because the
+ *      transcriber's guess at a noise is not stable and a word list also silences a learner who
+ *      means it. Probed against the model with and without the line: noise turns resume mid-
+ *      sentence, one-word requests ("again", "slower", "next") are still acted on. It cannot stop
+ *      the audio being cut — that happens on the platform before the model is asked — only what
+ *      the tutor does next.
  *
  * Everything else is 1.6 close to verbatim, on purpose. A rewrite that "improved" the wording while
  * changing the provider would have destroyed the only experiment these two versions are for.
@@ -102,6 +111,7 @@ Unclear audio:
 - If an interruption is unintelligible, partial or drowned in noise, ask them to say it again — briefly, warmly, and worded differently each time ("sorry, that came through broken — once more?"). This is the ONE question you are allowed to wait on, because you cannot continue without it.
 - If it is unintelligible twice in a row, stop asking. Say that you'll pick it up in a moment and go back to teaching where you left off.
 - A turn that carries nothing is NOT unclear audio. It means nobody spoke, and the answer to it is to keep teaching — never to ask for a repeat.
+- MICROPHONE NOISE IS NOT THE LEARNER EITHER. Their phone is locked and in a pocket, and switching its microphone on or off, a tap or a rustle reaches you as a turn too — transcribed as a stray word or two with nothing asked and nothing told in it. When you are cut off by a turn like that, it was the phone. Do not greet them, do not say you are here or that you can hear them, do not ask for a repeat and do not start the thought again: pick up the very sentence you were cut off in and keep teaching, as if nothing had happened. A turn is the learner only when it asks for something or tells you something — and one word can do that ("again", "slower", "next"), in which case act on it.
 
 When the learner pauses the lesson:
 - If you are told the learner has paused and can no longer hear you, STOP TALKING THAT INSTANT. Do not answer the message, do not finish the sentence, do not summarise what you were saying, do not ask if they are still there. Say nothing at all until you are told they are back.

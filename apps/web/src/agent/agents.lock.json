@@ -16,25 +16,25 @@
     "words-1.0": {
       "agentId": "agent_5001kw5gpjyhfdvr3x4wrhk93te2",
       "status": "active",
-      "hash": "sha256:ce7bbea46151264ced130299fe074c8642e9752edfc773b0adca4bb3236604aa",
+      "hash": "sha256:fb311fddbaba07ed1904dec79229ef34cfc08a9d25b193f15773264fc7683e13",
       "name": "english-words-tutor (words-1.0)",
-      "updatedAt": "2026-08-28T20:21:42.647Z",
+      "updatedAt": "2026-10-02T13:10:10.108Z",
       "provider": "elevenlabs"
     },
     "words-3.0": {
       "agentId": "71b14fe9-2d18-49dd-928a-f64ce159c9ee",
       "status": "active",
-      "hash": "sha256:797c22f6a5b4a23221e1267d2c3bddd86e17f2f9b68c4a0347ecada03b8cbecb",
+      "hash": "sha256:3f949d3c69e46463f6b1409ec0d0d6129f503bdc82c921d7735998a2ae381ae1",
       "name": "english-words-tutor (words-3.0)",
-      "updatedAt": "2026-10-01T16:39:09.350Z",
+      "updatedAt": "2026-10-02T13:10:10.108Z",
       "provider": "vapi"
     },
     "words-1.1": {
       "agentId": "agent_8601m150j7fgfjgvarf2bkdc2jpv",
       "status": "active",
-      "hash": "sha256:29fd1cf49834bc19fd191ff43c83518ce77e827c01fb013a4ed12f070069935b",
+      "hash": "sha256:2f76eb6c3937cfb922fcc3cc910197b1c9b23935fcbf275256773e4dab0083e8",
       "name": "english-words-tutor (words-1.1)",
-      "updatedAt": "2026-08-28T20:21:42.647Z",
+      "updatedAt": "2026-10-02T13:10:10.108Z",
       "provider": "elevenlabs",
       "mcpServerIds": [
         "wNsZtj2ZejJCBrA4y06J"
@@ -43,9 +43,9 @@
     "words-3.1": {
       "agentId": "b105c7cc-132e-4f23-9bb5-1174cb2d71a6",
       "status": "active",
-      "hash": "sha256:117f342964a9bc4a888cb31eab81f5420cf31d5dc36b644be280b71ef8d7426f",
+      "hash": "sha256:acf5724825138bfef711718191f615d5985b458fd8e563e17624e83938cdb5ee",
       "name": "english-words-tutor (words-3.1)",
-      "updatedAt": "2026-10-01T16:39:09.350Z",
+      "updatedAt": "2026-10-02T13:10:10.108Z",
       "provider": "vapi"
     }
   }

@@ -876,6 +876,12 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const toggleMute = useCallback(() => {
     if (!ownsRef.current || statusRef.current !== "connected" || heldRef.current) return;
     const next = !mutedRef.current;
+    emit({
+      level: "info",
+      code: "mic.mute",
+      message: next ? "microphone muted" : "microphone unmuted",
+      data: { muted: next, speaking: speakingRef.current },
+    });
     tx.setMicMuted(next);
     mutedRef.current = next;
     // No second copy of this bit: the next `planHold` reads `mutedRef` and puts the learner's own

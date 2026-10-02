@@ -111,6 +111,13 @@ export const DEBUG_CODES = [
    * delivers the learner's transcript at a different moment, but it is comparable.
    */
   "turn.gap",
+  /**
+   * The learner switched their microphone on or off, outside a pause. Report ed80d80c is why: three
+   * turns nobody spoke cut the tutor off, the learner put them down to the mute switch, and the
+   * timeline could neither confirm nor refute it because the switch left no trace. A `turn.gap`
+   * landing a second after one of these is that question answered.
+   */
+  "mic.mute",
   // network
   "api.request",
   "api.failed",
