@@ -9,6 +9,7 @@ import { initializeLogger, ChatMessage, FunctionCall, FunctionCallOutput, type C
 
 import { CONTEXT_NOTE_PREFIX, applyCacheControl, buildAnthropicMessages, buildMessageParams } from "./claude-request.ts";
 import { DEFAULT_MODEL } from "./claude-llm.ts";
+import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger, type LedgerLlmCall, type LedgerMessage } from "./turn-ledger.ts";
 import { TURN_PLANS, turnHandlingFor } from "./turn-plans.ts";
 import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
@@ -240,6 +241,58 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   eq("ledger: state resets between turns", [next?.userText, next?.toolCalls, next?.preemptiveAttempts], ["", [], 0]);
   eq("ledger: errors and a resumed false interruption land on the turn they happened in", [next?.errors, next?.falseInterruptionResumed], [["stt:APIConnectionError"], true]);
   eq("ledger: a missing metric is -1, never a fake 0", next?.e2eLatencyMs, -1);
+
+  // The turn that never closed (report d2a257ee): Claude answered, the voice returned nothing, so
+  // no tutor message was ever committed.
+  ledger.flush(9_000);
+  eq("ledger: flush with nothing pending writes nothing", records.length, 2);
+  ledger.message(msg("user", "Continue."));
+  ledger.flush(9_000);
+  eq("ledger: a learner line alone is not a turn", records.length, 2);
+  ledger.completion("r3", "Let's start with fleeting.");
+  ledger.llmCall(llmCall("r3"));
+  ledger.error("tts:silent");
+  ledger.flush(9_000);
+  const unspoken = records[2];
+  eq("ledger: flush records the turn that never closed", records.length, 3);
+  eq("ledger: the unspoken turn keeps what was generated and says nothing was heard", [unspoken?.agentText, unspoken?.agentHeardText], ["Let's start with fleeting.", ""]);
+  eq("ledger: the unspoken turn keeps its error, its tokens and the learner's words", [unspoken?.errors, unspoken?.outputTokens, unspoken?.userText], [["tts:silent"], 40, "Continue."]);
+  ledger.flush(9_000);
+  eq("ledger: flush is idempotent", records.length, 3);
+}
+
+// ── Silent speech (docs/2026-10-02-livekit-silent-tts-on-spent-quota.md) ────────────────────────
+{
+  async function* from<T>(items: T[]): AsyncIterable<T> {
+    for (const item of items) yield item;
+  }
+  const run = async (text: string[], frames: number[], stopAfter?: number): Promise<SpeechOutcome | null> => {
+    let outcome: SpeechOutcome | null = null;
+    const tap = tapSpeech((o) => (outcome = o));
+    // The TTS node reads all of the text and then yields its frames, as the real one does.
+    const audio = tap.audio(
+      (async function* () {
+        for await (const chunk of tap.text(from(text))) void chunk;
+        yield* from(frames);
+      })(),
+    );
+    let seen = 0;
+    for await (const frame of audio) {
+      void frame;
+      seen += 1;
+      if (stopAfter !== undefined && seen >= stopAfter) break;
+    }
+    return outcome;
+  };
+
+  const spoken = await run(["Hello ", "there."], [1, 2, 3]);
+  eq("speech: text and frames are counted", spoken, { speakableChars: 10, frames: 3 });
+  ok("speech: a reply with audio is not silent", spoken !== null && !isSilent(spoken));
+  const mute = await run(["Hello there."], []);
+  ok("speech: text in and no audio out is silent", mute !== null && isSilent(mute));
+  const dots = await run(["… — !"], []);
+  ok("speech: punctuation alone producing no audio is not a failure", dots !== null && !isSilent(dots));
+  eq("speech: a cancelled synthesis is never judged", await run(["Hello there."], [1, 2, 3], 1), null);
 }
 
 // ── Turn-taking presets (research doc §2 Q4) ───────────────────────────────────────────────────

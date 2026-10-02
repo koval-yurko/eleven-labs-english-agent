@@ -57,10 +57,18 @@ export type LiveKitStreamTopic = (typeof LIVEKIT_STREAM)[keyof typeof LIVEKIT_ST
  * agent participant has joined AND reported ready, whether that is this RPC or a participant
  * attribute — Phase 3 decides which. `ENDING` is what turns a worker crash into `onEnd("error")`:
  * its ABSENCE before the agent leaves the room is the signal, not its presence.
+ *
+ * `FAILED` is the worker ending a lesson it cannot teach, with the reason as a `TutorWireMessage`
+ * — one sentence, already worded for the learner. It exists because one failure is invisible from
+ * the phone: a tutor that is connected, listening and thinking, and has no voice
+ * (docs/2026-10-02-livekit-silent-tts-on-spent-quota.md). The worker sends it INSTEAD of `ENDING`
+ * and then leaves, so a build that predates this method still gets `onEnd("error")` from the
+ * absence rule above; it only misses the sentence.
  */
 export const LIVEKIT_LIFECYCLE = {
   READY: "tutor.ready",
   ENDING: "tutor.ending",
+  FAILED: "tutor.failed",
 } as const;
 
 /**

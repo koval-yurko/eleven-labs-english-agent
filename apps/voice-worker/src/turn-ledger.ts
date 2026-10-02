@@ -14,6 +14,9 @@
  * that were thrown away, which are billed too), tool calls and errors. Metrics that arrive after
  * the tutor's message is committed roll into the next turn. That is rare, since the LLM finishes
  * before playout does, and it only moves tokens between adjacent turns, never loses them.
+ *
+ * The exception is the turn that never closes: a reply that was generated and never spoken has no
+ * committed tutor message to close on. `flush()` writes that one down when the lesson ends.
  */
 import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
 
@@ -94,6 +97,22 @@ export class TurnLedger {
       return;
     }
     this.#close(msg);
+  }
+
+  /**
+   * Called once, when the lesson ends: records the turn that never closed.
+   *
+   * A turn closes on the tutor's committed message, so a reply that never played — an LLM that kept
+   * failing, a voice that returned no audio — left its errors and its billed tokens in memory and
+   * the stored ledger empty. That is the lesson an investigation most needs a ledger for (report
+   * `d2a257ee`: 115 s, zero rows). The record has an empty `agentHeardText`, which is the truth.
+   *
+   * Nothing is written when there is nothing to lose: a learner who was mid-sentence when the
+   * lesson ended is not a turn, and their words are already in the transcript.
+   */
+  flush(nowMs: number): void {
+    if (this.#calls.length === 0 && this.#errors.length === 0) return;
+    this.#close({ role: "assistant", text: "", interrupted: false, createdAtMs: nowMs, metrics: {} });
   }
 
   #close(agent: LedgerMessage): void {

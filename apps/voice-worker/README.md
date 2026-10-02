@@ -33,6 +33,7 @@ LiveKit lesson to connect.
 | `src/turn-plans.ts` | `patient` (default), `normal`, `eager` turn-taking presets |
 | `src/backend.ts`, `src/save-words-tool.ts` | Grant-authenticated backend calls |
 | `src/turn-ledger.ts` | Per-turn token counts, timings, interruptions and errors |
+| `src/speech-watch.ts`, `src/credits.ts` | Detects a reply the voice returned no audio for, and asks ElevenLabs whether credits ran out |
 | `src/replay.ts` | Recorded learner audio replay for turn-plan evaluation |
 | [`../../packages/shared/src/tutor/livekit-wire.ts`](../../packages/shared/src/tutor/livekit-wire.ts) | Shared worker/mobile/backend protocol |
 | [`../../apps/web/src/agent/prompts/words-4.0.ts`](../web/src/agent/prompts/words-4.0.ts) | Versioned tutor prompt; sent by the backend at dispatch time |

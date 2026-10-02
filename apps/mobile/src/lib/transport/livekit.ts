@@ -4,6 +4,7 @@ import {
   LIVEKIT_LIFECYCLE,
   LIVEKIT_RPC,
   LIVEKIT_STREAM,
+  decodeWireMessage,
   encodeWireMessage,
 } from "@tutor/shared/tutor/livekit-wire";
 import type {
@@ -50,6 +51,8 @@ import { emit } from "@/lib/diagnostics";
  *      signal, not its presence: a worker that crashes cannot send anything, and a lesson that ends
  *      because the tutor died must reach the learner as the "dropped" card and a resumable pause,
  *      not as a polite goodbye (research doc §3.7).
+ *      The worker can also say WHY it is stopping (`tutor.failed`, a sentence for the learner),
+ *      which ends the lesson the same way with the reason on screen.
  *   3. **`context()` goes over a text stream, never RPC.** RPC payloads cap at 15 KiB and a resume
  *      context is 20 turns × 400 chars — which in Cyrillic is 2 bytes per character and lands right
  *      on the ceiling. `LIVEKIT_STREAM.CONTEXT` has no limit; the size routing that proves it lives
@@ -277,6 +280,33 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
           });
           room.registerRpcMethod(LIVEKIT_LIFECYCLE.ENDING, async () => {
             endingRef.current = true;
+            return "";
+          });
+          /**
+           * The worker ending a lesson it cannot teach. The one case this was added for is a tutor
+           * with no voice: connected, listening, answering, and silent — which from here is
+           * indistinguishable from a tutor that is thinking, forever (report `d2a257ee`).
+           *
+           * The payload is the sentence, worded by the worker because only it knows the cause. Torn
+           * down here rather than left to the agent leaving: that disconnect follows within a
+           * moment and would end the session the same way, but `onError` has to land first or the
+           * learner sees the "dropped" card with nothing explaining it.
+           */
+          room.registerRpcMethod(LIVEKIT_LIFECYCLE.FAILED, async (data) => {
+            let sentence = "The tutor stopped the lesson because of a problem on its side.";
+            try {
+              sentence = decodeWireMessage(data.payload).text || sentence;
+            } catch {
+              // A malformed payload is still a failed lesson; the generic sentence stands.
+            }
+            emit({
+              level: "error",
+              code: "transport.error",
+              provider: "livekit",
+              message: `tutor.failed: ${sentence}`,
+            });
+            eventsRef.current.onError(sentence);
+            live.current.teardown("error");
             return "";
           });
 

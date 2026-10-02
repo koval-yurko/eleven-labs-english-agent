@@ -25,6 +25,7 @@ import {
   type TranscriptLine,
 } from "./src/tutor/session";
 import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor/pause";
+import { creditsExhaustedMessage, readCreditsExhausted } from "./src/tutor/elevenlabs-credits";
 import {
   LIVEKIT_CAPABILITIES,
   RPC_PAYLOAD_MAX_BYTES,
@@ -712,6 +713,42 @@ eq("wire: the Cyrillic resume routes to a stream, never RPC", channelForText(cyr
 }
 
 console.log("checked LiveKit wire-contract properties");
+
+// ── ElevenLabs credits ───────────────────────────────────────────────────────────────────────
+// Two deployables act on this answer: the token routes refuse a Start, and the LiveKit worker ends
+// a lesson. A wrong "out" costs a lesson that would have worked, so the rule pinned here is that
+// only a clean, fully-typed "used up and not allowed to go over" is one.
+{
+  // The account as `GET /v1/user/subscription` reported it on 2026-10-02 (report d2a257ee).
+  const dry = {
+    character_count: 30000,
+    character_limit: 30000,
+    can_extend_character_limit: false,
+    allowed_to_extend_character_limit: false,
+    next_character_count_reset_unix: 1791748122,
+  };
+  eq("credits: a spent quota is out, with its reset date", readCreditsExhausted(dry), {
+    resetsAt: "2026-10-11T19:48:42.000Z",
+  });
+  eq("credits: quota left is not out", readCreditsExhausted({ ...dry, character_count: 29999 }), null);
+  eq(
+    "credits: a spent quota that may bill overage is not a refusal",
+    readCreditsExhausted({ ...dry, can_extend_character_limit: true, allowed_to_extend_character_limit: true }),
+    null,
+  );
+  for (const odd of [null, "nope", {}, { character_count: "30000", character_limit: 30000 }]) {
+    eq(`credits: an unrecognised shape is never "out" (${JSON.stringify(odd)})`, readCreditsExhausted(odd), null);
+  }
+  eq(
+    "credits: a missing reset date is null, not a made-up one",
+    readCreditsExhausted({ character_count: 5, character_limit: 5 }),
+    { resetsAt: null },
+  );
+  const sentence = creditsExhaustedMessage({ resetsAt: "2026-10-11T19:48:42.000Z" });
+  eq("credits: the sentence names the reset day", sentence.includes("2026-10-11"), true);
+}
+
+console.log("checked ElevenLabs credits properties");
 
 // ── debug reports (R9) ───────────────────────────────────────────────────────────────────────
 // The report is built on a phone, in the middle of the failure it describes, and read by a person

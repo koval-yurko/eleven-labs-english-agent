@@ -16,9 +16,11 @@
 import "./env.ts";
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { ReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { cli, defineAgent, ServerOptions, voice, type JobContext } from "@livekit/agents";
 import { ParticipantKind } from "@livekit/rtc-node";
+import { creditsExhaustedMessage } from "@tutor/shared/tutor/elevenlabs-credits";
 import { KICKOFF_MESSAGE, type TranscriptLine } from "@tutor/shared/tutor/session";
 import {
   LIVEKIT_AGENT_NAME,
@@ -26,14 +28,17 @@ import {
   LIVEKIT_RPC,
   LIVEKIT_STREAM,
   decodeWireMessage,
+  encodeWireMessage,
   type LiveKitDispatchMetadata,
   type TurnRecord,
 } from "@tutor/shared/tutor/livekit-wire";
 
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
+import { elevenLabsCreditsExhausted } from "./credits.ts";
 import { createStt, createTts } from "./pipeline.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
+import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger } from "./turn-ledger.ts";
 import { DEFAULT_TURN_PLAN, turnHandlingFor } from "./turn-plans.ts";
 
@@ -100,6 +105,41 @@ function ledgerSink(conversationId: string): (record: TurnRecord) => void {
   };
 }
 
+/**
+ * How many replies in a row may come back from the voice with nothing in them before the lesson is
+ * ended WITHOUT the account confirming it is out of credits. One is not enough to be sure — a
+ * provider hiccup on a single request is survivable, and the next reply is spoken normally. Two in
+ * a row is a learner who has now talked into silence twice.
+ */
+const SILENT_REPLIES_BEFORE_FAILING = 2;
+
+/** The sentence when the voice is failing and the account does not say why. */
+const NO_VOICE_MESSAGE =
+  "The tutor's voice service returned no audio, so the lesson was stopped. This is a problem with the tutor service, not with this phone or your microphone.";
+
+/**
+ * The tutor, with its TTS node watched: text in, audio out, and a report when a reply that had
+ * something to say produced no audio (`speech-watch.ts`). Everything else is the framework's own
+ * default node — this adds a tap on either side of it and changes nothing about the audio.
+ */
+class TutorAgent extends voice.Agent {
+  readonly #onSpeech: (outcome: SpeechOutcome) => void;
+
+  constructor(
+    options: ConstructorParameters<typeof voice.Agent>[0],
+    onSpeech: (outcome: SpeechOutcome) => void,
+  ) {
+    super(options);
+    this.#onSpeech = onSpeech;
+  }
+
+  override async ttsNode(...[text, modelSettings]: Parameters<voice.Agent["ttsNode"]>) {
+    const tap = tapSpeech(this.#onSpeech);
+    const audio = await voice.Agent.default.ttsNode(this, tap.text(text), modelSettings);
+    return audio ? ReadableStream.from(tap.audio(audio)) : null;
+  }
+}
+
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect();
@@ -133,11 +173,68 @@ export default defineAgent({
       },
     });
 
-    const agent = new voice.Agent({
-      instructions: metadata.instructions,
-      llm: new ClaudeLLM({ model, onCompletion: (id, text) => ledger.completion(id, text) }),
-      tools: backend ? { add_words_to_collection: saveWordsTool(backend) } : {},
-    });
+    /**
+     * Ending a lesson the worker cannot teach, and saying why.
+     *
+     * `tutor.failed` carries the sentence; the worker then leaves WITHOUT `tutor.ending`, so the
+     * phone files this as a dropped lesson the learner can resume rather than as a goodbye. A build
+     * that has never heard of `tutor.failed` rejects the RPC and still gets the drop.
+     */
+    let failed = false;
+    const failLesson = async (sentence: string): Promise<void> => {
+      if (failed) return;
+      failed = true;
+      console.error(`[worker] ending lesson ${metadata.conversationId}: ${sentence}`);
+      const learners = [...ctx.room.remoteParticipants.values()].filter(
+        (p) => p.kind !== ParticipantKind.AGENT,
+      );
+      await Promise.all(
+        learners.map((p) =>
+          ctx.room.localParticipant
+            ?.performRpc({
+              destinationIdentity: p.identity,
+              method: LIVEKIT_LIFECYCLE.FAILED,
+              payload: encodeWireMessage({ text: sentence }),
+            })
+            .catch((e: unknown) => console.error(`[worker] tutor.failed → ${String(e)}`)),
+        ),
+      );
+      ctx.shutdown("the tutor's voice failed");
+    };
+
+    /**
+     * A reply that failed to become audio. The account is asked first, because "out of credits" is
+     * the cause this has actually had and a sentence that names it is worth more than one that
+     * does not; if the account will not confirm it, the lesson goes on until it happens again.
+     */
+    let silentReplies = 0;
+    const speechFailed = (): void => {
+      silentReplies += 1;
+      void (async () => {
+        const exhausted = await elevenLabsCreditsExhausted();
+        if (exhausted) await failLesson(creditsExhaustedMessage(exhausted));
+        else if (silentReplies >= SILENT_REPLIES_BEFORE_FAILING) await failLesson(NO_VOICE_MESSAGE);
+      })();
+    };
+
+    const agent = new TutorAgent(
+      {
+        instructions: metadata.instructions,
+        llm: new ClaudeLLM({ model, onCompletion: (id, text) => ledger.completion(id, text) }),
+        tools: backend ? { add_words_to_collection: saveWordsTool(backend) } : {},
+      },
+      (outcome) => {
+        if (!isSilent(outcome)) {
+          silentReplies = 0;
+          return;
+        }
+        console.error(
+          `[worker] TTS returned no audio for ${outcome.speakableChars} speakable characters`,
+        );
+        ledger.error("tts:silent");
+        speechFailed();
+      },
+    );
     const session = new voice.AgentSession({
       stt: createStt(),
       tts: createTts(metadata.voice),
@@ -190,6 +287,9 @@ export default defineAgent({
       // The interruption detector's error IS the Error; every other kind wraps one in `.error`.
       const cause = error instanceof Error ? error : error.error;
       ledger.error(`${error.type.replace(/_error$/, "")}:${cause.name}${error.recoverable ? "" : " (fatal)"}`);
+      // The loud twin of a silent reply: the voice refused outright. Same consequence for the
+      // learner, so the same count — and sooner than the framework's own four strikes.
+      if (error.type === "tts_error" && !error.recoverable) speechFailed();
     });
 
     /**
@@ -258,7 +358,9 @@ export default defineAgent({
      * reads as `onEnd("error")`, so it must be sent before the room is left, never after.
      */
     ctx.addShutdownCallback(async () => {
-      for (const p of listeners) {
+      // A failed lesson has already said so (`tutor.failed`); `tutor.ending` would turn it into a
+      // clean goodbye on the phone.
+      for (const p of failed ? [] : listeners) {
         await ctx.room.localParticipant
           ?.performRpc({
             destinationIdentity: p.identity,
@@ -269,6 +371,8 @@ export default defineAgent({
             // The phone may already be gone — that is the learner hanging up, not a failure.
           });
       }
+      // Before the final post, so a turn that never closed travels with it.
+      ledger.flush(Date.now());
       if (!backend) return;
       await backend.postSessionEnd({
         turns: pendingTurns.splice(0, pendingTurns.length),
