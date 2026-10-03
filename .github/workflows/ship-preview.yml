@@ -1,0 +1,57 @@
+name: Ship iOS preview
+
+# Runs `pnpm ship:preview` (apps/mobile) on the maintainer's Mac — a self-hosted runner kept in
+# actions-runner/ — and puts the Diawi install link in the run summary. The build uses that Mac's
+# Xcode, its `eas-cli login` session and its apps/mobile/.env, exactly like running it by hand.
+#
+# The repo is public, so the runner refuses any job that isn't this file on master started by an
+# allow-listed account (actions-runner/hooks/job-started.sh). Never add pull_request or
+# pull_request_target here — the hook rejects them anyway.
+#
+# See docs/2026-10-03-remote-triggers-for-local-ios-build.md.
+on:
+  push:
+    branches: [master]
+    paths: ['apps/mobile/**', 'packages/shared/**', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']
+  workflow_dispatch:
+  repository_dispatch:
+    types: [ship-preview]
+
+# One build at a time. A running build always finishes (cancelling mid-xcodebuild wastes ten
+# minutes and can strand EAS's throwaway keychain); GitHub keeps one pending run, the newest.
+concurrency:
+  group: ship-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ship:
+    runs-on: [self-hosted, macOS, ios-builder]
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash # explicit, so steps run with -eo pipefail and `| tee` cannot hide a failure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # TUTOR_MOBILE_ENV comes from the runner's .env (actions-runner/runner.sh env): the path of
+      # apps/mobile/.env in the Mac's own working copy. distribute.mjs reads DIAWI_TOKEN from it.
+      - name: Use this Mac's apps/mobile/.env
+        run: cp "$TUTOR_MOBILE_ENV" apps/mobile/.env
+
+      - name: pnpm ship:preview
+        working-directory: apps/mobile
+        run: |
+          pnpm ship:preview | tee ship.log
+          sed -n 's/^Install: /### Install: /p' ship.log >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the copied .env
+        if: always()
+        run: rm -f apps/mobile/.env

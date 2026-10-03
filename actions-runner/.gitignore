@@ -1,0 +1,9 @@
+# Only the scripts are committed. Everything else here is the runner's own: binaries from the
+# release tarball, credentials (.runner, .credentials*), .env/.path, the job workspace (_work/,
+# a full clone of this repo) and the logs (_logs/, _diag/). `runner.sh uninstall` deletes exactly
+# this set with `git clean -X`, so keep this file and that command in agreement.
+/*
+!/.gitignore
+!/README.md
+!/runner.sh
+!/hooks/
