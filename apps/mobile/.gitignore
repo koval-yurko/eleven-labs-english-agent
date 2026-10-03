@@ -42,6 +42,7 @@ example
 /ios
 /android
 
-# local build artifacts — `eas build --local` drops the signed .ipa here (~22 MB)
+# local build artifacts — `eas build --local` writes the signed .ipa to artifacts/ (~22 MB)
+artifacts/
 *.ipa
 *.dSYM.zip

@@ -4,7 +4,7 @@
 
 ```bash
 cd apps/mobile
-npx eas-cli build --platform ios --profile preview --local     # = pnpm build:preview:local
+pnpm build:preview:local        # runs unattended; writes artifacts/english-tutor-preview.ipa
 ```
 
 Verified 2026-08-16: **~10 minutes cold, 22 MB signed `.ipa`.**
@@ -84,7 +84,10 @@ npx eas-cli whoami
 
 The `preview` profile is `"distribution": "internal"` — an ad hoc profile with device UDIDs baked
 in. The cert and profile already exist on EAS and are reused as-is. A handset that isn't in the
-profile needs `pnpm device:register`, then a rebuild.
+profile needs `pnpm device:register`, then `pnpm build:preview:local:refresh` (see below).
+
+A logged-in session is what makes the build unattended. For CI, export an `EXPO_TOKEN`
+(https://expo.dev/settings/access-tokens) instead of logging in.
 
 ---
 
@@ -92,15 +95,52 @@ profile needs `pnpm device:register`, then a rebuild.
 
 ```bash
 cd apps/mobile
-npx eas-cli build --platform ios --profile preview --local
+pnpm build:preview:local        # = eas build --local, non-interactive, fixed output path
+pnpm ship:preview               # the same build, then uploaded for an install link
 ```
 
-The artifact lands as `apps/mobile/build-<timestamp>.ipa` (gitignored). Install it on a provisioned
-device over USB:
+With `SLACK_WEBHOOK_URL` set (see `.env.example`), the install link is also posted to Slack as a
+tappable **Install** button — the quick way onto a phone, since the alternative is retyping a URL.
+It is optional and best-effort: unset, the link is only printed, and if Slack rejects the post the
+upload has still succeeded, so the command says so and still exits 0. `--no-slack` skips it for a
+one-off.
+
+### No prompts, and a predictable filename
+
+The bare `eas build --local` stops twice to ask *"Do you want to log in to your Apple account?"* and
+*"…Would you like to reuse the profile?"*, and it names the artifact `build-<timestamp>.ipa`, which
+no later step can predict. Three flags remove all of that:
+
+| Flag | Effect |
+| --- | --- |
+| `--non-interactive` | does all the work. EAS validates the stored cert and profile and returns them, *before* reaching the branch that authenticates with Apple and chooses devices — so both questions are never asked. If they fail validation it errors out instead of prompting |
+| `--freeze-credentials` | a guard, not the thing that silences the prompts: it forbids EAS from mutating stored credentials, and makes the `--refresh…` combination below an explicit error rather than a silent conflict |
+| `--output <path>` | writes the `.ipa` exactly there, replacing `build-<timestamp>.ipa`. Relative paths resolve against the CWD, and missing parent directories are created |
+
+Verified 2026-10-03: a full `pnpm build:preview:local` ran start to finish with no input and exited 0.
+
+The path defaults to `artifacts/english-tutor-preview.ipa` and is overridable in one place —
+`IPA_OUT` is read by both the build and the upload, so they cannot disagree:
+
+```bash
+IPA_OUT=artifacts/preview-$(git rev-parse --short HEAD).ipa pnpm ship:preview
+```
+
+Install it on a provisioned device over USB:
 
 ```bash
 xcrun devicectl list devices
-xcrun devicectl device install app --device <DEVICE-UDID> ./build-<timestamp>.ipa
+xcrun devicectl device install app --device <DEVICE-UDID> ./artifacts/english-tutor-preview.ipa
+```
+
+### When a prompt is actually required
+
+Registering a handset (`pnpm device:register`) leaves the ad hoc profile missing that UDID, and
+regenerating it needs Apple Developer login. That is the one case `--non-interactive` cannot serve,
+so it has its own script — interactive by design, and run once per new device:
+
+```bash
+pnpm build:preview:local:refresh    # --refresh-ad-hoc-provisioning-profile, no --freeze-credentials
 ```
 
 Preview installs alongside the dev and production apps — separate bundle ids, separate data.
@@ -114,6 +154,9 @@ Preview installs alongside the dev and production apps — separate bundle ids, 
 - `Node.js version in your eas.json does not match` — `--local` ignores the `node: "22.13.1"` pin
   and uses whatever is on `PATH` (v24.19.0 here). The build succeeds; only the parity with cloud is
   lost.
+- `Command "expo doctor" failed … exited with non-zero code: 1` (2 of 20 checks) — a non-fatal step:
+  the build carries straight on to `PREPARE_CREDENTIALS` and exits 0. Do not wire a pipeline to this
+  line; use the build's own exit code.
 
 Environment values need no setup and no `.env`: `APP_VARIANT=preview` comes from `eas.json`, and the
 four `EXPO_PUBLIC_*` values are pulled from the EAS **preview** environment during config

@@ -32,7 +32,8 @@
     "level:lexicon:plan": "pnpm --filter web level:lexicon:plan",
     "report": "pnpm --filter web report",
     "verify:reports": "pnpm --filter web verify:reports",
-    "mobile": "pnpm --filter mobile start"
+    "mobile": "pnpm --filter mobile start",
+    "distribute": "pnpm --filter mobile distribute"
   },
   "devDependencies": {
     "prettier": "^3.4.2"

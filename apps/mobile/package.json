@@ -67,7 +67,10 @@
     "device:register": "npx eas-cli device:create",
     "build:dev": "npx eas-cli build --platform ios --profile development",
     "build:preview": "npx eas-cli build --platform ios --profile preview",
-    "build:preview:local": "npx eas-cli build --platform ios --profile preview --local",
+    "build:preview:local": "npx eas-cli build --platform ios --profile preview --local --non-interactive --freeze-credentials --output ${IPA_OUT:-artifacts/english-tutor-preview.ipa}",
+    "build:preview:local:refresh": "npx eas-cli build --platform ios --profile preview --local --refresh-ad-hoc-provisioning-profile --output ${IPA_OUT:-artifacts/english-tutor-preview.ipa}",
+    "distribute": "node scripts/distribute.mjs",
+    "ship:preview": "pnpm build:preview:local && pnpm distribute",
     "build:prod": "npx eas-cli build --platform ios --profile production",
     "submit": "npx eas-cli submit --platform ios --latest",
     "testflight": "npx eas-cli build --platform ios --profile production --auto-submit"
