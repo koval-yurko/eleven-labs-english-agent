@@ -20,7 +20,6 @@ import { ReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { cli, defineAgent, ServerOptions, voice, type JobContext } from "@livekit/agents";
 import { ParticipantKind } from "@livekit/rtc-node";
-import { creditsExhaustedMessage } from "@tutor/shared/tutor/elevenlabs-credits";
 import { KICKOFF_MESSAGE, type TranscriptLine } from "@tutor/shared/tutor/session";
 import {
   LIVEKIT_AGENT_NAME,
@@ -35,7 +34,6 @@ import {
 
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
-import { elevenLabsCreditsExhausted } from "./credits.ts";
 import { createStt, createTts } from "./pipeline.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
@@ -202,19 +200,11 @@ export default defineAgent({
       ctx.shutdown("the tutor's voice failed");
     };
 
-    /**
-     * A reply that failed to become audio. The account is asked first, because "out of credits" is
-     * the cause this has actually had and a sentence that names it is worth more than one that
-     * does not; if the account will not confirm it, the lesson goes on until it happens again.
-     */
+    /** A reply that failed to become audio: the lesson goes on until it happens repeatedly. */
     let silentReplies = 0;
     const speechFailed = (): void => {
       silentReplies += 1;
-      void (async () => {
-        const exhausted = await elevenLabsCreditsExhausted();
-        if (exhausted) await failLesson(creditsExhaustedMessage(exhausted));
-        else if (silentReplies >= SILENT_REPLIES_BEFORE_FAILING) await failLesson(NO_VOICE_MESSAGE);
-      })();
+      if (silentReplies >= SILENT_REPLIES_BEFORE_FAILING) void failLesson(NO_VOICE_MESSAGE);
     };
 
     const agent = new TutorAgent(

@@ -7,17 +7,17 @@
  * multi actually transcribes a Russian insert correctly is what `pnpm --filter voice-worker
  * stt:check` measures. `DEEPGRAM_MODEL` switches the model without a code change.
  *
- * TTS is ElevenLabs Flash v2.5, the voice family the app already uses, picked to remove one
- * unknown from the spike rather than because it is the cheapest (§2 Q5).
+ * TTS is Deepgram Aura-2 (≈ $0.03 per 1k characters against $0.05 for ElevenLabs Flash). An Aura-2
+ * voice IS the model name, and every one is English-only: a Russian translation inside an item is
+ * not spoken in Russian. `DEEPGRAM_TTS_MODEL` picks another voice without a code change.
  */
 import * as deepgram from "@livekit/agents-plugin-deepgram";
-import * as elevenlabs from "@livekit/agents-plugin-elevenlabs";
 
 export const DEFAULT_STT_MODEL = "flux-general-multi";
 /** Language hints are only accepted by `flux-general-multi`; the plugin ignores them otherwise. */
 const STT_LANGUAGE_HINT = ["en", "ru"];
 
-export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
+export const DEFAULT_TTS_MODEL = "aura-2-asteria-en";
 
 /**
  * `keyterms` biases Flux toward words it is about to hear. The lesson's own items and their Russian
@@ -37,15 +37,11 @@ export function createStt(
 }
 
 /**
- * `voiceId` comes from dispatch metadata when the lesson names one. Otherwise it is
- * `ELEVENLABS_TEACHER_VOICE_ID`, the same voice the ElevenLabs tutor speaks with today, so a
- * side-by-side comparison (L8) compares the pipeline and not two different voices.
+ * The voice is the model, so the lesson's `voiceId` (an ElevenLabs voice id) is deliberately not
+ * used here: passing it as a Deepgram model name would be rejected.
  */
-export function createTts(voiceId = process.env.ELEVENLABS_TEACHER_VOICE_ID): elevenlabs.TTS {
-  return new elevenlabs.TTS({
-    // The plugin defaults to ELEVEN_API_KEY; deployment uses our existing backend key name.
-    apiKey: process.env.ELEVENLABS_API_KEY,
-    model: process.env.ELEVENLABS_TTS_MODEL || DEFAULT_TTS_MODEL,
-    ...(voiceId ? { voiceId } : {}),
-  });
+export function createTts(model = process.env.DEEPGRAM_TTS_MODEL || DEFAULT_TTS_MODEL): deepgram.TTS {
+  // The plugin captures DEEPGRAM_API_KEY when it is imported; passing it keeps the key a Cloud
+  // secret provisioned after import (and the offline check) works.
+  return new deepgram.TTS({ model, apiKey: process.env.DEEPGRAM_API_KEY });
 }

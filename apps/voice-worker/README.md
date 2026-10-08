@@ -33,7 +33,7 @@ LiveKit lesson to connect.
 | `src/turn-plans.ts` | `patient` (default), `normal`, `eager` turn-taking presets |
 | `src/backend.ts`, `src/save-words-tool.ts` | Grant-authenticated backend calls |
 | `src/turn-ledger.ts` | Per-turn token counts, timings, interruptions and errors |
-| `src/speech-watch.ts`, `src/credits.ts` | Detects a reply the voice returned no audio for, and asks ElevenLabs whether credits ran out |
+| `src/speech-watch.ts` | Detects a reply the voice returned no audio for |
 | `src/replay.ts` | Recorded learner audio replay for turn-plan evaluation |
 | [`../../packages/shared/src/tutor/livekit-wire.ts`](../../packages/shared/src/tutor/livekit-wire.ts) | Shared worker/mobile/backend protocol |
 | [`../../apps/web/src/agent/prompts/words-4.0.ts`](../web/src/agent/prompts/words-4.0.ts) | Versioned tutor prompt; sent by the backend at dispatch time |
@@ -57,9 +57,8 @@ Fill the new `.env` using the existing project/vendor credentials:
 | --- | --- |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Same LiveKit project as the backend; needed locally, injected by LiveKit Cloud in production |
 | `ANTHROPIC_API_KEY` | Claude API access |
-| `DEEPGRAM_API_KEY` | Speech recognition |
-| `ELEVENLABS_API_KEY` | Speech synthesis; explicitly passed to the plugin |
-| `ELEVENLABS_TEACHER_VOICE_ID` | Default tutor voice |
+| `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
+| `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
 | `API_BASE_URL` | Backend origin used for transcript/ledger/collection writes |
 

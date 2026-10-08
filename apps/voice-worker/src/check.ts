@@ -313,20 +313,16 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   eq("turn plans: a lesson that names no plan is patient", turnHandlingFor(undefined), TURN_PLANS.patient);
 }
 
-// Cloud provisions the app's key name, not the plugin's default ELEVEN_API_KEY.
+// The TTS is Deepgram: a voice is a model name, and the lesson's ElevenLabs voice id is not one.
 {
-  const appKey = process.env.ELEVENLABS_API_KEY;
-  const pluginKey = process.env.ELEVEN_API_KEY;
+  const key = process.env.DEEPGRAM_API_KEY;
   try {
     initializeLogger({ pretty: false, level: "error" });
-    delete process.env.ELEVEN_API_KEY;
-    process.env.ELEVENLABS_API_KEY = "offline-regression-key";
-    ok("TTS accepts the provisioned ELEVENLABS_API_KEY", Boolean(createTts("test-voice")));
+    process.env.DEEPGRAM_API_KEY = "offline-regression-key";
+    ok("TTS builds on the Deepgram key", Boolean(createTts()));
   } finally {
-    if (appKey === undefined) delete process.env.ELEVENLABS_API_KEY;
-    else process.env.ELEVENLABS_API_KEY = appKey;
-    if (pluginKey === undefined) delete process.env.ELEVEN_API_KEY;
-    else process.env.ELEVEN_API_KEY = pluginKey;
+    if (key === undefined) delete process.env.DEEPGRAM_API_KEY;
+    else process.env.DEEPGRAM_API_KEY = key;
   }
 }
 

@@ -13,11 +13,6 @@ import { effectiveConfig, findVersion } from "../../../../../agent/prompts";
 import { resolveVersion } from "../../../../../lib/agent-registry";
 import { withBearer } from "../../../../../lib/auth/bearer";
 import { signLessonGrant } from "../../../../../lib/auth/lesson-grant";
-import { elevenLabsConfig } from "../../../../../lib/config";
-import {
-  creditsExhaustedMessage,
-  elevenLabsCreditsExhausted,
-} from "../../../../../lib/elevenlabs-credits";
 import { apiError, json, preflight } from "../../../../../lib/http";
 import { getLesson } from "../../../../../lib/lessons";
 
@@ -106,26 +101,8 @@ export const POST = withBearer(async (req, ownerId) => {
    * be gone. Doing it at mint also means `lessonId` can be signed into the grant, which is how the
    * session-end route fills a NOT NULL `lesson_sessions.lesson_id` without trusting its caller.
    */
-  /**
-   * The credit check rides BESIDE the lesson read, as it rides beside the mint on the ElevenLabs
-   * route — two independent calls, so a Start pays for the slower one and not for both.
-   *
-   * This stack only speaks through ElevenLabs: the worker's TTS is ElevenLabs Flash. With the
-   * account dry the streaming socket answers `isFinal` with no audio and no error, so the room
-   * connects, the worker joins, Claude answers, and the learner hears nothing — report `d2a257ee`.
-   * The key read here is the backend's; the worker holds the same account's key as a cloud secret.
-   * A backend with no ElevenLabs key skips the check rather than refusing a lesson it cannot judge.
-   * See docs/2026-10-02-livekit-silent-tts-on-spent-quota.md.
-   */
-  const elevenLabsKey = elevenLabsConfig().apiKey;
-  const [lesson, exhausted] = await Promise.all([
-    getLesson(ownerId, body.lessonId),
-    elevenLabsKey ? elevenLabsCreditsExhausted(elevenLabsKey) : null,
-  ]);
+  const lesson = await getLesson(ownerId, body.lessonId);
   if (!lesson) return apiError(404, "not_found", "No such lesson.");
-  // 402 with the sentence in the envelope, the same answer the ElevenLabs token route gives:
-  // `apiFetch` on the phone throws the server's own message and `start` puts it on screen.
-  if (exhausted) return apiError(402, "quota", creditsExhaustedMessage(exhausted));
 
   const conversationId = randomUUID();
 

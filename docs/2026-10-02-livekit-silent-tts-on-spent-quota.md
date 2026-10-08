@@ -4,6 +4,13 @@ Debug report `d2a257ee` (2026-10-02, preview build 1.0.0 (1), iPhone 14 Pro, `wo
 learner's note: _"Does not work"_. A follow-up to `2026-10-01-quota-refusal-with-no-error.md`: the
 same outage, on the provider that doc did not cover.
 
+> **Update 2026-10-08: superseded for LiveKit.** The worker's TTS moved from ElevenLabs Flash to
+> **Deepgram Aura-2** (`aura-2-asteria-en`, `DEEPGRAM_TTS_MODEL`), so a spent ElevenLabs quota can no
+> longer silence this stack. Fixes 1 and 3 below (the token-route credit check and the worker's
+> `src/credits.ts` lookup) were **removed** in the same change; see "What changed since" at the end.
+> The cause, the silent-socket behaviour and fixes 2, 4 and 5 describe the incident as it happened, and
+> 2, 4 and 5 are still in place.
+
 ## What the report shows
 
 Everything that can be seen from the phone worked. The token minted (200), the phone joined
@@ -95,3 +102,35 @@ date; `pnpm --filter voice-worker check` and `pnpm check:shared`.
 Not verified: the `tutor.failed` RPC and the worker's shutdown in a real room, and the phone's
 handler on a device. Those need the worker deployed and a lesson started from a new build while the
 account is still dry — or with the backend check bypassed, since it now refuses that Start first.
+
+## What changed since (2026-10-08)
+
+The incident was an ElevenLabs-specific failure on a stack that only spoke through ElevenLabs. That
+stopped being true when the worker's TTS became Deepgram Aura-2 (`createTts` in
+`apps/voice-worker/src/pipeline.ts`; roughly $0.03 per 1k characters against $0.05 for Flash).
+
+| Piece | Now |
+|---|---|
+| Token route `words-agent/livekit-token` | No credit check. It reads the lesson and mints. The ElevenLabs route (`words-1.x`) keeps its own check, since it still runs on ElevenLabs. |
+| `apps/voice-worker/src/credits.ts` | Deleted. The worker no longer asks ElevenLabs anything. |
+| Silent-reply handling (`speech-watch.ts`, `tutor.failed`, ledger flush) | Unchanged. A reply that never becomes audio is still detected. With no account to ask, the lesson now ends on the **second** silent reply in a row (`SILENT_REPLIES_BEFORE_FAILING`) with the generic "voice service returned no audio" sentence. |
+| `ELEVENLABS_API_KEY` in the worker | Only `stt:check` uses it (it synthesizes test speech). The tutor does not. |
+
+The shared `@tutor/shared/tutor/elevenlabs-credits` decision is still used by the ElevenLabs token route.
+
+**Limits of the Deepgram voice.** Every Aura-2 voice is English-only, so a Russian translation moment
+inside an item is not spoken in Russian. The lesson's `voiceId` (an ElevenLabs id) is ignored on this
+stack, because a Deepgram voice is a model name.
+
+**Deepgram Flux TTS was tried and not adopted.** Tested 2026-10-08 with a standalone script against
+`wss://api.deepgram.com/v2/speak?model=flux-haley-en` on our key: English round-tripped word for word
+through STT, first audio in about 1.0 s; Russian came back as garbage (all Flux voices are English).
+`@livekit/agents-plugin-deepgram` 1.9.1 (latest) only speaks `/v1/speak`, so using it would mean a
+custom plugin, for a product in Early Access that costs about $0.045 per 1k characters against
+$0.030 for Aura-2.
+
+**Rollout.** Merging to master deploys the worker through `.github/workflows/deploy-voice-worker.yml`
+(it triggers on `apps/voice-worker/**`); nothing is deployed by hand. The web route change ships with
+the normal backend deploy. `DEEPGRAM_API_KEY` was already a worker secret for STT.
+
+**Not verified:** a live lesson on the Aura-2 voice, by ear or through the phone.
