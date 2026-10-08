@@ -7,17 +7,14 @@
  * multi actually transcribes a Russian insert correctly is what `pnpm --filter voice-worker
  * stt:check` measures. `DEEPGRAM_MODEL` switches the model without a code change.
  *
- * TTS is Deepgram Aura-2 (≈ $0.03 per 1k characters against $0.05 for ElevenLabs Flash). An Aura-2
- * voice IS the model name, and every one is English-only: a Russian translation inside an item is
- * not spoken in Russian. `DEEPGRAM_TTS_MODEL` picks another voice without a code change.
+ * TTS lives in `./tts-profiles.ts`: a version names a profile (Deepgram Aura-2 by default, Qwen),
+ * so this file is the STT half only.
  */
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 
 export const DEFAULT_STT_MODEL = "flux-general-multi";
 /** Language hints are only accepted by `flux-general-multi`; the plugin ignores them otherwise. */
 const STT_LANGUAGE_HINT = ["en", "ru"];
-
-export const DEFAULT_TTS_MODEL = "aura-2-asteria-en";
 
 /**
  * `keyterms` biases Flux toward words it is about to hear. The lesson's own items and their Russian
@@ -34,14 +31,4 @@ export function createStt(
     ...(model === "flux-general-multi" ? { languageHint: STT_LANGUAGE_HINT } : {}),
     ...(keyterms.length > 0 ? { keyterms: [...keyterms] } : {}),
   });
-}
-
-/**
- * The voice is the model, so the lesson's `voiceId` (an ElevenLabs voice id) is deliberately not
- * used here: passing it as a Deepgram model name would be rejected.
- */
-export function createTts(model = process.env.DEEPGRAM_TTS_MODEL || DEFAULT_TTS_MODEL): deepgram.TTS {
-  // The plugin captures DEEPGRAM_API_KEY when it is imported; passing it keeps the key a Cloud
-  // secret provisioned after import (and the offline check) works.
-  return new deepgram.TTS({ model, apiKey: process.env.DEEPGRAM_API_KEY });
 }

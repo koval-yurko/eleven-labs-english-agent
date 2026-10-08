@@ -125,6 +125,7 @@ export const POST = withBearer(async (req, ownerId) => {
     // OpenAI route runs, and for the same reason: the prompt never leaves this process.
     instructions: config.prompt.replaceAll("{{items_list}}", formatItemsList(items)),
     llm: chosen.llm,
+    ...(chosen.tts ? { tts: chosen.tts } : {}),
     grant,
   };
 

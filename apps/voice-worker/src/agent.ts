@@ -34,7 +34,8 @@ import {
 
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
-import { createStt, createTts } from "./pipeline.ts";
+import { createStt } from "./pipeline.ts";
+import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger } from "./turn-ledger.ts";
@@ -144,6 +145,7 @@ export default defineAgent({
     const metadata = loadDispatchMetadata(ctx.job.metadata);
     const dispatched = isDispatched(ctx.job.metadata);
     const model = metadata.llm ?? DEFAULT_MODEL;
+    const ttsProfile = resolveTtsProfile(metadata.tts);
     const startedAtMs = Date.now();
 
     /**
@@ -227,7 +229,7 @@ export default defineAgent({
     );
     const session = new voice.AgentSession({
       stt: createStt(),
-      tts: createTts(metadata.voice),
+      tts: createTtsFor(metadata.tts),
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
 
@@ -277,6 +279,9 @@ export default defineAgent({
       // The interruption detector's error IS the Error; every other kind wraps one in `.error`.
       const cause = error instanceof Error ? error : error.error;
       ledger.error(`${error.type.replace(/_error$/, "")}:${cause.name}${error.recoverable ? "" : " (fatal)"}`);
+      // The ledger keeps the class only; the message is what says WHY (report b6184945's Qwen
+      // failure was a bare "Error (fatal)" with nothing to act on).
+      console.error(`[worker] ${error.type}${error.recoverable ? "" : " (fatal)"}: ${cause.message.slice(0, 500)}`);
       // The loud twin of a silent reply: the voice refused outright. Same consequence for the
       // learner, so the same count — and sooner than the framework's own four strikes.
       if (error.type === "tts_error" && !error.recoverable) speechFailed();
@@ -316,6 +321,7 @@ export default defineAgent({
     await session.start({ agent, room: ctx.room });
     console.log(
       `[worker] lesson ${metadata.conversationId} (${metadata.version}) on ${model}, ` +
+        `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${metadata.tts}", default used)` : ""}, ` +
         `turn plan ${metadata.turnPlan ?? `${DEFAULT_TURN_PLAN} (default)`}` +
         (backend ? "" : " — no grant, writing nothing back"),
     );

@@ -57,6 +57,8 @@ allowBuilds:
   # react-native-auth0's WEB platform adapter — code an iOS-only app never executes. Denied rather
   # than left unanswered, for the same reason as dtrace-provider above.
   browser-tabs-lock: false
+  '@google/genai': false
+  protobufjs: false
 
 minimumReleaseAgeExclude:
   - '@expo/cli@57.0.15'

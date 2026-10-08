@@ -165,20 +165,23 @@ importers:
         specifier: ^0.117.1
         version: 0.117.1(zod@4.4.3)
       '@livekit/agents':
-        specifier: ^1.9.0
-        version: 1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
+        specifier: 1.9.1
+        version: 1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
       '@livekit/agents-plugin-deepgram':
-        specifier: 1.9.0
-        version: 1.9.0(@livekit/agents@1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)
+        specifier: 1.9.1
+        version: 1.9.1(@livekit/agents@1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)
       '@livekit/agents-plugin-elevenlabs':
-        specifier: 1.9.0
-        version: 1.9.0(@livekit/agents@1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)
+        specifier: 1.9.1
+        version: 1.9.1(@livekit/agents@1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)
       '@livekit/rtc-node':
         specifier: ^0.13.35
         version: 0.13.35
       '@tutor/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -189,6 +192,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.0
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
       eslint:
         specifier: ^9.17.0
         version: 9.39.4(supports-color@8.1.1)
@@ -1703,23 +1709,23 @@ packages:
     resolution: {integrity: sha512-vcJDV2vk1AlCwSh3aBm/urQ1ZrlXFFBocv11bz/NBUfLWD5/UDNMzwPdaAd2dKvNmTWa9FM2lirLU3+JCf4cRA==}
     engines: {node: '>=18'}
 
-  '@livekit/agents-plugin-deepgram@1.9.0':
-    resolution: {integrity: sha512-BbP1RCaowKq4BKfxVjxqorEkuU9jwBpwW0bwWiZEigHLwwoR5vwTi6QoYr352oVzDM5yJS0QqC7aBbe18xkjJA==}
+  '@livekit/agents-plugin-deepgram@1.9.1':
+    resolution: {integrity: sha512-Bah7buT8xgkB48OF6RkUX8UgrVSADZ8sUGUn1aovik1sp3q1MRwNOAKAa8zNXxkNFZnEJ+zrDKudtufYDRIQPQ==}
     peerDependencies:
-      '@livekit/agents': 1.9.0
-      '@livekit/rtc-node': ^0.13.34
+      '@livekit/agents': 1.9.1
+      '@livekit/rtc-node': ^1.1.0
 
-  '@livekit/agents-plugin-elevenlabs@1.9.0':
-    resolution: {integrity: sha512-lV23L73l22dgMFKbxWVowmk2OEDw+fH2omqbNMunGPneGiy4NmTPDq8Pf1tWsKn+BeasbbmlLfovQKA5BxCdyw==}
+  '@livekit/agents-plugin-elevenlabs@1.9.1':
+    resolution: {integrity: sha512-dtlEsKuF0DIP8ZBkTXQVPgM6+h0AZeqWzj8S2GSpj/rcsjhKGJM0/69RnRYfD7c33j8WuetEaJQhw2l3CycXnQ==}
     peerDependencies:
-      '@livekit/agents': 1.9.0
-      '@livekit/rtc-node': ^0.13.34
+      '@livekit/agents': 1.9.1
+      '@livekit/rtc-node': ^1.1.0
 
-  '@livekit/agents@1.9.0':
-    resolution: {integrity: sha512-OBpai/S+6sf41N/ytFE7sZFY1LI2zUckf7LwNrIHX/f7TclPGEniGOA6c16YILmmw4dsgL0gy0oyqExuR1FNPw==}
+  '@livekit/agents@1.9.1':
+    resolution: {integrity: sha512-M8AxdKwzYzE9maO2cfPtGIXGqt9lpb3rsnBnC0vxZwRND+4y/GcW0t+c5CFDZGPHJ45bKvKALqI5aWnpCwgmWg==}
     hasBin: true
     peerDependencies:
-      '@livekit/rtc-node': ^0.13.34
+      '@livekit/rtc-node': ^1.1.0
       zod: ^3.25.76 || ^4.1.8
 
   '@livekit/av-darwin-arm64@10.0.0':
@@ -2551,6 +2557,9 @@ packages:
 
   '@types/uuid@10.0.0':
     resolution: {integrity: sha512-7gqG38EyHgyP1S+7+xomFtL+ZNHcKv6DwNaCZmJmo1vgMugyF3TCnXVg4t1uk89mLNwnLtnY3TpOpCOyp1/xHQ==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
@@ -7864,18 +7873,18 @@ snapshots:
       - '@opentelemetry/sdk-trace-base'
       - openai
 
-  '@livekit/agents-plugin-deepgram@1.9.0(@livekit/agents@1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)':
+  '@livekit/agents-plugin-deepgram@1.9.1(@livekit/agents@1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)':
     dependencies:
-      '@livekit/agents': 1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
+      '@livekit/agents': 1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
       '@livekit/rtc-node': 0.13.35
       ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@livekit/agents-plugin-elevenlabs@1.9.0(@livekit/agents@1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)':
+  '@livekit/agents-plugin-elevenlabs@1.9.1(@livekit/agents@1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3))(@livekit/rtc-node@0.13.35)':
     dependencies:
-      '@livekit/agents': 1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
+      '@livekit/agents': 1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)
       '@livekit/mutex': 1.1.1
       '@livekit/rtc-node': 0.13.35
       ws: 8.21.0
@@ -7883,7 +7892,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@livekit/agents@1.9.0(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)':
+  '@livekit/agents@1.9.1(@livekit/rtc-node@0.13.35)(@types/node@22.20.0)(supports-color@8.1.1)(typescript@5.9.3)(zod@4.4.3)':
     dependencies:
       '@bufbuild/protobuf': 1.10.1
       '@livekit/av': 10.0.0
@@ -8799,6 +8808,10 @@ snapshots:
   '@types/retry@0.12.0': {}
 
   '@types/uuid@10.0.0': {}
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.0
 
   '@types/yargs-parser@21.0.3': {}
 

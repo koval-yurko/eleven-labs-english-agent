@@ -58,11 +58,13 @@ Fill the new `.env` using the existing project/vendor credentials:
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Same LiveKit project as the backend; needed locally, injected by LiveKit Cloud in production |
 | `ANTHROPIC_API_KEY` | Claude API access |
 | `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
+| `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` (Alibaba Qwen-Audio TTS) |
 | `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
 | `API_BASE_URL` | Backend origin used for transcript/ledger/collection writes |
 
 The worker reads **its own** `.env`, not `apps/web/.env`. Shell environment variables take precedence.
+Which TTS a lesson speaks with is the version's `tts` profile (`src/tts-profiles.ts`); to try another model, add a profile and a `words-4.N` module ([research](../../docs/2026-10-08-livekit-tts-candidates-qwen-gemini.md)).
 See [`.env.example`](.env.example) for optional model and fixture overrides.
 
 ```sh

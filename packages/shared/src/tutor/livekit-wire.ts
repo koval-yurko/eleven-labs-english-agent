@@ -168,6 +168,12 @@ export interface LiveKitDispatchMetadata {
   llm?: string;
   turnPlan?: "patient" | "normal" | "eager";
   voice?: string;
+  /**
+   * Which TTS the worker speaks with: a key of `TTS_PROFILES` in `apps/voice-worker/src/tts-profiles.ts`.
+   * Absent = the worker's default (Deepgram Aura-2). The id is a plain string here because the
+   * worker owns the registry; a name it does not know falls back to the default, loudly.
+   */
+  tts?: string;
   /** HMAC grant over `{conversationId, ownerId, exp}` — undesigned (open question 1). Absent in
    *  Phase 1, which skips `add_words_to_collection` entirely rather than exercise the old
    *  `ANONYMOUS` path. */

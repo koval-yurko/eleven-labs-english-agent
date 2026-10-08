@@ -14,7 +14,7 @@ import { TurnLedger, type LedgerLlmCall, type LedgerMessage } from "./turn-ledge
 import { TURN_PLANS, turnHandlingFor } from "./turn-plans.ts";
 import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
 
-import { createTts } from "./pipeline.ts";
+import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
 
 const failures: string[] = [];
 let checked = 0;
@@ -313,16 +313,32 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   eq("turn plans: a lesson that names no plan is patient", turnHandlingFor(undefined), TURN_PLANS.patient);
 }
 
-// The TTS is Deepgram: a voice is a model name, and the lesson's ElevenLabs voice id is not one.
+// TTS profiles: a version names one; an unknown name falls back; a missing key is named, not silent.
 {
-  const key = process.env.DEEPGRAM_API_KEY;
+  const saved = { ...process.env };
   try {
     initializeLogger({ pretty: false, level: "error" });
-    process.env.DEEPGRAM_API_KEY = "offline-regression-key";
-    ok("TTS builds on the Deepgram key", Boolean(createTts()));
+    eq("tts: no profile named means Deepgram", resolveTtsProfile(undefined).id, "deepgram");
+    eq("tts: an unknown profile falls back, flagged", [resolveTtsProfile("nope").id, resolveTtsProfile("nope").fellBack], ["deepgram", true]);
+    eq("tts: a known profile is not a fallback", [resolveTtsProfile("qwen").id, resolveTtsProfile("qwen").fellBack], ["qwen", false]);
+    for (const name of ["DEEPGRAM_API_KEY", "DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"]) delete process.env[name];
+    eq("tts: qwen without keys names both", missingSecrets(TTS_PROFILES.qwen!), ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"]);
+    let message = "";
+    try {
+      createTtsFor("qwen");
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    ok("tts: a profile without its key refuses to build, naming the variable", message.includes("DASHSCOPE_API_KEY"));
+    Object.assign(process.env, {
+      DEEPGRAM_API_KEY: "offline",
+      DASHSCOPE_API_KEY: "offline",
+      QWEN_WORKSPACE_ID: "ws-offline",
+    });
+    for (const id of Object.keys(TTS_PROFILES)) ok(`tts: ${id} builds on its keys`, Boolean(createTtsFor(id)));
   } finally {
-    if (key === undefined) delete process.env.DEEPGRAM_API_KEY;
-    else process.env.DEEPGRAM_API_KEY = key;
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
   }
 }
 

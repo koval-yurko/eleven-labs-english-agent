@@ -17,11 +17,12 @@ on:
   repository_dispatch:
     types: [ship-preview]
 
-# One build at a time. A running build always finishes (cancelling mid-xcodebuild wastes ten
-# minutes and can strand EAS's throwaway keychain); GitHub keeps one pending run, the newest.
+# One build at a time, and the newest push wins: a newer run cancels the one in flight. Cancelling
+# mid-xcodebuild wastes the minutes already spent and can strand EAS's throwaway keychain on the
+# runner — if a build ever fails on keychain/signing right after a cancel, clean that up first.
 concurrency:
   group: ship-preview
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read

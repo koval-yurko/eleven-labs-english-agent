@@ -16,6 +16,7 @@ import words21 from "./words-2.1";
 import words30 from "./words-3.0";
 import words31 from "./words-3.1";
 import words40 from "./words-4.0";
+import words41 from "./words-4.1";
 
 export type { PromptVersion } from "./types";
 
@@ -76,6 +77,12 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * docs/2026-09-20-livekit-spike-task-plan.md has a mobile adapter), registered here so the worker's
  * own text-only walkthrough has the real prompt to run rather than a fixture.
  *
+ * `words-4.1` is `words-4.0` with only the worker's TTS swapped (Qwen-Audio TTS) — the
+ * pipeline-comparison move again, one stage at a time. Adding the next TTS to try is a profile in
+ * `apps/voice-worker/src/tts-profiles.ts` plus a module like it. A Gemini Flash TTS candidate
+ * (`words-4.2`) was tried and removed: its quota (10 requests/min, 100/day) cannot carry a lesson.
+ * docs/2026-10-08-livekit-tts-candidates-qwen-gemini.md.
+ *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
@@ -88,6 +95,7 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words30,
   words31,
   words40,
+  words41,
 ];
 
 /**

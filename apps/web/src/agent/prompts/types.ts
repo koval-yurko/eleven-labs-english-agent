@@ -60,6 +60,12 @@ export interface PromptVersion {
   label?: string;
   /** LLM id baked into the agent. Defaults to DEFAULT_LLM (see ./index.ts). */
   llm?: string;
+  /**
+   * LiveKit only: the worker's TTS profile for this version (a key of `TTS_PROFILES` in
+   * `apps/voice-worker/src/tts-profiles.ts`). Omitted = the worker's default. Ignored by every
+   * provider with a baked agent — their voice is `voiceId` / `ttsModelId`.
+   */
+  tts?: string;
   /** Teacher voice id. Defaults to env ELEVENLABS_TEACHER_VOICE_ID at sync time. */
   voiceId?: string;
   /** Real-time TTS model. Defaults to DEFAULT_TTS_MODEL (see ./index.ts). */

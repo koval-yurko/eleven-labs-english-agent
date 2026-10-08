@@ -12,6 +12,12 @@ on:
     branches: [master]
     paths: ['docs/**', '**/*.md']
 
+# A duplicated or back-to-back push would otherwise run two extractions that both commit and
+# push the same cache; the newer run supersedes the older one.
+concurrency:
+  group: graphify-semantic-cache
+  cancel-in-progress: true
+
 jobs:
   extract:
     # Same self-trigger guard .github/workflows/claude-code-review.yml would use if this repo
