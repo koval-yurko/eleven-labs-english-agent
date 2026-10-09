@@ -12,7 +12,7 @@ Date: 2026-10-08. Baseline: `words-4.0` — Deepgram Flux STT → Claude → Dee
 > the `GOOGLE_API_KEY` / `GEMINI_TTS_*` settings were deleted. §3 and the 4.2 rows below are kept
 > as the record of what was researched, not as current setup. The open Qwen problem (a fatal TTS
 > error mid-reply, report `b6184945`) is being chased with per-request tracing in
-> `src/qwen-tts.ts` (`[qwen <id>]` lines in `lk agent logs`).
+> `src/qwen-tts.ts` (`[qwen <id>]` lines in `lk agent logs`). (`words-4.2` now names Qwen 3.0 Flash, see below.) The Qwen rate-limit and latency work that followed — the 3 requests/s account limit, one task per reply, pacing — is in `2026-10-09-qwen-tts-latency-and-rate-limits.md`.
 
 Sources are vendor docs where I could read them and third-party write-ups where I could not;
 each claim says which. Nothing here was run against a live key.

@@ -35,6 +35,7 @@ import {
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
 import { createStt } from "./pipeline.ts";
+import { QwenTTS } from "./qwen-tts.ts";
 import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
@@ -227,9 +228,12 @@ export default defineAgent({
         speechFailed();
       },
     );
+    const voiceTts = createTtsFor(metadata.tts);
+    // Open the socket the first reply will use now, while the room is still being set up.
+    if (voiceTts instanceof QwenTTS) voiceTts.warm();
     const session = new voice.AgentSession({
       stt: createStt(),
-      tts: createTtsFor(metadata.tts),
+      tts: voiceTts,
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
 
@@ -367,6 +371,7 @@ export default defineAgent({
             // The phone may already be gone — that is the learner hanging up, not a failure.
           });
       }
+      if (voiceTts instanceof QwenTTS) voiceTts.pool.closeAll();
       // Before the final post, so a turn that never closed travels with it.
       ledger.flush(Date.now());
       if (!backend) return;

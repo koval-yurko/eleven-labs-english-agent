@@ -14,6 +14,10 @@ import { TurnLedger, type LedgerLlmCall, type LedgerMessage } from "./turn-ledge
 import { TURN_PLANS, turnHandlingFor } from "./turn-plans.ts";
 import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
 
+import { WebSocketServer, WebSocket as WsClient } from "ws";
+import { Pacer } from "./pacer.ts";
+import { SocketPool } from "./qwen-socket-pool.ts";
+import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
 import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
 
 const failures: string[] = [];
@@ -311,6 +315,87 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   ok("turn plans: minDelay < maxDelay in every plan", plans.every((p) => p.endpointing.minDelay < p.endpointing.maxDelay));
   ok("turn plans: values are milliseconds, not the doc's seconds", plans.every((p) => p.endpointing.minDelay >= 100));
   eq("turn plans: a lesson that names no plan is patient", turnHandlingFor(undefined), TURN_PLANS.patient);
+}
+
+// Segmenter: streaming text becomes sentence-sized pieces, none above the cap, nothing lost.
+{
+  const text = "Hello there, welcome back to the lesson. Today we have five items about law and rules. Let's start with legal bills, which means the money you owe for lawyers.";
+  const mid = segment(text, false);
+  ok("segments: a sentence shorter than the minimum waits for more text", segment("Hi there. ", false).pieces.length === 0);
+  ok("segments: pieces close at a sentence end past the minimum", mid.pieces.every((p) => p.length >= MIN_PIECE_CHARS && /[.!?]\s$/.test(p)));
+  eq("segments: nothing is lost across a final flush", segment(text, true).pieces.join(""), text);
+  const run = "word ".repeat(200);
+  const long = segment(run, true);
+  ok("segments: a run with no sentence end is still cut under the cap", long.pieces.length > 1 && long.pieces.every((p) => p.length <= MAX_PIECE_CHARS));
+  eq("segments: a long run loses nothing", long.pieces.join(""), run);
+  eq("segments: Cyrillic sentences split too", segment("Это первое предложение, довольно длинное для теста. А это второе предложение, тоже длинное. ", false).pieces.length >= 1, true);
+}
+
+// Socket pool, against a local server: warm sockets are handed out once, expire, renew, and a server
+// that hangs up on a parked socket is noticed.
+{
+  const server = new WebSocketServer({ port: 0 });
+  await new Promise((r) => server.once("listening", r));
+  const port = (server.address() as { port: number }).port;
+  const serverSide: WsClient[] = [];
+  server.on("connection", (ws) => serverSide.push(ws as unknown as WsClient));
+  let opened = 0;
+  const open = () =>
+    new Promise<WsClient>((resolve, reject) => {
+      opened += 1;
+      const ws = new WsClient(`ws://127.0.0.1:${port}`);
+      ws.on("error", () => undefined);
+      ws.once("open", () => resolve(ws));
+      ws.once("error", reject);
+    });
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const pool = new SocketPool(open, 80);
+  pool.warm();
+  pool.warm(); // a second call while one is opening must not open another
+  const first = await pool.take();
+  eq("pool: a warm-up under way is awaited and handed out as reused", [first.reused, opened], [true, 1]);
+  const cold = await pool.take();
+  eq("pool: with nothing parked a fresh socket is opened", [cold.reused, opened], [false, 2]);
+  pool.give(first.ws);
+  eq("pool: a returned socket is parked", pool.idleCount, 1);
+  const again = await pool.take();
+  ok("pool: it is the same socket that comes back", again.ws === first.ws && again.reused);
+  pool.give(again.ws);
+  await settle(140);
+  eq("pool: an idle socket is retired and renewed", [pool.idleCount, opened >= 3], [1, true]);
+  for (const s of serverSide) s.close();
+  await settle(60);
+  eq("pool: a parked socket the server closed is forgotten", pool.idleCount, 0);
+  cold.ws.close();
+  pool.closeAll();
+  pool.warm();
+  await settle(30);
+  eq("pool: a closed pool opens nothing", pool.idleCount, 0);
+  server.close();
+}
+
+// Pacer: synthesis stays a bounded distance ahead of playback, in order, and an aborted chunk leaves.
+{
+  const never = new AbortController().signal;
+  const pacer = new Pacer(100);
+  const t0 = Date.now();
+  const waits = await Promise.all([pacer.admit(never, 0.06), pacer.admit(never, 0.06), pacer.admit(never, 0.06), pacer.admit(never, 0.06)]);
+  ok("pacer: the first two chunks are admitted at once", waits[0]! < 15 && waits[1]! < 15);
+  ok("pacer: later chunks wait for playback to catch up", waits[3]! >= 15);
+  ok("pacer: waiting is bounded by the audio queued, not unbounded", Date.now() - t0 < 400);
+  const slow = new Pacer(10);
+  await slow.admit(never, 5); // five seconds queued, 10 ms allowed
+  const gone = new AbortController();
+  const pending = slow.admit(gone.signal, 1);
+  setTimeout(() => gone.abort(), 20);
+  eq("pacer: an aborted waiter leaves the line with -1", await pending, -1);
+  slow.reset();
+  ok("pacer: after a reset the next chunk is admitted immediately", (await slow.admit(never, 1)) < 15);
+  const settled = new Pacer(10);
+  await settled.admit(never, 5);
+  settled.settle(5, 0);
+  ok("pacer: a failed chunk gives its estimate back", settled.aheadMs < 50);
 }
 
 // TTS profiles: a version names one; an unknown name falls back; a missing key is named, not silent.
