@@ -100,7 +100,6 @@ export class QwenTTS extends tts.TTS {
   label = "qwen.TTS";
   readonly opts: QwenTtsOptions;
   readonly gate = new Gate(MAX_IN_FLIGHT);
-  readonly pacer = new Pacer(LOOKAHEAD_MS);
   readonly pool: SocketPool;
 
   constructor(opts: QwenTtsOptions) {
@@ -162,18 +161,15 @@ export class QwenTTS extends tts.TTS {
 /** `synthesize(text)` for callers with a whole string: the streaming path with the text pushed at once. */
 class QwenChunkedStream extends tts.ChunkedStream {
   label = "qwen.ChunkedStream";
+  readonly #owner: QwenTTS;
 
-  constructor(
-    private readonly owner: QwenTTS,
-    text: string,
-    connOptions?: APIConnectOptions,
-    abortSignal?: AbortSignal,
-  ) {
+  constructor(owner: QwenTTS, text: string, connOptions?: APIConnectOptions, abortSignal?: AbortSignal) {
     super(text, owner, connOptions, abortSignal);
+    this.#owner = owner;
   }
 
   protected async run(): Promise<void> {
-    const stream = new QwenSynthesizeStream(this.owner);
+    const stream = new QwenSynthesizeStream(this.#owner);
     this.abortSignal.addEventListener("abort", () => stream.close(), { once: true });
     stream.pushText(this.inputText);
     stream.endInput();
@@ -196,16 +192,20 @@ class QwenChunkedStream extends tts.ChunkedStream {
  */
 class QwenSynthesizeStream extends tts.SynthesizeStream {
   label = "qwen.SynthesizeStream";
+  readonly #owner: QwenTTS;
 
-  constructor(
-    private readonly owner: QwenTTS,
-    connOptions?: APIConnectOptions,
-  ) {
+  // No parameter properties: `node` strips types natively (`lk agent console`) and rejects them.
+  constructor(owner: QwenTTS, connOptions?: APIConnectOptions) {
     super(owner, connOptions);
+    this.#owner = owner;
   }
 
   protected async run(): Promise<void> {
-    const { opts, gate, pacer, pool } = this.owner;
+    const { opts, gate, pool } = this.#owner;
+    // One pacer per reply. Replies overlap (a preemptive one starts before the previous one is
+    // cancelled), and a shared pacer made the new reply wait for audio of the old one: "held piece 1
+    // for 1001ms" at the start of lesson 0dd1b82e's reply, with nothing yet queued for it.
+    const pacer = new Pacer(LOOKAHEAD_MS);
     const signal = this.abortController.signal;
     const streamId = randomUUID().slice(0, 8);
     const log = (message: string) => console.log(`[qwen stream ${streamId}] ${message}`);
@@ -222,7 +222,6 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
       w?.();
     };
     signal.addEventListener("abort", notify, { once: true });
-    signal.addEventListener("abort", () => pacer.reset(), { once: true });
 
     const pump = (async () => {
       let buffer = "";
@@ -253,7 +252,6 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
     let bytes = 0;
     let firstAudioMs: number | null = null;
     let sentChars = 0;
-    let estimatedSecs = 0;
     let socketNote = "";
     const events: Record<string, number> = {};
 
@@ -288,7 +286,10 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
           else resolve();
         };
         const onAbort = () => {
-          log(`cancelled by the framework after ${since()} (barge-in or teardown)`);
+          log(
+            `cancelled by the framework after ${since()} (barge-in or teardown): firstAudio=${firstAudioMs ?? "-"}ms ` +
+              `${(bytes / (SAMPLE_RATE * 2)).toFixed(1)}s audio, ${cursor}/${pieces.length} pieces sent — ${socketNote}`,
+          );
           if (!started || ws.readyState !== WebSocket.OPEN) {
             finish({ reuse: false });
             return;
@@ -324,7 +325,6 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
               if (waited > 500) log(`paced: held piece ${cursor + 1} for ${waited}ms (queued audio was ahead of playback)`);
               this.markStarted();
               ws.send(JSON.stringify({ header: header("continue-task"), payload: { input: { text: piece } } }));
-              estimatedSecs += secs;
               sentChars += piece.length;
               cursor += 1;
               continue;
@@ -435,7 +435,6 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
           n += 1;
           log(`throttled (attempt ${n}/${THROTTLE_RETRIES + 1}); retrying in ${wait}ms`);
           pacer.reset();
-          estimatedSecs = 0;
           sentChars = 0;
           await new Promise((r) => setTimeout(r, wait));
         }
@@ -461,7 +460,6 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
       });
     } finally {
       gate.release();
-      pacer.settle(estimatedSecs, bytes / (SAMPLE_RATE * 2));
       await pump.catch(() => undefined);
     }
   }

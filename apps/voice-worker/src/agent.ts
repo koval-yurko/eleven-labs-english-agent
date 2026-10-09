@@ -20,7 +20,14 @@ import { ReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { cli, defineAgent, ServerOptions, voice, type JobContext } from "@livekit/agents";
 import { ParticipantKind } from "@livekit/rtc-node";
-import { KICKOFF_MESSAGE, type TranscriptLine } from "@tutor/shared/tutor/session";
+import {
+  CONTINUE_MESSAGE,
+  HELD_RESUME_PREFIX,
+  HIDDEN_KICKOFF_MESSAGES,
+  KICKOFF_MESSAGE,
+  PAUSE_CONTEXT,
+  type TranscriptLine,
+} from "@tutor/shared/tutor/session";
 import {
   LIVEKIT_AGENT_NAME,
   LIVEKIT_LIFECYCLE,
@@ -32,11 +39,13 @@ import {
   type TurnRecord,
 } from "@tutor/shared/tutor/livekit-wire";
 
+import { AutoContinue } from "./auto-continue.ts";
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
 import { createStt } from "./pipeline.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
+import { lessonCompleteTool } from "./lesson-complete-tool.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger } from "./turn-ledger.ts";
@@ -112,6 +121,12 @@ function ledgerSink(conversationId: string): (record: TurnRecord) => void {
  * a row is a learner who has now talked into silence twice.
  */
 const SILENT_REPLIES_BEFORE_FAILING = 2;
+
+/**
+ * Output cap for one chunk of a chunked lesson: ~300 words, ~100 s of speech. Chunks run 135–240 words,
+ * so only a runaway turn reaches it.
+ */
+const CHUNK_MAX_TOKENS = 640;
 
 /** The sentence when the voice is failing and the account does not say why. */
 const NO_VOICE_MESSAGE =
@@ -210,11 +225,25 @@ export default defineAgent({
       if (silentReplies >= SILENT_REPLIES_BEFORE_FAILING) void failLesson(NO_VOICE_MESSAGE);
     };
 
+    /**
+     * A chunked lesson (`metadata.autoContinue`): after a chunk plays to its end and the learner is
+     * silent, ask for the next one. Built before the agent because the agent's `lesson_complete` tool
+     * reaches it, and wired to the session below, once the session exists.
+     */
+    let autoContinue: AutoContinue | null = null;
+
     const agent = new TutorAgent(
       {
         instructions: metadata.instructions,
-        llm: new ClaudeLLM({ model, onCompletion: (id, text) => ledger.completion(id, text) }),
-        tools: backend ? { add_words_to_collection: saveWordsTool(backend) } : {},
+        llm: new ClaudeLLM({
+          model,
+          onCompletion: (id, text) => ledger.completion(id, text),
+          maxTokens: metadata.autoContinue ? CHUNK_MAX_TOKENS : undefined,
+        }),
+        tools: {
+          ...(backend ? { add_words_to_collection: saveWordsTool(backend) } : {}),
+          ...(metadata.autoContinue ? { lesson_complete: lessonCompleteTool(() => autoContinue?.complete()) } : {}),
+        },
       },
       (outcome) => {
         if (!isSilent(outcome)) {
@@ -237,6 +266,25 @@ export default defineAgent({
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
 
+    if (metadata.autoContinue) {
+      autoContinue = new AutoContinue({
+        delayMs: 400,
+        resumeDelayMs: 1500,
+        maxRun: 60,
+        fire: () => session.generateReply({ userInput: CONTINUE_MESSAGE }),
+        canFire: () =>
+          (session.agentState === "listening" || session.agentState === "idle") &&
+          session.userState !== "speaking",
+        log: (m) => console.log(`[auto-continue] ${m}`),
+      });
+      session.on(voice.AgentSessionEventTypes.SpeechCreated, ({ speechHandle }) => {
+        autoContinue?.speechStarted();
+        speechHandle.addDoneCallback((handle) => autoContinue?.speechEnded(!handle.interrupted));
+      });
+      session.on(voice.AgentSessionEventTypes.UserStateChanged, ({ newState }) => {
+        if (newState === "speaking") autoContinue?.learnerSpoke();
+      });
+    }
     session.on(voice.AgentSessionEventTypes.MetricsCollected, ({ metrics }) => {
       if (metrics.type !== "llm_metrics") return;
       ledger.llmCall({
@@ -265,7 +313,7 @@ export default defineAgent({
        * sees, so the two cannot disagree about what was said — and `timeInCallSecs` uses the ledger's
        * own clock, which is what makes a stored line line up with the turn that produced it.
        */
-      if (text) {
+      if (text && !(item.role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(text))) {
         transcript.push({
           role: item.role === "assistant" ? "agent" : "user",
           text,
@@ -304,6 +352,7 @@ export default defineAgent({
       return "";
     });
     ctx.room.localParticipant?.registerRpcMethod(LIVEKIT_RPC.CANCEL_TURN, async () => {
+      autoContinue?.cancelled();
       session.interrupt();
       return "";
     });
@@ -311,6 +360,15 @@ export default defineAgent({
       void (async () => {
         const text = (await reader.readAll()).trim();
         if (!text) return;
+        // The phone's pause and release arrive as context notes (`planHold` / `planRelease`). The
+        // tutor is told to keep quiet; the controller must also stop asking it to speak, and a reply
+        // already being written for a muted phone is dropped.
+        if (text === PAUSE_CONTEXT) {
+          autoContinue?.hold();
+          if (autoContinue) void session.interrupt();
+        } else if (text.startsWith(HELD_RESUME_PREFIX)) {
+          autoContinue?.release();
+        }
         /**
          * Added as a `system` item, which the request builder turns into a `[lesson app] …`
          * USER-role marker rather than a system directive (`claude-request.ts`). And no reply is
@@ -371,6 +429,7 @@ export default defineAgent({
             // The phone may already be gone — that is the learner hanging up, not a failure.
           });
       }
+      autoContinue?.dispose();
       if (voiceTts instanceof QwenTTS) voiceTts.pool.closeAll();
       // Before the final post, so a turn that never closed travels with it.
       ledger.flush(Date.now());

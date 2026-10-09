@@ -126,6 +126,7 @@ export const POST = withBearer(async (req, ownerId) => {
     instructions: config.prompt.replaceAll("{{items_list}}", formatItemsList(items)),
     llm: chosen.llm,
     ...(chosen.tts ? { tts: chosen.tts } : {}),
+    ...(chosen.autoContinue ? { autoContinue: true } : {}),
     grant,
   };
 

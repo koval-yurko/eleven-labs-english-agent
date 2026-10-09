@@ -66,6 +66,12 @@ export interface PromptVersion {
    * provider with a baked agent — their voice is `voiceId` / `ttsModelId`.
    */
   tts?: string;
+  /**
+   * LiveKit only: the lesson is written in chunks (`./podcast-lesson-chunked.ts`) and the worker
+   * asks for the next one when a chunk ends and the learner is silent. See
+   * `apps/voice-worker/src/auto-continue.ts`. Omitted = off.
+   */
+  autoContinue?: boolean;
   /** Teacher voice id. Defaults to env ELEVENLABS_TEACHER_VOICE_ID at sync time. */
   voiceId?: string;
   /** Real-time TTS model. Defaults to DEFAULT_TTS_MODEL (see ./index.ts). */

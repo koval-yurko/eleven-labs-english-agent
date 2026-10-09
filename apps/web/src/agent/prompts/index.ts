@@ -18,6 +18,7 @@ import words31 from "./words-3.1";
 import words40 from "./words-4.0";
 import words41 from "./words-4.1";
 import words42 from "./words-4.2";
+import words43 from "./words-4.3";
 
 export type { PromptVersion } from "./types";
 
@@ -87,6 +88,9 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * docs/2026-10-08-livekit-tts-candidates-qwen-gemini.md,
  * docs/2026-10-09-qwen-tts-latency-and-rate-limits.md.
  *
+ * `words-4.3` is `words-4.1` with the lesson delivered in ~45-second chunks and the worker carrying on
+ * between them (`autoContinue`): docs/2026-10-10-chunked-podcast-turns.md.
+ *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
  * the picker a quiz.
@@ -101,6 +105,7 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words40,
   words41,
   words42,
+  words43,
 ];
 
 /**

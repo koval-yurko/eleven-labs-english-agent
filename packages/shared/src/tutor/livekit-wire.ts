@@ -174,6 +174,13 @@ export interface LiveKitDispatchMetadata {
    * worker owns the registry; a name it does not know falls back to the default, loudly.
    */
   tts?: string;
+  /**
+   * The lesson is delivered in chunks and the worker carries on between them
+   * (`apps/voice-worker/src/auto-continue.ts`): after a chunk ends naturally and the learner says
+   * nothing, it asks the tutor for the next one, until the tutor calls `lesson_complete`. Absent =
+   * one long turn, then silence until the learner speaks (words-4.0 / 4.1 / 4.2).
+   */
+  autoContinue?: boolean;
   /** HMAC grant over `{conversationId, ownerId, exp}` — undesigned (open question 1). Absent in
    *  Phase 1, which skips `add_words_to_collection` entirely rather than exercise the old
    *  `ANONYMOUS` path. */

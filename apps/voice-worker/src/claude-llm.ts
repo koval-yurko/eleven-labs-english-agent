@@ -41,6 +41,12 @@ export interface ClaudeLLMOptions {
   /** Overrides the client entirely — tests pass a fake here instead of a real Anthropic client. */
   client?: Anthropic;
   maxRetries?: number;
+  /**
+   * Output cap per request. A chunked lesson sets it as a backstop for a tutor that ignores its chunk
+   * length (a 732-word turn after the learner skipped ahead, headless run 2026-10-10): the cut falls
+   * mid-thought, which the chunked prompt already tells the tutor to pick up on the next cue.
+   */
+  maxTokens?: number;
   /** Called once per request that streams to the end, with everything Claude generated for it.
    *  The turn ledger uses it for `agentText`, which a barge-in would otherwise leave truncated.
    *  `requestId` matches the framework's `llm_metrics.requestId`. */
@@ -51,11 +57,13 @@ export class ClaudeLLM extends llm.LLM {
   readonly #model: string;
   readonly #client: Anthropic;
   readonly #onCompletion: ClaudeLLMOptions["onCompletion"];
+  readonly #maxTokens: number | undefined;
 
   constructor(opts: ClaudeLLMOptions = {}) {
     super();
     this.#model = opts.model ?? DEFAULT_MODEL;
     this.#onCompletion = opts.onCompletion;
+    this.#maxTokens = opts.maxTokens;
     if (opts.client) {
       this.#client = opts.client;
     } else {
@@ -120,7 +128,13 @@ export class ClaudeLLM extends llm.LLM {
       }
     }
 
-    const requestParams = buildMessageParams({ model: this.#model, parts, tools, toolChoice: anthropicToolChoice });
+    const requestParams = buildMessageParams({
+      model: this.#model,
+      parts,
+      tools,
+      toolChoice: anthropicToolChoice,
+      maxTokens: this.#maxTokens,
+    });
 
     return new ClaudeLLMStream(this, this.#client, requestParams, chatCtx, toolCtx, connOptions, this.#onCompletion);
   }

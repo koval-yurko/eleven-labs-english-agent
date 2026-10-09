@@ -6,8 +6,8 @@
  * a socket runs further tasks after a normal `task-finished` (the docs only promise it after a
  * cancel), a task on a warm socket answered with first audio in 0.87–1.0 s against ~2 s cold, a
  * socket idle for 45 s still worked, and the server closed it with `1000 Bye` about 60 s after its
- * last task. So: one idle socket, opened before the first reply, dropped at 45 s, and quietly
- * renewed a few times so a learner who pauses to think still gets a warm reply.
+ * last task. So: idle sockets opened before the first reply and again as each is taken, dropped at
+ * 45 s, and quietly renewed a few times so a learner who pauses to think still gets a warm reply.
  *
  * Generic over how a socket is opened, so `check.ts` exercises it against a local server.
  */
@@ -15,6 +15,14 @@ import type WebSocket from "ws";
 
 /** Idle sockets are renewed this many times with no use in between, then left to expire. */
 const MAX_IDLE_RENEWALS = 3;
+
+/**
+ * Sockets kept parked. Two, because replies overlap: the learner speaks, a preemptive reply starts on
+ * one socket while the previous reply is still on another and is cancelled only moments later. With
+ * one parked socket, 8 of 12 replies in the first real lessons (2026-10-10) opened a fresh one and
+ * paid 0.5–1.3 s for it.
+ */
+const MAX_IDLE = 2;
 
 interface Idle {
   ws: WebSocket;
@@ -73,12 +81,17 @@ export class SocketPool {
     this.#renewals = 0;
     if (!this.#idle.length && this.#pending) await this.#pending;
     const parked = this.#idle.pop();
+    let taken: TakenSocket;
     if (parked) {
       clearTimeout(parked.timer);
       parked.ws.off("close", parked.onClose);
-      return { ws: parked.ws, reused: true, idleMs: Date.now() - parked.since };
+      taken = { ws: parked.ws, reused: true, idleMs: Date.now() - parked.since };
+    } else {
+      taken = { ws: await this.#open(), reused: false, idleMs: 0 };
     }
-    return { ws: await this.#open(), reused: false, idleMs: 0 };
+    // The next reply may start before this one ends: have its socket opening now.
+    this.warm();
+    return taken;
   }
 
   /** A socket whose task ended cleanly goes back for the next reply. Anything else is `discard`ed. */
@@ -106,7 +119,7 @@ export class SocketPool {
 
   #park(ws: WebSocket): void {
     // WebSocket.OPEN === 1; compared by value so this file needs only the type.
-    if (this.#closed || ws.readyState !== 1 || this.#idle.length > 0) {
+    if (this.#closed || ws.readyState !== 1 || this.#idle.length >= MAX_IDLE) {
       this.discard(ws);
       return;
     }

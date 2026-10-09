@@ -55,6 +55,8 @@ const metadata: LiveKitDispatchMetadata = {
   version: version.version,
   instructions,
   llm: version.llm,
+  ...(version.tts ? { tts: version.tts } : {}),
+  ...(version.autoContinue ? { autoContinue: true } : {}),
 };
 
 process.stdout.write(JSON.stringify(metadata, null, 2) + "\n");

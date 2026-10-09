@@ -15,6 +15,7 @@ import { TURN_PLANS, turnHandlingFor } from "./turn-plans.ts";
 import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
 
 import { WebSocketServer, WebSocket as WsClient } from "ws";
+import { AutoContinue } from "./auto-continue.ts";
 import { Pacer } from "./pacer.ts";
 import { SocketPool } from "./qwen-socket-pool.ts";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
@@ -354,25 +355,91 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   pool.warm();
   pool.warm(); // a second call while one is opening must not open another
   const first = await pool.take();
-  eq("pool: a warm-up under way is awaited and handed out as reused", [first.reused, opened], [true, 1]);
-  const cold = await pool.take();
-  eq("pool: with nothing parked a fresh socket is opened", [cold.reused, opened], [false, 2]);
+  eq("pool: a warm-up under way is awaited and handed out as reused", first.reused, true);
+  eq("pool: taking a socket starts the replacement at once (2 opened)", opened, 2);
+  const second = await pool.take();
+  eq("pool: the replacement is ready for an overlapping reply", second.reused, true);
+  await settle(20);
+  const alone = new SocketPool(open, 5000);
+  const fresh = await alone.take();
+  eq("pool: with nothing parked a fresh socket is opened", fresh.reused, false);
+  alone.give(fresh.ws);
+  alone.closeAll();
   pool.give(first.ws);
-  eq("pool: a returned socket is parked", pool.idleCount, 1);
+  pool.give(second.ws);
+  await settle(20);
+  ok("pool: returned sockets are parked, at most two", pool.idleCount >= 1 && pool.idleCount <= 2);
   const again = await pool.take();
-  ok("pool: it is the same socket that comes back", again.ws === first.ws && again.reused);
-  pool.give(again.ws);
-  await settle(140);
-  eq("pool: an idle socket is retired and renewed", [pool.idleCount, opened >= 3], [1, true]);
+  ok("pool: a returned socket comes back reused", again.reused && (again.ws === first.ws || again.ws === second.ws));
+  await settle(250);
+  ok("pool: idle sockets are retired and renewed, never piling up", pool.idleCount <= 2 && opened >= 4);
   for (const s of serverSide) s.close();
   await settle(60);
-  eq("pool: a parked socket the server closed is forgotten", pool.idleCount, 0);
-  cold.ws.close();
+  eq("pool: parked sockets the server closed are forgotten", pool.idleCount, 0);
   pool.closeAll();
+  const before = opened;
   pool.warm();
   await settle(30);
-  eq("pool: a closed pool opens nothing", pool.idleCount, 0);
+  eq("pool: a closed pool opens nothing", opened, before);
   server.close();
+}
+
+// Auto-continue: asks for the next chunk after a chunk that ended on its own, and only then.
+{
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let fired = 0;
+  let busy = false;
+  const make = (maxRun = 60) =>
+    new AutoContinue({ delayMs: 20, resumeDelayMs: 40, maxRun, fire: () => (fired += 1), canFire: () => !busy });
+  const ac = make();
+  ac.speechEnded(true);
+  await settle(60);
+  eq("auto-continue: a chunk that ended on its own is followed by one request", fired, 1);
+  ac.speechEnded(false);
+  await settle(60);
+  eq("auto-continue: a chunk that was cut is not", fired, 1);
+  ac.speechEnded(true);
+  ac.learnerSpoke();
+  await settle(60);
+  eq("auto-continue: the learner speaking inside the beat cancels it", fired, 1);
+  ac.speechEnded(true);
+  ac.speechStarted();
+  await settle(60);
+  eq("auto-continue: a reply starting inside the beat cancels it", fired, 1);
+  ac.speechEnded(true);
+  ac.cancelled();
+  await settle(60);
+  eq("auto-continue: a turn the phone cancelled is not continued", fired, 1);
+  busy = true;
+  ac.speechEnded(true);
+  await settle(60);
+  eq("auto-continue: a busy session is left alone when the beat lands", fired, 1);
+  busy = false;
+  ac.hold();
+  ac.speechEnded(true);
+  await settle(60);
+  eq("auto-continue: nothing is asked for while the lesson is held", fired, 1);
+  ac.release();
+  await settle(25);
+  eq("auto-continue: a release waits longer than a normal beat, so the phone's own resume wins", fired, 1);
+  await settle(40);
+  eq("auto-continue: ...and then carries on", fired, 2);
+  ac.complete();
+  ac.speechEnded(true);
+  await settle(60);
+  eq("auto-continue: after lesson_complete nothing more is asked for", fired, 2);
+  const capped = make(3);
+  fired = 0;
+  for (let i = 0; i < 6; i += 1) {
+    capped.speechEnded(true);
+    await settle(40);
+  }
+  eq("auto-continue: stops after maxRun chunks in a row", fired, 3);
+  capped.learnerSpoke();
+  capped.speechEnded(true);
+  await settle(40);
+  eq("auto-continue: the learner speaking resets the run", fired, 4);
+  capped.dispose();
 }
 
 // Pacer: synthesis stays a bounded distance ahead of playback, in order, and an aborted chunk leaves.

@@ -79,8 +79,18 @@ export const ABORTED_RESUME_MESSAGE =
 export const UNHEARD_RESUME_MESSAGE =
   "I'm back — I didn't hear your last point. Repeat just that one, in two or three sentences, then carry on. Do not repeat anything before it.";
 
+/**
+ * What the worker sends, in the learner's name, between the chunks of a chunked lesson
+ * (`autoContinue` in `apps/voice-worker/src/auto-continue.ts`): nobody has spoken, the next part is
+ * due. The bracketed form and the first words are what the chunked prompt teaches the tutor to
+ * recognise, so change them together with `apps/web/src/agent/prompts/podcast-lesson-chunked.ts`.
+ */
+export const CONTINUE_MESSAGE =
+  "[Continue — the learner is listening and has said nothing. Carry on with the next part of the lesson.]";
+
 export const HIDDEN_KICKOFF_MESSAGES: readonly string[] = [
   KICKOFF_MESSAGE,
+  CONTINUE_MESSAGE,
   RESUME_MESSAGE,
   PAUSE_RESUME_MESSAGE,
   PAUSE_STOP_MESSAGE,
@@ -119,11 +129,14 @@ export function formatResumeContext(
 export const PAUSE_CONTEXT =
   "The learner has paused the lesson and stepped away. Their microphone is muted and they cannot hear you. Say nothing at all until they come back — do not greet, do not prompt, do not ask if they are still there.";
 
+/** How `formatHeldResumeContext` begins; the worker tells a release from other context notes by it. */
+export const HELD_RESUME_PREFIX = "The learner is back — the lesson was paused";
+
 export function formatHeldResumeContext(pausedSeconds: number): string {
   const secs = Math.max(0, Math.round(pausedSeconds));
   const gap =
     secs < 90 ? `${secs} seconds` : `about ${Math.round(secs / 60)} minutes`;
-  return `The learner is back — the lesson was paused for ${gap} and the conversation never ended. Continue exactly where you left off. Do not greet them again, do not re-introduce yourself, and do not repeat an item you have already taught unless they ask.`;
+  return `${HELD_RESUME_PREFIX} for ${gap} and the conversation never ended. Continue exactly where you left off. Do not greet them again, do not re-introduce yourself, and do not repeat an item you have already taught unless they ask.`;
 }
 
 export const TUTOR_HEARTBEAT_MS = 1_000;

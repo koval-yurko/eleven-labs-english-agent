@@ -199,6 +199,8 @@ export function buildMessageParams(options: {
   parts: AnthropicRequestParts;
   tools: Anthropic.Tool[];
   toolChoice: Anthropic.ToolChoice | undefined;
+  /** Output cap for this request; defaults to `DEFAULT_MAX_TOKENS`. */
+  maxTokens?: number;
 }): Anthropic.MessageCreateParamsStreaming {
   return {
     model: options.model,
@@ -210,7 +212,7 @@ export function buildMessageParams(options: {
     // for why both are unconditional rather than options someone could set back.
     thinking: { type: "disabled" },
     stream: true,
-    max_tokens: DEFAULT_MAX_TOKENS,
+    max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
 }
 
