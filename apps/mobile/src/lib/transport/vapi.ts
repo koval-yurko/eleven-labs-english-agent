@@ -19,7 +19,7 @@ import { describeShim, installDailyWebRtcShim } from "@/lib/transport/daily-webr
  * The Vapi transport.
  *
  * Vapi is an ORCHESTRATOR rather than a pipeline: the assistant — prompt, model, voice, turn-taking
- * plans — is a remote object that `pnpm sync:agents` provisions from `apps/web/src/agent/prompts/`.
+ * plans — is a remote object that `pnpm sync:agents` provisions from `packages/server/src/agent/prompts/`.
  * So this adapter carries less configuration than either of its siblings and more lifecycle care,
  * because the SDK underneath it is Daily's and Daily has opinions about being reused.
  *
@@ -81,7 +81,7 @@ const CAPABILITIES: TutorCapabilities = {
   /**
    * The one capability here that is not about what the platform CAN do but about what it already
    * does without being asked. This assistant is provisioned
-   * `assistant-speaks-first-with-model-generated-message` (`apps/web/src/agent/vapi-assistant.ts`),
+   * `assistant-speaks-first-with-model-generated-message` (`packages/server/src/agent/vapi-assistant.ts`),
    * so the tutor opens the lesson from the prompt at call start and a kickoff from us would only
    * open it a second time.
    */
@@ -334,7 +334,7 @@ export function useVapiTransport(events: TutorTransportEvents): TutorTransport {
         const m = raw as VapiMessage | undefined;
         /**
          * The other way the agent says it is here. `status-update` is subscribed on the assistant
-         * (`clientMessages`, see `apps/web/src/agent/vapi-assistant.ts`), and `in-progress` means the
+         * (`clientMessages`, see `packages/server/src/agent/vapi-assistant.ts`), and `in-progress` means the
          * call is live at Vapi's end rather than just at Daily's.
          *
          * Two signals for one fact is deliberate: whichever arrives first is the one that counts, and

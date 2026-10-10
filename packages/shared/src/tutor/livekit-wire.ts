@@ -2,7 +2,7 @@
  *  names, payload codecs with size guards, dispatch metadata, and the per-turn ledger shape.
  *
  *  Pure — no LiveKit SDK, no npm package. Both the phone (`apps/mobile/src/lib/transport/livekit.ts`,
- *  Phase 3) and the worker (`apps/voice-worker/`) compile against this module; it is the contract
+ *  Phase 3) and the worker (`services/voice-worker/`) compile against this module; it is the contract
  *  between them, not a client for either. See
  *  docs/2026-09-11-livekit-claude-diy-provider.md §1, §2 Q6, §3.2, §5.2 and
  *  docs/2026-09-20-livekit-spike-task-plan.md Phase 1.
@@ -11,7 +11,7 @@ import type { TutorCapabilities } from "./transport";
 
 /**
  * The worker's LiveKit agent name. Three things must agree on it byte-for-byte: the worker's
- * `ServerOptions.agentName`, `apps/voice-worker/livekit.toml`, and the token route's
+ * `ServerOptions.agentName`, `services/voice-worker/livekit.toml`, and the token route's
  * `RoomAgentDispatch.agentName` (Phase 3). One constant here instead of three hand-typed strings
  * (research doc §10.1). Setting an agent name turns off automatic dispatch, so a room only gets a
  * tutor when the token route asks for one by this name.
@@ -152,7 +152,7 @@ export const LIVEKIT_CAPABILITIES: TutorCapabilities = {
 /**
  * What the token route puts in LiveKit's dispatch metadata (`RoomAgentDispatch.metadata`), and what
  * the worker reads to build its session — the shape named in research doc §1. The worker is
- * prompt-agnostic and never imports `apps/web`, so this is the only place "what a lesson is" crosses
+ * prompt-agnostic and never imports `@tutor/server`, so this is the only place "what a lesson is" crosses
  * from the backend to the worker process.
  *
  * `turnPlan`, `voice` and `grant` are Phase 2/3 concerns (turn-taking presets, TTS choice, the
@@ -169,14 +169,14 @@ export interface LiveKitDispatchMetadata {
   turnPlan?: "patient" | "normal" | "eager";
   voice?: string;
   /**
-   * Which TTS the worker speaks with: a key of `TTS_PROFILES` in `apps/voice-worker/src/tts-profiles.ts`.
+   * Which TTS the worker speaks with: a key of `TTS_PROFILES` in `services/voice-worker/src/tts-profiles.ts`.
    * Absent = the worker's default (Deepgram Aura-2). The id is a plain string here because the
    * worker owns the registry; a name it does not know falls back to the default, loudly.
    */
   tts?: string;
   /**
    * The lesson is delivered in chunks and the worker carries on between them
-   * (`apps/voice-worker/src/auto-continue.ts`): after a chunk ends naturally and the learner says
+   * (`services/voice-worker/src/auto-continue.ts`): after a chunk ends naturally and the learner says
    * nothing, it asks the tutor for the next one, until the tutor calls `lesson_complete`. Absent =
    * one long turn, then silence until the learner speaks (words-4.0 / 4.1).
    */

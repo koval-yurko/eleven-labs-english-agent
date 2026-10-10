@@ -1,19 +1,22 @@
 # English Tutor
 
-A minimal **Next.js (App Router)** scaffold — a clean starting point for rebuilding the
-English Tutor English-lesson app. It keeps just enough to prove the four integrations work, and
-nothing else. The original product vision lives in [`spec/PRD-base.md`](./spec/PRD-base.md).
+An English tutor: a learner collects vocabulary and practises it in a live voice lesson. The
+product is the iOS app; everything else is a backend it talks to over HTTP, or a web client of that
+same backend. The original product vision lives in [`spec/PRD-base.md`](./spec/PRD-base.md); the
+current shape of the repo is [`docs/2026-10-10-services-split-hono-api.md`](./docs/2026-10-10-services-split-hono-api.md).
 
 ## What's wired
 
-| Piece                                  | Where                                                 | Proven by                                        |
-| -------------------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| **Auth0** login + route gating         | `apps/web/src/proxy.ts`, `apps/web/src/lib/auth0.ts`  | the dashboard shows your signed-in email         |
-| **Supabase** (owner-scoped rows + RLS) | `apps/web/src/lib/supabase/*`, `supabase/migrations/` | insert/read an owner-scoped `health_pings` row   |
-| **ElevenLabs** tutor agents            | `apps/web/src/agent/*`                                | `GET /v1/user` health check + `pnpm sync:agents` |
-| **LangChain + Claude**                 | `apps/web/src/lib/llm.ts`                             | the "Ask Claude" box (auto-traces to LangSmith)  |
+| Piece                                  | Where                                                         |
+| -------------------------------------- | ------------------------------------------------------------- |
+| **Auth0** — bearer tokens for the API  | `packages/server/src/auth/bearer.ts`, `services/api/src/lib/auth/` |
+| **Auth0** — web login (two web apps)   | `apps/tutor-web/src/lib/auth0.ts`, `apps/feedback-tracker/src/lib/auth0.ts` |
+| **Supabase** (owner-scoped rows + RLS) | `packages/server/src/supabase/server.ts`, `supabase/migrations/` |
+| **ElevenLabs / Vapi** tutor agents     | `packages/server/src/agent/*` + `pnpm sync:agents`            |
+| **LiveKit** tutor (our own pipeline)   | `services/voice-worker/`                                      |
+| **LangChain + Claude** background jobs | `packages/server/src/llm.ts` (traced to LangSmith)            |
 
-The home page (`/`) is an integration smoke test surfacing the health of each.
+`GET /api/health` reports the state of each dependency.
 
 ## Setup
 
@@ -21,13 +24,15 @@ This is a **pnpm workspace**. Run every command from the repo root — the root 
 right package, so nothing needs a `cd`.
 
 ```bash
-cp apps/web/.env.example apps/web/.env   # Auth0 / Supabase / Anthropic / ElevenLabs keys
-pnpm install                             # needs pnpm 11+ (see below)
-pnpm db:migrate                          # apply the baseline schema (needs SUPABASE_DB_URL)
-pnpm dev                                 # http://localhost:3000
+cp services/api/.env.example services/api/.env   # the backend's keys (the CLI jobs read it too)
+pnpm install                                     # needs pnpm 11+ (see below)
+pnpm db:migrate                                  # apply the schema (needs SUPABASE_DB_URL)
+pnpm dev                                         # services/api on http://localhost:3000
 ```
 
-Sign in (Auth0 gates everything), then use the dashboard to confirm each integration.
+The web apps each have their own `.env.example` (Auth0 web-app settings + `API_BASE_URL`, no
+server secrets): `pnpm dev:tutor-web` (:3002) and `pnpm dev:feedback` (:3003), with `pnpm dev`
+running. The phone app is `pnpm mobile`.
 
 **pnpm 11 is required, and the failure is silent if you are on 9.** `pnpm-workspace.yaml` carries the
 linker settings, which pnpm 9 reads as unknown keys and ignores without warning. Check with
@@ -72,13 +77,13 @@ git worktree.** From a worktree, run `graphify update .` by hand.
 ## Commands
 
 ```bash
-pnpm dev               # run the app
-pnpm build             # production build
+pnpm dev               # services/api, the backend
+pnpm build             # production builds: services/api, tutor-web, feedback-tracker
 pnpm typecheck         # strict TypeScript, every package
 pnpm lint              # ESLint, every package
 pnpm check:shared      # property checks for packages/shared
 pnpm db:migrate        # apply Supabase migrations
-pnpm sync:agents       # reconcile ElevenLabs with apps/web/src/agent/prompts/
+pnpm sync:agents       # reconcile ElevenLabs with packages/server/src/agent/prompts/
 pnpm level:items       # assign CEFR levels to unleveled vocabulary
 pnpm enrich:words      # fill words.details for un-enriched words
 ```
@@ -88,22 +93,23 @@ The last four have `:plan` / `:status` variants that change nothing and print wh
 ## Layout
 
 ```text
-apps/web/           the Next.js app
-  src/app/          UI, server actions, /api/*
-  src/lib/          auth0, supabase clients, config, health, LangChain LLM, offline sync
-  src/agent/        ElevenLabs tutor agents: versioned prompts + agents.lock.json
-  scripts/          migrate.mjs, level-items.ts, enrich-words.ts
-packages/shared/    @tutor/shared — the pure core both clients must agree on (zero deps)
-supabase/           Postgres migrations (owner-scoped RLS) — repo-level, both apps share the DB
-docs/  spec/        research notes and the product vision — repo-level
+apps/                    clients — things a person opens
+  mobile/                Expo iOS app — the product
+  tutor-web/             Next.js learner web UI (deprecated) — HTTP client of services/api
+  feedback-tracker/      Next.js debug-report triage for the operator — HTTP client of services/api
+services/                backends — things that run on a server
+  api/                   Hono HTTP API on Vercel: every /api/** route, webhooks, MCP
+  voice-worker/          LiveKit tutor agent on LiveKit Cloud
+packages/
+  shared/                @tutor/shared — the pure core every app and service agrees on (zero deps)
+  server/                @tutor/server — backend domain core: data access, jobs, agent registry, CLI scripts
+supabase/                Postgres migrations (owner-scoped RLS) — repo-level
+docs/  spec/             research notes and the product vision — repo-level
 ```
-
-`packages/shared` exists so a future `apps/mobile` (Expo) can depend on the same wire contract
-instead of copying it. See [`docs/2026-08-09-expo-repo-structure-migration.md`](./docs/2026-08-09-expo-repo-structure-migration.md).
 
 ## Notes
 
-- Secrets stay server-side; only `NEXT_PUBLIC_*` env reaches the browser.
+- Secrets stay in `services/api` (and the CLI jobs that share its `.env`); no client holds one.
 - Supabase uses the **same project** as before — the data was reset to a fresh baseline
   (`supabase/migrations/0001_baseline.sql`).
 - The LLM defaults to `claude-opus-4-5` (override with `ANTHROPIC_MODEL`).

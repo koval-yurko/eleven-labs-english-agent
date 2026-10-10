@@ -1,5 +1,5 @@
 /**
- * The design system — `apps/web/src/app/globals.css` and its eight Base UI wrappers, as React
+ * The design system — `apps/tutor-web/src/app/globals.css` and its eight Base UI wrappers, as React
  * Native components.
  *
  * **Screens import from here and from nowhere else for appearance.** A screen that reaches past

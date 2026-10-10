@@ -2,7 +2,7 @@
  * Reading "is the ElevenLabs account out of credits?" off `GET /v1/user/subscription`, and the
  * sentence the learner reads when it is.
  *
- * Here rather than in `apps/web` because two deployables ask the question: the token routes before
+ * Here rather than in `@tutor/server` because two deployables ask the question: the token routes before
  * a lesson is opened, and the LiveKit worker when its own TTS comes back empty mid-lesson
  * (docs/2026-10-02-livekit-silent-tts-on-spent-quota.md). The fetch stays with each of them — this
  * module has no network — but the DECISION must not drift between the two, because a wrong "out"

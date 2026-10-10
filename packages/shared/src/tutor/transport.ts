@@ -7,7 +7,7 @@ import type { TranscriptLine, TutorItem } from "./session";
  *
  * Adding one here is deliberately load-bearing in two places at once: `TUTOR_PROVIDERS` in
  * `apps/mobile/src/lib/transport/index.ts` stops compiling until the client can carry it, and
- * `activeVersions()` in `apps/web/src/lib/agent-registry.ts` decides whether the server may offer it
+ * `activeVersions()` in `packages/server/src/agent-registry.ts` decides whether the server may offer it
  * at all. A provider can exist on the server before it exists on the phone — `"vapi"` does today, and
  * `"livekit"` since 2026-09-21 — and it is `activeVersions()`, not this union, that keeps such a
  * version out of a learner's picker. See `words-4.0.ts` and

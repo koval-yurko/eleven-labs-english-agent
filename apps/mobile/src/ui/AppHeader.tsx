@@ -10,7 +10,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { layout, space, type } from "./tokens";
 
 /**
- * The app's one piece of chrome — `apps/web/src/app/layout.tsx`'s `<header>`.
+ * The app's one piece of chrome — `apps/tutor-web/src/app/layout.tsx`'s `<header>`.
  *
  * ```
  * 🎧 English Tutor    signed in as you@example.com

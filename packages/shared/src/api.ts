@@ -6,6 +6,12 @@ import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./
 import type { TranscriptLine, TutorItem } from "./tutor/session";
 import type { TutorProviderId, TutorUsage } from "./tutor/transport";
 import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./words/types";
+import type {
+  DebugReportKind,
+  DebugReportRow,
+  DebugReportScope,
+  DebugReportSummary,
+} from "./debug/report";
 
 export const API_V2 = "/api/v2";
 
@@ -13,6 +19,7 @@ export const API_V2_ROUTES = {
   me: `${API_V2}/me`,
   agentVersions: `${API_V2}/agent-versions`,
   conversationToken: `${API_V2}/words-agent/token`,
+  signedUrl: `${API_V2}/words-agent/signed-url`,
   realtimeToken: `${API_V2}/words-agent/openai-token`,
   vapiToken: `${API_V2}/words-agent/vapi-token`,
   livekitToken: `${API_V2}/words-agent/livekit-token`,
@@ -25,6 +32,7 @@ export const API_V2_ROUTES = {
   itemDelete: `${API_V2}/lesson-items/delete`,
   suggest: `${API_V2}/lexicon/suggest`,
   debugReports: `${API_V2}/debug-reports`,
+  opsDebugReports: `${API_V2}/ops/debug-reports`,
 } as const;
 
 export function lessonPath(id: string): string {
@@ -56,6 +64,11 @@ export function suggestPath(prefix: string, limit: number = SUGGEST_LIMIT): stri
   return `${API_V2_ROUTES.suggest}?q=${encodeURIComponent(prefix)}&limit=${limit}`;
 }
 
+/**
+ * The web client's SAME-ORIGIN paths. Since the services split these are served by tutor-web
+ * itself, which forwards each to its bearer-authenticated `/api/v2` counterpart (a browser beacon
+ * cannot attach a bearer header). docs/2026-10-10-services-split-hono-api.md §5.2.
+ */
 export const API_ROUTES = {
   signedUrl: "/api/words-agent/signed-url",
   lessonSession: "/api/lessons/session",
@@ -66,6 +79,13 @@ export function signedUrlPath(version?: string): string {
   return version
     ? `${API_ROUTES.signedUrl}?version=${encodeURIComponent(version)}`
     : API_ROUTES.signedUrl;
+}
+
+/** The API's bearer-authenticated signed-URL route, which tutor-web's same-origin one forwards to. */
+export function signedUrlV2Path(version?: string | null): string {
+  return version
+    ? `${API_V2_ROUTES.signedUrl}?version=${encodeURIComponent(version)}`
+    : API_V2_ROUTES.signedUrl;
 }
 
 export function conversationTokenPath(version?: string): string {
@@ -129,6 +149,111 @@ export function isDebugReportResponse(body: unknown): body is DebugReportRespons
   if (typeof body !== "object" || body === null) return false;
   const b = body as Partial<DebugReportResponse>;
   return (typeof b.id === "string" || b.id === null) && typeof b.stored === "boolean";
+}
+
+// ── /api/v2/ops/debug-reports — feedback-tracker's triage surface ──────────────────────────────
+//
+// **Cross-owner, by decision D10** (docs/2026-10-10-services-split-hono-api.md §6.1): any
+// authenticated caller reads and triages EVERY learner's reports. Bearer-authenticated, no CORS —
+// it is called server-to-server from feedback-tracker, never from a phone or a browser.
+
+/** List filters. Every field optional; absent means "any". `scope` defaults to `"active"`. */
+export interface OpsDebugReportQuery {
+  kind?: DebugReportKind;
+  provider?: string;
+  errorCode?: string;
+  status?: string;
+  /** ISO date-time; rows created before it are excluded. */
+  since?: string;
+  scope?: DebugReportScope;
+}
+
+export function opsDebugReportsPath(query: OpsDebugReportQuery = {}): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === "string" && value) params.set(key, value);
+  }
+  const qs = params.toString();
+  return qs ? `${API_V2_ROUTES.opsDebugReports}?${qs}` : API_V2_ROUTES.opsDebugReports;
+}
+
+export function opsDebugReportPath(id: string): string {
+  return `${API_V2_ROUTES.opsDebugReports}/${encodeURIComponent(id)}`;
+}
+
+export interface OpsDebugReportListResponse {
+  reports: DebugReportSummary[];
+  /** Filter values taken from the rows that exist, scoped like the list. */
+  facets: { providers: string[]; errorCodes: string[]; statuses: string[] };
+  /** Resolved reports still in the active list — what "Archive resolved" would archive. */
+  resolvedActive: number;
+}
+
+/** The provider's own account of how a conversation ended, plus the two labels the page shows. */
+export interface OpsVerdict {
+  conversationId: string;
+  status: string | null;
+  durationSecs: number | null;
+  reason: string | null;
+  errorType: string | null;
+  code: string | null;
+  /** `dependency_error · code 1002`, or null when the provider recorded no error. */
+  errorLabel: string | null;
+  /** The account being out of credits — the one verdict that is not a bug in this repo. */
+  isQuota: boolean;
+}
+
+export interface OpsDebugReportDetailResponse {
+  report: DebugReportRow;
+  /** The stored transcript for the report's conversation (joined on the report's owner), or null. */
+  session: {
+    transcript: TranscriptLine[];
+    summary: string | null;
+    duration_secs: number | null;
+    created_at: string;
+  } | null;
+  links: {
+    langsmith: string | null;
+    /** The trace name to search for when no direct LangSmith URL could be resolved. */
+    langsmithTraceName: string | null;
+    console: { label: string; url: string } | null;
+  };
+  /** The prompt version the report names, resolved against the registry. */
+  agent: { version: string; provider: string; agentId: string | null } | null;
+  verdicts: OpsVerdict[];
+  /**
+   * The state diff, computed server-side so the client renders rather than re-derives it: snapshot
+   * fields in reading order, the ones that changed between `live` and `atError`, and the lines the
+   * diagnosis rules flag (shared with `pnpm report`).
+   */
+  diagnosis: {
+    liveFields: string[];
+    atErrorFields: string[];
+    changed: string[];
+    suspicious: string[];
+  };
+}
+
+/**
+ * Triage and archive in one PATCH. `resolution`: absent leaves it alone, `null` or `""` clears it —
+ * the same rule as the operator page's form.
+ */
+export interface OpsDebugReportPatch {
+  status?: string;
+  resolution?: string | null;
+  archived?: boolean;
+}
+
+export interface OpsDebugReportPatchResponse {
+  ok: true;
+}
+
+export interface OpsArchiveResolvedResponse {
+  archived: number;
+}
+
+export interface OpsDebugReportDeleteResponse {
+  deleted: boolean;
 }
 
 export interface MeResponse {

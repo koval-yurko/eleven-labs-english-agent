@@ -161,6 +161,53 @@ export interface DebugReportInput {
   capturedAt: string;
 }
 
+// ── the stored report, as the operator reads it ──────────────────────────────────────────────
+//
+// The `debug_reports` row shapes. They lived in the web backend while only its own `/ops` pages
+// read them; they are here because `feedback-tracker` now reads them over HTTP
+// (`/api/v2/ops/debug-reports`, docs/2026-10-10-services-split-hono-api.md §6), so they are a wire
+// contract, not a server detail. Snake_case because they are the columns, unrenamed.
+
+/** One row, as the operator list renders it. Deliberately without the four fat jsonb columns. */
+export interface DebugReportSummary {
+  id: string;
+  /** Whose report. The list is cross-owner (D10), so this is how one learner's rows are told apart. */
+  owner_id: string;
+  created_at: string;
+  captured_at: string;
+  kind: DebugReportKind;
+  note: string;
+  lesson_id: string | null;
+  conversation_id: string | null;
+  provider: string | null;
+  agent_version: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  status: string;
+  resolution: string | null;
+  archived_at: string | null;
+}
+
+/** The whole row. Only the detail view asks for this. */
+export interface DebugReportRow extends DebugReportSummary {
+  client: Record<string, unknown>;
+  state: { live?: SessionSnapshot; atError?: SessionSnapshot | null };
+  events: DebugEvent[];
+  transcript_tail: TranscriptLine[];
+}
+
+/**
+ * Which half of the table a read is about. `"active"` is the default everywhere; `"archived"` is
+ * how an archived report is found again; `"all"` exists for sweeps that must not miss a row.
+ */
+export type DebugReportScope = "active" | "archived" | "all";
+
+/**
+ * The status a report is given when it is dealt with. One word, shared by the operator's Resolve
+ * button and the server sweeps that key on it (archive-resolved, the retention delete).
+ */
+export const RESOLVED_STATUS = "resolved";
+
 // ── the bounds ───────────────────────────────────────────────────────────────────────────────
 
 /**

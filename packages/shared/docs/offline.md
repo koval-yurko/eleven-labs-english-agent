@@ -51,7 +51,7 @@ Limits: `MAX_ITEMS` 50 per lesson · `MAX_FLUSH_RECORDS` 500 per flush · `MAX_L
 - **`planNewItems` dedupes with `clientDedupeKey`, which is weaker than Postgres on purpose** — see
   [words.md](words.md). It may leave a duplicate for the server to skip; it can never merge two words
   the learner meant to keep apart.
-- **Today the only full `MirrorStore` is Dexie** (`apps/web/src/lib/sync/`). Mobile shares the types
+- **Today the only full `MirrorStore` is Dexie** (`apps/tutor-web/src/lib/sync/`). Mobile shares the types
   and keeps its own `expo-sqlite` session journal.
 
 ## Research

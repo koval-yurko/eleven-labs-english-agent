@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 /**
  * Shared "something is in flight" store behind the top progress bar — the web's
- * `apps/web/src/app/nav-progress.ts`, minus its Next-specific half.
+ * `apps/tutor-web/src/app/nav-progress.ts`, minus its Next-specific half.
  *
  * Every transition of the bar is tied to a real event. Nothing here is timed or estimated; the one
  * timer in the feature (`NavProgressBar`'s reveal delay) exists to *suppress* the bar on fast work,

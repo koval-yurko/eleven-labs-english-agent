@@ -13,7 +13,7 @@
     "lib": ["ES2022", "DOM"],
     "types": [],
     "strict": true,
-    // Must match apps/web. Dropping it would let an edit pass `pnpm -r typecheck` and fail the app build.
+    // Must match the apps and services. Dropping it would let an edit pass `pnpm -r typecheck` and fail their builds.
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,

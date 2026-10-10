@@ -8,7 +8,7 @@ import Svg, { Circle, Path } from "react-native-svg";
  * weighted for the platform, optically aligned, tinted by the system. But they are Apple's drawings,
  * and no combination of them reproduces the web's star, bin or sun/moon — so the two apps would go
  * on showing different pictures for the same action, which is the thing this port exists to end.
- * The `d=` strings below are copied verbatim from `apps/web/src/app/icons/index.tsx`; if one changes
+ * The `d=` strings below are copied verbatim from `apps/tutor-web/src/app/icons/index.tsx`; if one changes
  * there, change it here.
  *
  * Same contract as the web's: a lucide-style 24×24 stroke drawing, `size` in px (default 18), and
@@ -127,7 +127,7 @@ export function RefreshIcon(props: IconProps) {
  * its membership in every other lesson, and the removed row itself, which is what feeds the change
  * log. Two opposite blast radii must not share a glyph.
  *
- * The one icon here with no counterpart in `apps/web/src/app/icons/index.tsx`: the web's lesson
+ * The one icon here with no counterpart in `apps/tutor-web/src/app/icons/index.tsx`: the web's lesson
  * page still renders a text "remove" button. If that page is ever revived, copy this path there.
  */
 export function CloseIcon(props: IconProps) {

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // @tutor/server — the backend domain core. Node-only and framework-free: no DOM lib and no JSX,
+  // so a browser API or a component reaching in here is a type error, not a review comment.
+  // The framework ban itself (next, hono, react, auth0-nextjs) is eslint.config.js.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    // Must match services/api, which typechecks these sources too through its imports.
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowJs": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@tutor/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.json", "scripts/**/*.ts", "scripts/**/*.mjs"],
+  "exclude": ["node_modules"]
+}

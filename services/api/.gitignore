@@ -1,0 +1,3 @@
+# esbuild output (build.mjs) — Vercel builds it on every deploy; never committed.
+server.mjs
+server.mjs.map

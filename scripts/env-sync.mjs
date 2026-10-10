@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Sync .env files with the production environment on Vercel (web), EAS (mobile) and LiveKit
-// Cloud (voice-worker).
+// Sync .env files with the production environment on Vercel (api, tutor-web, feedback-tracker),
+// EAS (mobile) and LiveKit Cloud (voice-worker).
 //
 //   node scripts/env-sync.mjs diff
-//   node scripts/env-sync.mjs push [--apply] [--target web|mobile|worker|all]
-//   node scripts/env-sync.mjs pull [--dry-run] [--target web|mobile|worker|all]
+//   node scripts/env-sync.mjs push [--apply] [--target api|tutor-web|feedback-tracker|mobile|worker|all]
+//   node scripts/env-sync.mjs pull [--dry-run] [--target api|tutor-web|feedback-tracker|mobile|worker|all]
 //
 // Production is the only environment this touches (D9). Plans are the default; mutation
 // needs --apply (D6). Values are never printed — only a length and a sha256 prefix (D5).
@@ -46,12 +46,34 @@ const isUnreadable = (v) => v === undefined || UNREADABLE.has(v);
 // `deny` is per-target on top of D4: keys the local .env legitimately holds but the remote injects
 // by itself. LiveKit Cloud injects its own URL and project credentials into every agent, and
 // `lk agent secrets` hides them — the worker's .env keeps them only for local `dev`/`console`.
+//
+// Vercel targets carry `vercelCwd`: the directory whose `.vercel/project.json` names the project
+// the `vercel env` commands act on. `api` keeps the original project, linked at the repo root
+// (its Root Directory is `services/api` — docs/2026-10-10-services-split-hono-api.md §7); each
+// client app is its own project, linked in its own directory with `vercel link`.
 const TARGETS = {
-  web: { remote: "vercel", dir: join(ROOT, "apps/web"), label: "web → Vercel" },
+  api: {
+    remote: "vercel",
+    vercelCwd: ROOT,
+    dir: join(ROOT, "services/api"),
+    label: "api → Vercel",
+  },
+  "tutor-web": {
+    remote: "vercel",
+    vercelCwd: join(ROOT, "apps/tutor-web"),
+    dir: join(ROOT, "apps/tutor-web"),
+    label: "tutor-web → Vercel",
+  },
+  "feedback-tracker": {
+    remote: "vercel",
+    vercelCwd: join(ROOT, "apps/feedback-tracker"),
+    dir: join(ROOT, "apps/feedback-tracker"),
+    label: "feedback-tracker → Vercel",
+  },
   mobile: { remote: "eas", dir: join(ROOT, "apps/mobile"), label: "mobile → EAS" },
   worker: {
     remote: "livekit",
-    dir: join(ROOT, "apps/voice-worker"),
+    dir: join(ROOT, "services/voice-worker"),
     label: "voice-worker → LiveKit Cloud",
     deny: new Set(["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"]),
   },
@@ -238,12 +260,21 @@ function easCmd() {
 
 // ── remote: Vercel ───────────────────────────────────────────────────────────
 
-const vercel = {
+// One remote per linked directory (`TARGETS[t].vercelCwd`): the CLI acts on whichever project that
+// directory's `.vercel/project.json` names.
+const vercelRemote = (cwd) => ({
   label: "Vercel",
+
+  // An app whose Vercel project does not exist yet (or is not linked here) is skipped, not fatal.
+  unavailable() {
+    if (existsSync(join(cwd, ".vercel", "project.json"))) return null;
+    const where = cwd === ROOT ? "the repo root" : cwd.slice(ROOT.length + 1);
+    return `not linked to a Vercel project — run \`vercel link\` in ${where}`;
+  },
 
   // Names + sensitivity only. `env ls` never returns decrypted values; `read` uses pull.
   list() {
-    const r = run(vercelCmd(), ["env", "ls", "--json"], { cwd: ROOT });
+    const r = run(vercelCmd(), ["env", "ls", "--json"], { cwd });
     if (r.code !== 0) fail(`vercel env ls failed:\n${r.stderr.trim() || r.stdout.trim()}`);
     let rows;
     try {
@@ -267,7 +298,7 @@ const vercel = {
     const file = join(dir, "pulled.env");
     try {
       const r = run(vercelCmd(), ["env", "pull", file, `--environment=${ENVIRONMENT}`, "--yes"], {
-        cwd: ROOT,
+        cwd,
       });
       if (!existsSync(file)) fail(`vercel env pull failed:\n${r.stderr.trim() || r.stdout.trim()}`);
       return parseDotenv(readFileSync(file, "utf8"));
@@ -280,7 +311,7 @@ const vercel = {
   // one --force produces is unverified; this sequence is correct for either.
   set(key, value, sensitive, existsRemotely) {
     if (existsRemotely) {
-      const rm = run(vercelCmd(), ["env", "rm", key, ENVIRONMENT, "--yes"], { cwd: ROOT });
+      const rm = run(vercelCmd(), ["env", "rm", key, ENVIRONMENT, "--yes"], { cwd });
       if (rm.code !== 0) return { ok: false, err: rm.stderr.trim() || rm.stdout.trim() };
     }
     // stdin, not --value: survives newlines and shell metacharacters (PEM keys, JSON blobs).
@@ -289,7 +320,7 @@ const vercel = {
       vercelCmd(),
       ["env", "add", key, ENVIRONMENT, sensitive ? "--sensitive" : "--no-sensitive"],
       {
-        cwd: ROOT,
+        cwd,
         input: value,
       },
     );
@@ -297,7 +328,7 @@ const vercel = {
       ? { ok: true }
       : { ok: false, err: add.stderr.trim() || add.stdout.trim() };
   },
-};
+});
 
 // ── remote: EAS ──────────────────────────────────────────────────────────────
 // Every eas env command resolves the project from app.config.ts, so cwd must be apps/mobile.
@@ -443,13 +474,16 @@ const livekit = {
   },
 };
 
-const REMOTES = { vercel, eas, livekit };
-const remoteFor = (name) => REMOTES[name];
+const REMOTES = { eas, livekit };
+const remoteFor = (target) => {
+  const t = TARGETS[target];
+  return t.remote === "vercel" ? vercelRemote(t.vercelCwd) : REMOTES[t.remote];
+};
 
 // A target whose remote does not exist yet is reported and skipped, so one undeployed app does
-// not break `pnpm env:diff` for the other two.
+// not break `pnpm env:diff` for the others.
 function available(target) {
-  const why = remoteFor(TARGETS[target].remote).unavailable?.();
+  const why = remoteFor(target).unavailable?.();
   if (why) {
     head(`${TARGETS[target].label} — ${ENVIRONMENT}`);
     warn(`skipped: ${why}`);
@@ -460,14 +494,14 @@ function available(target) {
 // ── classification (§5.1) ────────────────────────────────────────────────────
 
 function classify(target) {
-  const { dir, remote } = TARGETS[target];
+  const { dir } = TARGETS[target];
   const examplePath = join(dir, ".env.example");
   const envPath = join(dir, ".env");
   if (!existsSync(examplePath)) fail(`missing registry: ${examplePath}`);
 
   const registry = parseRegistry(readFileSync(examplePath, "utf8"));
   const local = existsSync(envPath) ? parseDotenv(readFileSync(envPath, "utf8")) : new Map();
-  const api = remoteFor(remote);
+  const api = remoteFor(target);
   const remoteMeta = api.list();
   const remoteValues = api.read();
 
@@ -653,7 +687,7 @@ function cmdPush(targets, apply, secrets) {
 
   let failed = 0;
   for (const { target, plan } of work) {
-    const api = remoteFor(TARGETS[target].remote);
+    const api = remoteFor(target);
     const todo = [...plan.create, ...plan.change, ...(secrets ? plan.unverifiable : [])];
     if (!todo.length) continue;
     head(`applying — ${TARGETS[target].label}`);
@@ -682,7 +716,7 @@ function cmdPull(targets, dryRun) {
     const { dir, remote, label } = TARGETS[target];
     const envPath = join(dir, ".env");
     const registry = parseRegistry(readFileSync(join(dir, ".env.example"), "utf8"));
-    const api = remoteFor(remote);
+    const api = remoteFor(target);
     const meta = api.list();
     const values = api.read();
     const local = existsSync(envPath) ? parseDotenv(readFileSync(envPath, "utf8")) : new Map();
@@ -835,9 +869,12 @@ const opt = (name) => {
   return inline ? inline.slice(name.length + 3) : undefined;
 };
 
-const targetOpt = opt("target") ?? "all";
-if (!["web", "mobile", "worker", "all"].includes(targetOpt))
-  fail(`--target must be web, mobile, worker or all (got ${targetOpt})`);
+// `web` was the API's target name before the services split; kept so muscle memory and old notes
+// still work (docs/2026-10-10-services-split-hono-api.md step 5).
+const TARGET_ALIASES = { web: "api" };
+const targetOpt = TARGET_ALIASES[opt("target")] ?? opt("target") ?? "all";
+if (!["all", ...Object.keys(TARGETS)].includes(targetOpt))
+  fail(`--target must be one of ${Object.keys(TARGETS).join(", ")} or all (got ${targetOpt})`);
 const targets = targetOpt === "all" ? Object.keys(TARGETS) : [targetOpt];
 
 switch (command) {
@@ -851,7 +888,7 @@ switch (command) {
     cmdPull(targets, flag("dry-run"));
     break;
   default:
-    say(`env-sync — local .env ⇄ ${ENVIRONMENT} on Vercel (web), EAS (mobile) and LiveKit Cloud (worker)
+    say(`env-sync — local .env ⇄ ${ENVIRONMENT} on Vercel (api, tutor-web, feedback-tracker), EAS (mobile) and LiveKit Cloud (worker)
 
   pnpm env:diff                     report drift; changes nothing
   pnpm env:push                     plan the upload
@@ -860,7 +897,7 @@ switch (command) {
   pnpm env:pull                     show what a pull would change; writes nothing
   pnpm env:pull:apply               update .env from the remote (backs up to .env.bak)
 
-  --target web | mobile | worker | all   default: all
+  --target api | tutor-web | feedback-tracker | mobile | worker | all   default: all
 
 Design: docs/2026-08-28-env-variable-sync.md`);
     process.exit(command ? 1 : 0);

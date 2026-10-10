@@ -9,7 +9,7 @@ import { control, overlay, radius, type } from "./tokens";
 export type SelectOption<T extends string> = { value: T; label: string };
 
 /**
- * `Select` — the trigger + popup pair from `apps/web/src/app/Select.tsx` and the `.select-*` rules.
+ * `Select` — the trigger + popup pair from `apps/tutor-web/src/app/Select.tsx` and the `.select-*` rules.
  *
  * This replaces the SwiftUI `Menu` (sort) and `Picker` (tutor version). Both were better native
  * citizens; neither looks anything like the web's control, which is the point of the port.

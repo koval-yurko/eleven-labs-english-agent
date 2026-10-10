@@ -28,7 +28,7 @@ export const TUTOR_PROVIDERS = {
   // "vapi" to the shared union broke this line until the phone had an answer, and the answer is
   // written down in ./vapi.ts rather than hidden by relaxing the type. Nothing routes here: the
   // server withholds every Vapi version from the picker (`CLIENT_READY` in
-  // apps/web/src/lib/agent-registry.ts), so this is a second lock on a door that is already shut.
+  // packages/server/src/agent-registry.ts), so this is a second lock on a door that is already shut.
   vapi: useVapiTransport,
   // Registered, not implemented — see ./livekit.ts's own docblock. Same shut door as vapi above:
   // CLIENT_READY withholds "livekit" until Phase 3 of docs/2026-09-20-livekit-spike-task-plan.md.

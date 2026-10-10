@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // DOM for the Web-standard Request/Response/URL types the handlers are written against.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "strict": true,
+    // Must match packages/server, whose sources this typechecks through its imports.
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowJs": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@tutor/server/*": ["../../packages/server/src/*"],
+      "@tutor/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "exclude": ["node_modules"]
+}

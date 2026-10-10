@@ -81,9 +81,9 @@ export const UNHEARD_RESUME_MESSAGE =
 
 /**
  * What the worker sends, in the learner's name, between the chunks of a chunked lesson
- * (`autoContinue` in `apps/voice-worker/src/auto-continue.ts`): nobody has spoken, the next part is
+ * (`autoContinue` in `services/voice-worker/src/auto-continue.ts`): nobody has spoken, the next part is
  * due. The bracketed form and the first words are what the chunked prompt teaches the tutor to
- * recognise, so change them together with `apps/web/src/agent/prompts/podcast-lesson-chunked.ts`.
+ * recognise, so change them together with `packages/server/src/agent/prompts/podcast-lesson-chunked.ts`.
  */
 export const CONTINUE_MESSAGE =
   "[Continue — the learner is listening and has said nothing. Carry on with the next part of the lesson.]";

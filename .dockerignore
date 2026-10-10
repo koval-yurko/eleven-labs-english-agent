@@ -24,18 +24,22 @@ node_modules
 credentials
 **/credentials.json
 
-# The other two apps' build output and platform projects. Their sources are not copied either — the
-# Dockerfile takes only packages/shared and apps/voice-worker.
-apps/web/.next
-apps/web/tsconfig.tsbuildinfo
+# The other members' build output and platform projects. Their sources are not copied either — the
+# Dockerfile takes only packages/shared and services/voice-worker.
+apps/tutor-web/.next
+apps/feedback-tracker/.next
+**/tsconfig.tsbuildinfo
+services/api/server.mjs
+services/api/server.mjs.map
+services/api/.vercel
 apps/mobile/ios
 apps/mobile/android
 apps/mobile/.expo
 apps/mobile/dist
 
 # Local worker artifacts: the dispatch fixture, the JSONL ledgers, and recordings of a real voice.
-apps/voice-worker/.local
-apps/voice-worker/console-recordings
+services/voice-worker/.local
+services/voice-worker/console-recordings
 
 # Repo furniture with no bearing on a running worker.
 docs

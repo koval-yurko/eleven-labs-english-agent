@@ -1,4 +1,4 @@
-// Flat ESLint config (ESLint 9) — mirrors apps/web, with Expo's RN-aware rules on top.
+// Flat ESLint config (ESLint 9) — mirrors apps/tutor-web, with Expo's RN-aware rules on top.
 const { defineConfig } = require("eslint/config");
 const expoConfig = require("eslint-config-expo/flat");
 

@@ -3,7 +3,7 @@
 # **It lives at the repo root, and that is the whole point.** `lk agent create [working-dir]` uploads
 # the working directory as a REMOTE build context and builds the image on LiveKit's own
 # infrastructure ("load remote build context" in its output). The context has to be the workspace —
-# the lockfile and `@tutor/shared` are both above `apps/voice-worker/` — so the working directory is
+# the lockfile and `@tutor/shared` are both above `services/voice-worker/` — so the working directory is
 # the repo root, and a Dockerfile is read from the root of the context it is given:
 #
 #   lk agent create .          # from the repo root
@@ -54,31 +54,37 @@ FROM base AS build
 WORKDIR /repo
 
 # Manifests first, so a source-only change does not re-resolve the dependency graph. Every
-# workspace member's package.json is copied even though only two are installed: `--frozen-lockfile`
-# validates the lockfile against the whole workspace, and a missing member makes it refuse.
+# workspace member's package.json is copied even though only two are installed, so the workspace
+# `--frozen-lockfile` validates is the one the lockfile describes. (Measured 2026-10-10 on pnpm
+# 11.20: a missing member is tolerated rather than refused — the copy is kept so the install never
+# depends on that leniency. docs/2026-10-10-services-split-hono-api.md §8 step 2.)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
-COPY apps/voice-worker/package.json apps/voice-worker/
-COPY apps/web/package.json apps/web/
+COPY packages/server/package.json packages/server/
+COPY services/voice-worker/package.json services/voice-worker/
+COPY services/api/package.json services/api/
 COPY apps/mobile/package.json apps/mobile/
+COPY apps/tutor-web/package.json apps/tutor-web/
+COPY apps/feedback-tracker/package.json apps/feedback-tracker/
 
 # `voice-worker...` (with the trailing dots) means the worker AND the workspace packages it depends
 # on. The filter is NOT enough on its own: under `nodeLinker: hoisted` this still installs the other
 # members' dependencies, which measured at 793 MB of Expo and 445 MB of Next.js inside an image whose
 # own worker needs 264 MB. They exist only so `--frozen-lockfile` can validate the lockfile against
-# the whole workspace, so they are deleted the moment it has.
+# the whole workspace, so they are deleted the moment it has — the worker depends on none of them
+# (it reaches the backend over HTTP, never through `@tutor/server`).
 RUN pnpm install --frozen-lockfile --filter voice-worker... \
-  && rm -rf apps/web apps/mobile
+  && rm -rf apps/mobile apps/tutor-web apps/feedback-tracker services/api packages/server
 
 # Only the two packages that ship. The root `.dockerignore` keeps node_modules, build output and
 # the local `.env` out of the context entirely.
 COPY packages/shared packages/shared
-COPY apps/voice-worker apps/voice-worker
+COPY services/voice-worker services/voice-worker
 
 # Download assets declared by installed plugins during the build, before any lesson starts.
 # Do not invoke pnpm after pruning the other workspace apps: its automatic install would
 # re-resolve the reduced workspace and replace the frozen dependencies (observed in Cloud).
-RUN apps/voice-worker/node_modules/.bin/livekit-agents download-files
+RUN services/voice-worker/node_modules/.bin/livekit-agents download-files
 
 FROM base AS runtime
 
@@ -94,4 +100,4 @@ ENV NODE_ENV=production
 
 # `start`, not `dev`: production mode, no hot reload, and it registers under the agent name in
 # `livekit-wire.ts`. Secrets arrive through `lk agent update-secrets`, never in this image.
-CMD ["node", "--import", "./apps/voice-worker/node_modules/tsx/dist/loader.mjs", "apps/voice-worker/src/agent.ts", "start"]
+CMD ["node", "--import", "./services/voice-worker/node_modules/tsx/dist/loader.mjs", "services/voice-worker/src/agent.ts", "start"]

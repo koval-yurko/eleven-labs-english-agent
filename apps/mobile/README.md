@@ -1,7 +1,7 @@
 # English Tutor — iOS app
 
-**This is the product.** All feature work happens here; `apps/web` is deprecated as a UI and kept as
-the backend the app calls over HTTP (`/api/v2/*`). Anything new — a screen, a flow, an interaction —
+**This is the product.** All feature work happens here; `apps/tutor-web` is the deprecated web UI, and
+the backend the app calls over HTTP (`/api/v2/*`) is `services/api`. Anything new — a screen, a flow, an interaction —
 is researched and designed for the phone, not ported from a web page.
 
 It exists for **one reason the web app could not satisfy**: iOS revokes the microphone, interrupts
@@ -198,7 +198,7 @@ assets/           app icon + splash only
 - **`unrs-resolver` must stay in `allowBuilds`** (`pnpm-workspace.yaml`). pnpm 10+ blocks its
   postinstall, and the failure is not a warning: the deps-status check exits non-zero, so
   `pnpm typecheck` here dies before `tsc` runs, with an error naming neither tool.
-- **TypeScript here is 6.x**, a major ahead of `apps/web` and `packages/shared` (5.7). Separate
+- **TypeScript here is 6.x**, a major ahead of the web apps, `services/` and `packages/` (5.7). Separate
   dependency trees, so both typecheck — but TS 6-only syntax added to `packages/shared` would compile
   in this app and fail everywhere else.
 - **`pnpm -r <script>` silently skips a package that has no such script.** That is why `typecheck`

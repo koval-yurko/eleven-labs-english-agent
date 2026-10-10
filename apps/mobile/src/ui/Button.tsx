@@ -6,7 +6,7 @@ import { type Palette } from "@tutor/shared/theme";
 import { control, radius, space, type } from "./tokens";
 
 /**
- * The app's button — `apps/web/src/app/Button.tsx` and the `.btn*` rules, in one component.
+ * The app's button — `apps/tutor-web/src/app/Button.tsx` and the `.btn*` rules, in one component.
  *
  * The web's docblock is worth reading for the *why*; the part that has to survive the port is the
  * geometry rule it lands on:
