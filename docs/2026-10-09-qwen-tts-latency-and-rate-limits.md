@@ -56,7 +56,7 @@ after the request, ~3–4 s for a sentence; audio is produced ~2–3× faster th
 7. **One task per reply** (`QwenSynthesizeStream`, `speech-segments.ts`): the whole answer over one socket; pieces of 60–250 chars cut at sentence ends (the cap keeps the gap between sends under the 23 s limit); each piece admitted by the pacer; interrupt = `finish-task` + `directive: cancel`; final frame marked `final`; throttle retry replays the pieces; logs `paced:` holds and a per-task summary.
 
 8. **Warm socket pool** (`qwen-socket-pool.ts`, option B): one parked socket, opened when the session starts (`QwenTTS.warm()` from `agent.ts`), returned after every reply (also after a cancel), retired at 45 s idle and renewed up to 3 times, closed with the session. A parked socket the server already closed is retried on a fresh one. Probe and results in §4a.
-9. **`words-4.2` = `words-4.1` on `qwen-audio-3.0-tts-flash`** (option C): profile `qwen-flash` (`QWEN_FLASH_MODEL` / `QWEN_FLASH_VOICE` override), same adapter, so the two versions differ in the model only. Result in §4b.
+9. **`words-4.2` = `words-4.1` on `qwen-audio-3.0-tts-flash`** (option C): profile `qwen-flash`, same adapter, so the two versions differ in the model only. Result in §4b. **Removed on 2026-10-10** (no latency difference on short text; the Plus voice was kept): the profile, its env overrides and the version are gone, and the number `4.2` now names the chunked lesson on Plus (`2026-10-10-chunked-podcast-turns.md`). §4b and the Flash column are kept as the record of that comparison.
 
 Checks: `pnpm --filter voice-worker check` (76 properties, incl. segmenter, pacer and the pool against a local WebSocket server).
 
@@ -126,7 +126,7 @@ is a reason to listen rather than assume. **Compare by ear and over a long reply
 |---|---|---|---|---|
 | A | **Ship step 7** and read the logs from a real lesson *(built; deploy pending)* | removes the burst; 1 request per reply | the 23 s send rule: an LLM stall (e.g. a tool call) longer than 23 s would time the task out; not handled yet | **Yes — first** |
 | B | **Warm connection** *(built — §4a)*: open the socket at session start / keep one idle and reuse it for the next reply | saves the 0.5–1.5 s handshake on every reply's first audio | idle timeout ~60 s (probed); a stale socket is retried on a fresh one | **Done**: first audio ~0.9 s warm vs ~2.6 s cold |
-| C | **`qwen-audio-3.0-tts-flash`** *(built as `words-4.2` — §4b)* | latency not separable from Plus on short text; same 3 RPS | quality/voice differ; compare by ear | **Done** — pick 4.1 or 4.2 by listening |
+| C | **`qwen-audio-3.0-tts-flash`** *(built as `words-4.2`, removed 2026-10-10 — §4b)* | latency not separable from Plus on short text; same 3 RPS | quality/voice differ; compare by ear | **Done** — pick 4.1 or 4.2 by listening |
 | D | **Region**: ask Alibaba / console whether Qwen-Audio TTS runs in Frankfurt (`eu-central-1`) | handshake RTT from `eu-central` drops several-fold | unconfirmed; separate key and workspace per region | Research only |
 | E | **Raise the quota** via the business manager | headroom beyond 3 RPS/account | manual, slow | Not needed yet: one task per reply is ~0.1–0.3 RPS per learner, so ~10 simultaneous learners fit |
 | F | **Cap reply length** in the prompt | every cost above falls; the 3,388-token answers are ~15 min of speech | changes tutor behaviour; shared by all `words-4.x` prompts | Yes — separate decision |

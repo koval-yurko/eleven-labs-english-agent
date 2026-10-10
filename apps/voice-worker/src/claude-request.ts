@@ -188,11 +188,23 @@ function closeTrailingAssistantTurn(messages: Anthropic.MessageParam[]): void {
 const DEFAULT_MAX_TOKENS = 4096;
 
 /**
+ * "Off", spelled the way the model wants it. Sonnet 5 takes `{type: "disabled"}`; the 5.5 family
+ * answers that with a 400 ("send `between_tools` instead") — it does not think before responding, and
+ * the short updates it writes between tool calls come back as `thinking` blocks, which the stream
+ * loop in `claude-llm.ts` never reads (it takes `text_delta` and `tool_use` only), so they are never
+ * spoken. Probed 2026-10-10 on `claude-sonnet-5-5`, including a tool round trip whose follow-up
+ * request omits the thinking block, which is what `buildAnthropicMessages` sends.
+ */
+export function thinkingFor(model: string): { type: "disabled" } | { type: "between_tools" } {
+  return /-5-5(\b|$|-)/.test(model) ? { type: "between_tools" } : { type: "disabled" };
+}
+
+/**
  * Assemble the final request Anthropic will see, from parts already built by
  * `buildAnthropicMessages`/`applyCacheControl`. Pure — no network, no client — so the five L2
  * invariants (docs/2026-09-11-livekit-claude-diy-provider.md §4 L2) can be checked against its
- * output directly: no `temperature` ever appears, `thinking.type` is always `"disabled"`, and the
- * `tools`/`system` prefix is byte-identical across calls that pass the same tools and parts.
+ * output directly: no `temperature` ever appears, thinking is always switched off (`thinkingFor`),
+ * and the `tools`/`system` prefix is byte-identical across calls that pass the same tools and parts.
  */
 export function buildMessageParams(options: {
   model: string;
@@ -210,7 +222,7 @@ export function buildMessageParams(options: {
     tool_choice: options.toolChoice,
     // Always disabled, always sent, never a `temperature` beside it — see claude-llm.ts's docblock
     // for why both are unconditional rather than options someone could set back.
-    thinking: { type: "disabled" },
+    thinking: thinkingFor(options.model) as Anthropic.ThinkingConfigParam,
     stream: true,
     max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
   };

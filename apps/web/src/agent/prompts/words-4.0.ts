@@ -36,9 +36,9 @@ import type { PromptVersion } from "./types";
 const version: PromptVersion = {
   version: "words-4.0",
   provider: "livekit",
-  label: "4.0 · LiveKit — podcast lesson (spike)",
+  label: "4.0 · LiveKit — podcast lesson",
   prompt: PODCAST_LESSON_PROMPT,
-  llm: "claude-sonnet-5",
+  llm: "claude-sonnet-5-5",
   // turnTimeoutSeconds / turnEagerness / ttsModelId / additionalLanguages / maxTokens: all ElevenLabs
   // agent-body fields (types.ts), all ignored for a provider with no baked agent — like words-2.0,
   // not like words-1.0. The LiveKit equivalent (turn-taking presets, research doc §2 Q4) is a Phase 2

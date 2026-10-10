@@ -58,7 +58,7 @@ Fill the new `.env` using the existing project/vendor credentials:
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Same LiveKit project as the backend; needed locally, injected by LiveKit Cloud in production |
 | `ANTHROPIC_API_KEY` | Claude API access |
 | `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
-| `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` / `words-4.2` (Alibaba Qwen-Audio TTS, Plus / Flash) |
+| `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` / `words-4.2` (Alibaba Qwen-Audio TTS Plus) |
 | `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
 | `API_BASE_URL` | Backend origin used for transcript/ledger/collection writes |

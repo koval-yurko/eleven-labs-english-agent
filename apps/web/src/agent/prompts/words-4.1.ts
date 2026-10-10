@@ -13,7 +13,7 @@ import type { PromptVersion } from "./types";
 const version: PromptVersion = {
   ...words40,
   version: "words-4.1",
-  label: "4.1 · LiveKit — podcast lesson, Qwen TTS (spike)",
+  label: "4.1 · LiveKit — podcast lesson, Qwen TTS",
   tts: "qwen",
 };
 

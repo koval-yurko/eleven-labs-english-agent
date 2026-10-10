@@ -178,7 +178,7 @@ export interface LiveKitDispatchMetadata {
    * The lesson is delivered in chunks and the worker carries on between them
    * (`apps/voice-worker/src/auto-continue.ts`): after a chunk ends naturally and the learner says
    * nothing, it asks the tutor for the next one, until the tutor calls `lesson_complete`. Absent =
-   * one long turn, then silence until the learner speaks (words-4.0 / 4.1 / 4.2).
+   * one long turn, then silence until the learner speaks (words-4.0 / 4.1).
    */
   autoContinue?: boolean;
   /** HMAC grant over `{conversationId, ownerId, exp}` — undesigned (open question 1). Absent in

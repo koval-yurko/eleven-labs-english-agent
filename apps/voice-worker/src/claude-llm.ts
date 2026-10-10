@@ -6,7 +6,8 @@
  *
  * What this file owns that `claude-request.ts` doesn't: the network call, the streaming loop, and
  * everything about a request that ISN'T the chat-context-to-messages mapping —
- *   - `thinking: {type: "disabled"}`, always. Sonnet 5 thinks adaptively when `thinking` is
+ *   - thinking off, always (`thinkingFor` in `claude-request.ts`: `disabled` on Sonnet 5, `between_tools`
+ *     on the 5.5 family, which rejects `disabled`). Sonnet 5 thinks adaptively when `thinking` is
  *     omitted, which puts thinking time in front of the first spoken word (§2 Q3).
  *   - no sampling params. `temperature` 400s on Sonnet 5 for any non-default value, so this adapter
  *     never sends one — there is no `opts.temperature` to opt back into it.
@@ -29,11 +30,11 @@ import {
 
 import { applyCacheControl, buildAnthropicMessages, buildMessageParams } from "./claude-request.ts";
 
-/** Sonnet 5's API model id (see the model-id list this repo's assistant was given). Not `DEFAULT_LLM`
+/** Sonnet 5.5's API model id (`claude-sonnet-5` before 2026-10-10). Not `DEFAULT_LLM`
  *  from `apps/web/src/agent/prompts/index.ts` — that constant bakes ElevenLabs/Vapi agents and stays
  *  "claude-sonnet-4-6" for the versions already pinned to it; this worker is a new provider making
  *  its own choice per the research doc's recommendation (§0). */
-export const DEFAULT_MODEL = "claude-sonnet-5";
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
 
 export interface ClaudeLLMOptions {
   model?: string;
@@ -50,7 +51,7 @@ export interface ClaudeLLMOptions {
   /** Called once per request that streams to the end, with everything Claude generated for it.
    *  The turn ledger uses it for `agentText`, which a barge-in would otherwise leave truncated.
    *  `requestId` matches the framework's `llm_metrics.requestId`. */
-  onCompletion?: (requestId: string, text: string) => void;
+  onCompletion?: (requestId: string, text: string, info: { toolCalls: number }) => void;
 }
 
 export class ClaudeLLM extends llm.LLM {
@@ -171,6 +172,7 @@ class ClaudeLLMStream extends llm.LLMStream {
     let cacheCreationTokens = 0;
     let cacheReadTokens = 0;
     let text = "";
+    let toolCalls = 0;
 
     try {
       const stream = await this.#client.messages.create(this.#requestParams, {
@@ -189,6 +191,7 @@ class ClaudeLLMStream extends llm.LLMStream {
           toolCallId = event.content_block.id;
           toolName = event.content_block.name;
           toolRawArgs = "";
+          toolCalls += 1;
         } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           if (event.delta.text) {
             text += event.delta.text;
@@ -222,7 +225,7 @@ class ClaudeLLMStream extends llm.LLMStream {
           cacheCreationTokens,
         },
       });
-      this.#onCompletion?.(requestId, text);
+      this.#onCompletion?.(requestId, text, { toolCalls });
     } catch (e) {
       if (e instanceof Anthropic.APIError) {
         if (e.status === 408) {

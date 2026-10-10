@@ -21,7 +21,6 @@ import { fileURLToPath } from "node:url";
 import { cli, defineAgent, ServerOptions, voice, type JobContext } from "@livekit/agents";
 import { ParticipantKind } from "@livekit/rtc-node";
 import {
-  CONTINUE_MESSAGE,
   HELD_RESUME_PREFIX,
   HIDDEN_KICKOFF_MESSAGES,
   KICKOFF_MESSAGE,
@@ -39,7 +38,8 @@ import {
   type TurnRecord,
 } from "@tutor/shared/tutor/livekit-wire";
 
-import { AutoContinue } from "./auto-continue.ts";
+import type { AutoContinue } from "./auto-continue.ts";
+import { wireAutoContinue } from "./auto-continue-wiring.ts";
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
 import { createStt } from "./pipeline.ts";
@@ -127,6 +127,9 @@ const SILENT_REPLIES_BEFORE_FAILING = 2;
  * so only a runaway turn reaches it.
  */
 const CHUNK_MAX_TOKENS = 640;
+
+/** Between the last word of a finished lesson and closing the room. */
+const LESSON_END_GRACE_MS = 1500;
 
 /** The sentence when the voice is failing and the account does not say why. */
 const NO_VOICE_MESSAGE =
@@ -218,6 +221,17 @@ export default defineAgent({
       ctx.shutdown("the tutor's voice failed");
     };
 
+    /**
+     * The tutor said its goodbye and called `lesson_complete`: end the lesson the normal way. The
+     * shutdown callback below sends `tutor.ending` (the phone then shows the lesson as ended and
+     * saves it) and posts the session to the backend. A beat first, so the last word is not clipped
+     * by the room closing.
+     */
+    const endLesson = (): void => {
+      console.log("[worker] lesson complete: ending the session after the goodbye");
+      setTimeout(() => ctx.shutdown("the lesson is complete"), LESSON_END_GRACE_MS);
+    };
+
     /** A reply that failed to become audio: the lesson goes on until it happens repeatedly. */
     let silentReplies = 0;
     const speechFailed = (): void => {
@@ -237,12 +251,18 @@ export default defineAgent({
         instructions: metadata.instructions,
         llm: new ClaudeLLM({
           model,
-          onCompletion: (id, text) => ledger.completion(id, text),
+          onCompletion: (id, text, info) => {
+            ledger.completion(id, text);
+            autoContinue?.turnWritten(text, info.toolCalls);
+          },
           maxTokens: metadata.autoContinue ? CHUNK_MAX_TOKENS : undefined,
         }),
         tools: {
           ...(backend ? { add_words_to_collection: saveWordsTool(backend) } : {}),
-          ...(metadata.autoContinue ? { lesson_complete: lessonCompleteTool(() => autoContinue?.complete()) } : {}),
+          ...(metadata.autoContinue ? { lesson_complete: lessonCompleteTool({
+              onComplete: () => autoContinue?.complete(),
+              onFinished: endLesson,
+            }) } : {}),
         },
       },
       (outcome) => {
@@ -266,25 +286,7 @@ export default defineAgent({
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
 
-    if (metadata.autoContinue) {
-      autoContinue = new AutoContinue({
-        delayMs: 400,
-        resumeDelayMs: 1500,
-        maxRun: 60,
-        fire: () => session.generateReply({ userInput: CONTINUE_MESSAGE }),
-        canFire: () =>
-          (session.agentState === "listening" || session.agentState === "idle") &&
-          session.userState !== "speaking",
-        log: (m) => console.log(`[auto-continue] ${m}`),
-      });
-      session.on(voice.AgentSessionEventTypes.SpeechCreated, ({ speechHandle }) => {
-        autoContinue?.speechStarted();
-        speechHandle.addDoneCallback((handle) => autoContinue?.speechEnded(!handle.interrupted));
-      });
-      session.on(voice.AgentSessionEventTypes.UserStateChanged, ({ newState }) => {
-        if (newState === "speaking") autoContinue?.learnerSpoke();
-      });
-    }
+    if (metadata.autoContinue) autoContinue = wireAutoContinue(session, agent);
     session.on(voice.AgentSessionEventTypes.MetricsCollected, ({ metrics }) => {
       if (metrics.type !== "llm_metrics") return;
       ledger.llmCall({

@@ -7,7 +7,7 @@
 import process from "node:process";
 import { initializeLogger, ChatMessage, FunctionCall, FunctionCallOutput, type ChatItem } from "@livekit/agents";
 
-import { CONTEXT_NOTE_PREFIX, applyCacheControl, buildAnthropicMessages, buildMessageParams } from "./claude-request.ts";
+import { CONTEXT_NOTE_PREFIX, applyCacheControl, buildAnthropicMessages, buildMessageParams, thinkingFor } from "./claude-request.ts";
 import { DEFAULT_MODEL } from "./claude-llm.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger, type LedgerLlmCall, type LedgerMessage } from "./turn-ledger.ts";
@@ -123,7 +123,9 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
 {
   const parts = applyCacheControl(buildAnthropicMessages([instructions("sys"), user("hi")]));
   const params = buildMessageParams({ model: DEFAULT_MODEL, parts, tools: [], toolChoice: undefined });
-  eq("thinking is always disabled", params.thinking, { type: "disabled" });
+  eq("thinking is off for Sonnet 5 (disabled)", thinkingFor("claude-sonnet-5"), { type: "disabled" });
+  eq("thinking is off for Sonnet 5.5 (between_tools: it rejects disabled)", thinkingFor("claude-sonnet-5-5"), { type: "between_tools" });
+  eq("buildMessageParams uses the model's spelling", params.thinking, thinkingFor(params.model));
   ok("no temperature is ever sent", !("temperature" in params));
 }
 
@@ -384,62 +386,141 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   server.close();
 }
 
-// Auto-continue: asks for the next chunk after a chunk that ended on its own, and only then.
+// Auto-continue. Two moves — queue the next chunk behind the one playing (prefetch), or ask for it a
+// beat after one ends (fallback) — and the many reasons not to make either.
 {
   const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  let fired = 0;
+  interface Fake { interrupted: boolean; interrupt(): void }
+  const mk = (): Fake => ({ interrupted: false, interrupt() { this.interrupted = true; } });
   let busy = false;
-  const make = (maxRun = 60) =>
-    new AutoContinue({ delayMs: 20, resumeDelayMs: 40, maxRun, fire: () => (fired += 1), canFire: () => !busy });
-  const ac = make();
+  let learnerTalking = false;
+  const fired: Array<string | undefined> = [];
+  const replies: Fake[] = [];
+  const make = (over: Partial<ConstructorParameters<typeof AutoContinue>[0]> = {}) =>
+    new AutoContinue({
+      delayMs: 20, resumeDelayMs: 40, maxRun: 60,
+      fire: (previous) => { fired.push(previous); const r = mk(); replies.push(r); return r; },
+      canFire: () => !busy,
+      canPrefetch: () => !learnerTalking,
+      ...over,
+    });
+  const reset = () => { fired.length = 0; replies.length = 0; busy = false; learnerTalking = false; };
+
+  // — prefetch —
+  reset();
+  let ac = make();
+  ac.turnWritten("chunk one", 0);
+  eq("prefetch: a turn's text being written queues the next chunk behind it, handing over that text", fired, ["chunk one"]);
+  ac.turnWritten("chunk two", 0);
+  eq("prefetch: only one chunk is ever queued ahead", fired.length, 1);
+  ac.speechEnded(true, undefined); // the kickoff reply ends: our first chunk is now what plays
+  eq("prefetch: when the playing reply ends, the next one is queued behind the new current", fired, ["chunk one", "chunk two"]);
+  ac.speechEnded(true, replies[0]);
+  eq("prefetch: ...and a finished queued reply promotes the next, which queues another", fired.length, 2);
+  await settle(60);
+  eq("prefetch: nothing falls back to the timer while a chunk is queued", fired.length, 2);
+  ac.dispose();
+
+  reset();
+  ac = make();
+  ac.turnWritten("a", 0);
+  ac.learnerSpoke();
+  eq("prefetch: the learner speaking interrupts the queued chunk", replies[0]!.interrupted, true);
+  ac.turnWritten("b", 0);
+  eq("prefetch: ...and the run restarts", fired.length, 2);
+  ac.cancelled();
+  eq("prefetch: a turn the phone cancelled drops the queued chunk too", replies[1]!.interrupted, true);
+  ac.turnWritten("c", 0);
+  ac.speechStarted();
+  eq("prefetch: a reply of someone else's beginning drops it", replies[2]!.interrupted, true);
+  reset();
+  ac.turnWritten("t", 1);
+  eq("prefetch: a turn that ended in a tool call is not prefetched past", fired.length, 0);
+  learnerTalking = true;
+  ac.turnWritten("t", 0);
+  eq("prefetch: not while the learner is speaking", fired.length, 0);
+  learnerTalking = false;
+  ac.hold();
+  ac.turnWritten("t", 0);
+  eq("prefetch: not while held", fired.length, 0);
+  ac.release();
+  ac.dispose();
+
+  reset();
+  ac = make();
+  ac.turnWritten("a", 0);
+  ac.complete();
+  eq("prefetch: lesson_complete drops the queued chunk", replies[0]!.interrupted, true);
+  ac.turnWritten("b", 0);
+  eq("prefetch: ...and nothing more is queued", fired.length, 1);
+  ac.dispose();
+
+  // lesson_complete is called from INSIDE the reply that is speaking the goodbye: it must not be cut.
+  reset();
+  ac = make();
+  ac.turnWritten("a", 0);
+  ac.speechEnded(true, undefined); // the reply before ends: chunk a is what plays now
+  ac.turnWritten("b", 0); // queued behind it
+  ac.complete();
+  eq("prefetch: lesson_complete spares the reply that is speaking the goodbye", replies[0]!.interrupted, false);
+  eq("prefetch: ...and drops the one queued behind it", replies[1]!.interrupted, true);
+  ac.dispose();
+
+  reset();
+  const capped = make({ maxRun: 2 });
+  capped.turnWritten("1", 0);
+  capped.speechEnded(true, replies[0]);
+  capped.turnWritten("2", 0);
+  capped.speechEnded(true, replies[1]);
+  capped.turnWritten("3", 0);
+  eq("prefetch: stops after maxRun chunks in a row", fired.length, 2);
+  capped.learnerSpoke();
+  capped.turnWritten("4", 0);
+  eq("prefetch: the learner speaking resets the run", fired.length, 3);
+  capped.dispose();
+
+  reset();
+  const noPre = make({ prefetch: false });
+  noPre.turnWritten("x", 0);
+  eq("prefetch: switched off, a written turn queues nothing", fired.length, 0);
+  noPre.dispose();
+
+  // — fallback: the beat after a chunk ends, when nothing was queued —
+  reset();
+  ac = make({ prefetch: false });
   ac.speechEnded(true);
   await settle(60);
-  eq("auto-continue: a chunk that ended on its own is followed by one request", fired, 1);
+  eq("fallback: a chunk that ended on its own is followed by one request", fired.length, 1);
   ac.speechEnded(false);
   await settle(60);
-  eq("auto-continue: a chunk that was cut is not", fired, 1);
+  eq("fallback: a chunk that was cut is not", fired.length, 1);
   ac.speechEnded(true);
   ac.learnerSpoke();
   await settle(60);
-  eq("auto-continue: the learner speaking inside the beat cancels it", fired, 1);
+  eq("fallback: the learner speaking inside the beat cancels it", fired.length, 1);
   ac.speechEnded(true);
   ac.speechStarted();
   await settle(60);
-  eq("auto-continue: a reply starting inside the beat cancels it", fired, 1);
-  ac.speechEnded(true);
-  ac.cancelled();
-  await settle(60);
-  eq("auto-continue: a turn the phone cancelled is not continued", fired, 1);
+  eq("fallback: a reply starting inside the beat cancels it", fired.length, 1);
   busy = true;
   ac.speechEnded(true);
   await settle(60);
-  eq("auto-continue: a busy session is left alone when the beat lands", fired, 1);
+  eq("fallback: a busy session is left alone when the beat lands", fired.length, 1);
   busy = false;
   ac.hold();
   ac.speechEnded(true);
   await settle(60);
-  eq("auto-continue: nothing is asked for while the lesson is held", fired, 1);
+  eq("fallback: nothing is asked for while the lesson is held", fired.length, 1);
   ac.release();
   await settle(25);
-  eq("auto-continue: a release waits longer than a normal beat, so the phone's own resume wins", fired, 1);
+  eq("fallback: a release waits longer than a normal beat, so the phone's own resume wins", fired.length, 1);
   await settle(40);
-  eq("auto-continue: ...and then carries on", fired, 2);
+  eq("fallback: ...and then carries on", fired.length, 2);
   ac.complete();
   ac.speechEnded(true);
   await settle(60);
-  eq("auto-continue: after lesson_complete nothing more is asked for", fired, 2);
-  const capped = make(3);
-  fired = 0;
-  for (let i = 0; i < 6; i += 1) {
-    capped.speechEnded(true);
-    await settle(40);
-  }
-  eq("auto-continue: stops after maxRun chunks in a row", fired, 3);
-  capped.learnerSpoke();
-  capped.speechEnded(true);
-  await settle(40);
-  eq("auto-continue: the learner speaking resets the run", fired, 4);
-  capped.dispose();
+  eq("fallback: after lesson_complete nothing more is asked for", fired.length, 2);
+  ac.dispose();
 }
 
 // Pacer: synthesis stays a bounded distance ahead of playback, in order, and an aborted chunk leaves.

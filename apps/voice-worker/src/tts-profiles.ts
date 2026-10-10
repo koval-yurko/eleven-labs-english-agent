@@ -24,25 +24,6 @@ export const DEFAULT_TTS_MODEL = "aura-2-asteria-en";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
 
-const qwenSecrets = ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"] as const;
-
-/** The two Qwen profiles differ in the model (and its default voice) only. */
-function qwenProfile(label: string, model: string, voice: string, modelVar: string, voiceVar: string): TtsProfile {
-  return {
-    label,
-    secrets: qwenSecrets,
-    create: () =>
-      new QwenTTS({
-        apiKey: process.env.DASHSCOPE_API_KEY ?? "",
-        workspaceId: process.env.QWEN_WORKSPACE_ID ?? "",
-        region: env("QWEN_REGION") ?? "ap-southeast-1",
-        model: env(modelVar) ?? model,
-        voice: env(voiceVar) ?? voice,
-        language: env("QWEN_TTS_LANGUAGE") ?? "en",
-      }),
-  };
-}
-
 export const TTS_PROFILES: Record<string, TtsProfile> = {
   deepgram: {
     label: "Deepgram Aura-2",
@@ -51,17 +32,23 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
     create: () =>
       new deepgram.TTS({ model: env("DEEPGRAM_TTS_MODEL") ?? DEFAULT_TTS_MODEL, apiKey: process.env.DEEPGRAM_API_KEY }),
   },
-  // Probed 2026-10-08 (research doc §2.2): `qwen-audio-3.1-tts-plus` does not exist ("Model not
-  // exist"); 3.1 flash/next exist but this account gets AccessDenied. 3.0 Plus works, and only with a
-  // voice it supports — `longanlingxi` fails on it with engine error 411. 3.0 Flash takes both voices.
-  qwen: qwenProfile("Alibaba Qwen-Audio 3.0 TTS Plus", "qwen-audio-3.0-tts-plus", "longanhuan_v3.6", "QWEN_TTS_MODEL", "QWEN_TTS_VOICE"),
-  "qwen-flash": qwenProfile(
-    "Alibaba Qwen-Audio 3.0 TTS Flash",
-    "qwen-audio-3.0-tts-flash",
-    "longanhuan_v3.6",
-    "QWEN_FLASH_MODEL",
-    "QWEN_FLASH_VOICE",
-  ),
+  qwen: {
+    label: "Alibaba Qwen-Audio 3.0 TTS Plus",
+    secrets: ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"],
+    create: () =>
+      new QwenTTS({
+        apiKey: process.env.DASHSCOPE_API_KEY ?? "",
+        workspaceId: process.env.QWEN_WORKSPACE_ID ?? "",
+        region: env("QWEN_REGION") ?? "ap-southeast-1",
+        // Probed 2026-10-08 (research doc §2.2): `qwen-audio-3.1-tts-plus` does not exist ("Model not
+        // exist"); 3.1 flash/next exist but this account gets AccessDenied. 3.0 Plus works, and only
+        // with a voice it supports — `longanlingxi` fails on it with engine error 411. 3.0 Flash was
+        // tried as its own version on 2026-10-09 and removed: no latency difference on short text.
+        model: env("QWEN_TTS_MODEL") ?? "qwen-audio-3.0-tts-plus",
+        voice: env("QWEN_TTS_VOICE") ?? "longanhuan_v3.6",
+        language: env("QWEN_TTS_LANGUAGE") ?? "en",
+      }),
+  },
 };
 
 export function missingSecrets(profile: TtsProfile): string[] {

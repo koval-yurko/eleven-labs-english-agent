@@ -18,7 +18,6 @@ import words31 from "./words-3.1";
 import words40 from "./words-4.0";
 import words41 from "./words-4.1";
 import words42 from "./words-4.2";
-import words43 from "./words-4.3";
 
 export type { PromptVersion } from "./types";
 
@@ -81,15 +80,14 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  *
  * `words-4.1` is `words-4.0` with only the worker's TTS swapped (Qwen-Audio TTS) — the
  * pipeline-comparison move again, one stage at a time. Adding the next TTS to try is a profile in
- * `apps/voice-worker/src/tts-profiles.ts` plus a module like it. `words-4.2` is `words-4.1` on the
- * Flash model of the same family. (The number first went to a Gemini Flash TTS candidate, removed the
- * same day: its quota of 10 requests/min and 100/day cannot carry a lesson. Its few sessions — debug
- * reports 407fcad4 and 1aecfbcf — all died within a minute; read those as Gemini, not Flash.)
+ * `apps/voice-worker/src/tts-profiles.ts` plus a module like it. `words-4.2` is `words-4.1` with the
+ * lesson delivered in ~45-second chunks and the worker carrying on between them (`autoContinue`).
+ * Two retired candidates are worth knowing about when reading old debug reports: `words-4.2` first
+ * named a Gemini Flash TTS (reports 407fcad4 and 1aecfbcf, died within a minute: 10 requests/min and
+ * 100/day cannot carry a lesson) and `words-4.3` was the chunked lesson before it took this name —
+ * sessions stored as either are those, not today's `words-4.2`.
  * docs/2026-10-08-livekit-tts-candidates-qwen-gemini.md,
- * docs/2026-10-09-qwen-tts-latency-and-rate-limits.md.
- *
- * `words-4.3` is `words-4.1` with the lesson delivered in ~45-second chunks and the worker carrying on
- * between them (`autoContinue`): docs/2026-10-10-chunked-podcast-turns.md.
+ * docs/2026-10-09-qwen-tts-latency-and-rate-limits.md, docs/2026-10-10-chunked-podcast-turns.md.
  *
  * The history is in `docs/`, not here. A version's value while it exists is that a session can be
  * attributed to it; once nothing can be learned from running it again, keeping the module only makes
@@ -105,7 +103,6 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words40,
   words41,
   words42,
-  words43,
 ];
 
 /**
