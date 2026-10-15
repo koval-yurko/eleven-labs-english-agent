@@ -20,6 +20,7 @@ import { Pacer } from "./pacer.ts";
 import { SocketPool } from "./qwen-socket-pool.ts";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
 import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
+import { QwenTTS } from "./qwen-tts.ts";
 
 const failures: string[] = [];
 let checked = 0;
@@ -569,6 +570,9 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
       QWEN_WORKSPACE_ID: "ws-offline",
     });
     for (const id of Object.keys(TTS_PROFILES)) ok(`tts: ${id} builds on its keys`, Boolean(createTtsFor(id)));
+    process.env.QWEN_TTS_VOICE = "env-voice";
+    const qwenVoice = (voice?: string) => (createTtsFor("qwen", voice) as QwenTTS).opts.voice;
+    eq("tts: a dispatched voice wins over the env override", [qwenVoice("longanlufeng"), qwenVoice()], ["longanlufeng", "env-voice"]);
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);

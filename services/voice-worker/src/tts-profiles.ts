@@ -16,7 +16,8 @@ export interface TtsProfile {
   label: string;
   /** Env vars that must all be set. */
   secrets: readonly string[];
-  create(): tts.TTS;
+  /** `voice` is the version's own choice (dispatch metadata) and wins over the env override. */
+  create(voice?: string): tts.TTS;
 }
 
 export const DEFAULT_TTS_PROFILE = "deepgram";
@@ -29,13 +30,17 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
     label: "Deepgram Aura-2",
     secrets: ["DEEPGRAM_API_KEY"],
     // The plugin captures the key at import; passing it keeps a Cloud-secret key working.
-    create: () =>
-      new deepgram.TTS({ model: env("DEEPGRAM_TTS_MODEL") ?? DEFAULT_TTS_MODEL, apiKey: process.env.DEEPGRAM_API_KEY }),
+    // An Aura-2 voice is a model id (`aura-2-<voice>-en`), so the voice goes in `model`.
+    create: (voice) =>
+      new deepgram.TTS({
+        model: voice ?? env("DEEPGRAM_TTS_MODEL") ?? DEFAULT_TTS_MODEL,
+        apiKey: process.env.DEEPGRAM_API_KEY,
+      }),
   },
   qwen: {
     label: "Alibaba Qwen-Audio 3.0 TTS Plus",
     secrets: ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"],
-    create: () =>
+    create: (voice) =>
       new QwenTTS({
         apiKey: process.env.DASHSCOPE_API_KEY ?? "",
         workspaceId: process.env.QWEN_WORKSPACE_ID ?? "",
@@ -45,7 +50,7 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
         // with a voice it supports — `longanlingxi` fails on it with engine error 411. 3.0 Flash was
         // tried as its own version on 2026-10-09 and removed: no latency difference on short text.
         model: env("QWEN_TTS_MODEL") ?? "qwen-audio-3.0-tts-plus",
-        voice: env("QWEN_TTS_VOICE") ?? "longanhuan_v3.6",
+        voice: voice ?? env("QWEN_TTS_VOICE") ?? "longanhuan_v3.6",
         language: env("QWEN_TTS_LANGUAGE") ?? "en",
       }),
   },
@@ -61,11 +66,11 @@ export function resolveTtsProfile(id: string | undefined): { id: string; profile
   return { id: DEFAULT_TTS_PROFILE, profile: TTS_PROFILES[DEFAULT_TTS_PROFILE]!, fellBack: id !== undefined };
 }
 
-export function createTtsFor(id: string | undefined): tts.TTS {
+export function createTtsFor(id: string | undefined, voice?: string): tts.TTS {
   const { id: resolved, profile } = resolveTtsProfile(id);
   const missing = missingSecrets(profile);
   if (missing.length > 0) {
     throw new Error(`TTS profile "${resolved}" (${profile.label}) needs ${missing.join(", ")} — set it as a worker secret.`);
   }
-  return profile.create();
+  return profile.create(voice);
 }

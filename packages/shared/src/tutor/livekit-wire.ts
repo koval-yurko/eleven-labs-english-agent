@@ -167,6 +167,7 @@ export interface LiveKitDispatchMetadata {
   instructions: string;
   llm?: string;
   turnPlan?: "patient" | "normal" | "eager";
+  /** The voice for the `tts` profile, in that vendor's naming. Absent = the profile's default. */
   voice?: string;
   /**
    * Which TTS the worker speaks with: a key of `TTS_PROFILES` in `services/voice-worker/src/tts-profiles.ts`.

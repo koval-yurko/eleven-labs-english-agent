@@ -67,6 +67,12 @@ export interface PromptVersion {
    */
   tts?: string;
   /**
+   * LiveKit only: the voice the `tts` profile speaks with, in that vendor's own naming (a Qwen voice
+   * is model-specific). Sent to the worker as dispatch metadata `voice`; it wins over the worker's
+   * env override and in-code default. Omitted = the profile's default voice.
+   */
+  ttsVoice?: string;
+  /**
    * LiveKit only: the lesson is written in chunks (`./podcast-lesson-chunked.ts`) and the worker
    * asks for the next one when a chunk ends and the learner is silent. See
    * `services/voice-worker/src/auto-continue.ts`. Omitted = off.

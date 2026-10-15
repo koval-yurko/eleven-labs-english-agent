@@ -15,6 +15,9 @@ const version: PromptVersion = {
   version: "words-4.1",
   label: "4.1 · LiveKit — podcast lesson, Qwen TTS",
   tts: "qwen",
+  // Male. The profile's default, `longanhuan_v3.6`, is female; `longanlufeng` is the only male
+  // system voice `qwen-audio-3.0-tts-plus` offers (Model Studio "Qwen-Audio-TTS voice list").
+  ttsVoice: "longanlufeng",
 };
 
 export default version;
