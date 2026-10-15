@@ -277,7 +277,7 @@ export default defineAgent({
         speechFailed();
       },
     );
-    const voiceTts = createTtsFor(metadata.tts, metadata.voice);
+    const voiceTts = createTtsFor(metadata.tts);
     // Open the socket the first reply will use now, while the room is still being set up.
     if (voiceTts instanceof QwenTTS) voiceTts.warm();
     const session = new voice.AgentSession({
@@ -385,8 +385,7 @@ export default defineAgent({
     await session.start({ agent, room: ctx.room });
     console.log(
       `[worker] lesson ${metadata.conversationId} (${metadata.version}) on ${model}, ` +
-        `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${metadata.tts}", default used)` : ""}` +
-        `${metadata.voice ? ` voice ${metadata.voice}` : ""}, ` +
+        `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${metadata.tts}", default used)` : ""}, ` +
         `turn plan ${metadata.turnPlan ?? `${DEFAULT_TURN_PLAN} (default)`}` +
         (backend ? "" : " — no grant, writing nothing back"),
     );

@@ -39,9 +39,6 @@ const version: PromptVersion = {
   label: "4.0 · LiveKit — podcast lesson",
   prompt: PODCAST_LESSON_PROMPT,
   llm: "claude-sonnet-5-5",
-  // Male. The worker's default TTS is Deepgram Aura-2, whose default voice (`aura-2-asteria-en`) is
-  // female. 4.1 and 4.2 inherit this field and replace it with a Qwen voice.
-  ttsVoice: "aura-2-orion-en",
   // turnTimeoutSeconds / turnEagerness / ttsModelId / additionalLanguages / maxTokens: all ElevenLabs
   // agent-body fields (types.ts), all ignored for a provider with no baked agent — like words-2.0,
   // not like words-1.0. The LiveKit equivalent (turn-taking presets, research doc §2 Q4) is a Phase 2
