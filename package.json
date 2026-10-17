@@ -38,6 +38,7 @@
     "distribute": "pnpm --filter mobile distribute"
   },
   "devDependencies": {
-    "prettier": "^3.4.2"
+    "prettier": "^3.4.2",
+    "skills": "1.7.2"
   }
 }

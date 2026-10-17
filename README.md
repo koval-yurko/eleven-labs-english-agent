@@ -74,6 +74,28 @@ picks up the refreshed cache for free.
 **The git hooks that keep the graph current after commits/checkouts don't fire inside a linked
 git worktree.** From a worktree, run `graphify update .` by hand.
 
+## Agent skills
+
+Claude Code skills live in `.claude/skills/`, and they are committed. A fresh clone has them all,
+and `pnpm install` does not change them. `skills-lock.json` records the source repository and the
+content hash of each third-party skill (the Expo and LangSmith skills). The `skills` CLI is a root
+dev dependency, so `pnpm exec skills` runs the pinned version.
+
+```bash
+# Add a skill: copies it into .claude/skills/ and records it in skills-lock.json
+pnpm exec skills add expo/skills --skill expo-overview --agent claude-code --yes
+
+pnpm exec skills update -p -y   # update the project skills to their latest upstream versions
+pnpm exec skills list           # show the installed skills and their sources
+```
+
+After an add or an update, review the diff and commit the skill folder and `skills-lock.json`
+together.
+
+**Do not use `skills experimental_install` to restore from the lockfile.** It writes only to
+`.agents/skills/` and has no `--agent` option. Claude Code reads `.claude/skills/` and nothing
+else, so the restored copies are never loaded.
+
 ## Commands
 
 ```bash
