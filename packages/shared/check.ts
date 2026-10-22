@@ -25,7 +25,11 @@ import {
   type TranscriptLine,
 } from "./src/tutor/session";
 import { applyHold, applyRelease, planHold, planRelease } from "./src/tutor/pause";
-import { creditsExhaustedMessage, readCreditsExhausted } from "./src/tutor/elevenlabs-credits";
+import {
+  creditsExhaustedMessage,
+  MIN_LESSON_CHARACTERS,
+  readCreditsExhausted,
+} from "./src/tutor/elevenlabs-credits";
 import {
   LIVEKIT_CAPABILITIES,
   RPC_PAYLOAD_MAX_BYTES,
@@ -730,7 +734,22 @@ console.log("checked LiveKit wire-contract properties");
   eq("credits: a spent quota is out, with its reset date", readCreditsExhausted(dry), {
     resetsAt: "2026-10-11T19:48:42.000Z",
   });
-  eq("credits: quota left is not out", readCreditsExhausted({ ...dry, character_count: 29999 }), null);
+  eq(
+    "credits: enough quota left for a lesson is not out",
+    readCreditsExhausted({ ...dry, character_count: 30000 - MIN_LESSON_CHARACTERS }),
+    null,
+  );
+  // Report 51c8275b (2026-10-20): 38 characters left, and the agent refused before its first turn.
+  eq(
+    "credits: too little left for a lesson is out",
+    readCreditsExhausted({ ...dry, character_count: 29962 }),
+    { resetsAt: "2026-10-11T19:48:42.000Z" },
+  );
+  eq(
+    "credits: one character short of a lesson is out",
+    readCreditsExhausted({ ...dry, character_count: 30000 - MIN_LESSON_CHARACTERS + 1 }) !== null,
+    true,
+  );
   eq(
     "credits: a spent quota that may bill overage is not a refusal",
     readCreditsExhausted({ ...dry, can_extend_character_limit: true, allowed_to_extend_character_limit: true }),

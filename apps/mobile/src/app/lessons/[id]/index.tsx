@@ -100,6 +100,9 @@ import {
  */
 const EMPTY_LINES: TranscriptLine[] = [];
 
+/** A warm LiveKit start connects in ~3 s; past this, the "waking the tutor" line replaces the status. */
+const WAKING_HINT_AFTER_MS = 4000;
+
 type ItemEvent = { at: string; kind: "added" | "removed"; text: string };
 
 function formatDuration(secs: number | null): string | null {
@@ -459,6 +462,24 @@ export default function LessonScreen() {
   const elsewhere = running && running.lessonId !== lessonId ? running : null;
 
   /**
+   * A LiveKit start that is still connecting after a few seconds is almost always the worker waking
+   * up: on the Build plan it sleeps when idle, and the first lesson after a break waits ~20 s for the
+   * tutor to join against ~1 s warm (reports `1ea56197`, `51c8275b`;
+   * docs/2026-10-01-livekit-cold-start-ready-timeout.md). Without a sentence that wait reads as a
+   * hang. The picker is disabled while `busy`, so `selectedProvider` is the provider being started.
+   */
+  const [waking, setWaking] = useState(false);
+  useEffect(() => {
+    if (!busy || selectedProvider !== "livekit") return;
+    const timer = setTimeout(() => setWaking(true), WAKING_HINT_AFTER_MS);
+    // Reset on the way out, so the next Start does not open with the hint already showing.
+    return () => {
+      clearTimeout(timer);
+      setWaking(false);
+    };
+  }, [busy, selectedProvider]);
+
+  /**
    * Claim the session state for this lesson.
    *
    * Refused while another lesson is connected — that refusal is the whole feature — which is why
@@ -570,7 +591,9 @@ export default function LessonScreen() {
             // line would read "status: disconnected" next to a Start button that is about to end
             // someone else's conversation.
             `“${elsewhere.title}” is using the microphone`
-          : `status: ${isOurs ? session.status : "disconnected"}`;
+          : busy && waking
+            ? "⏳ waking the tutor — after a break this can take up to 20 seconds"
+            : `status: ${isOurs ? session.status : "disconnected"}`;
   /**
    * ONE picker, and it chooses the service.
    *

@@ -15,11 +15,21 @@
  *   - **a shape that is not two numbers** — an API change must not become an outage;
  *   - **overage allowed** — both extension flags set means the platform bills past the limit
  *     rather than refusing, so a spent quota is not a refusal.
+ *
+ * "Used up" means fewer than `MIN_LESSON_CHARACTERS` left, not exactly zero. Report `51c8275b`
+ * (2026-10-20): the account had 38 of 30,000 characters left, the check let the Start through, and
+ * the agent closed the room before its first turn — the opening alone is 3,000+ characters.
  */
 export interface CreditsExhausted {
   /** When the quota refills, ISO. Null when the platform did not say. */
   resetsAt: string | null;
 }
+
+/**
+ * Below this many characters left, no lesson can get through its opening turn (~1 minute of speech;
+ * an opening is a greeting plus a whole item), so the account is as good as out.
+ */
+export const MIN_LESSON_CHARACTERS = 1000;
 
 export function readCreditsExhausted(body: unknown): CreditsExhausted | null {
   if (typeof body !== "object" || body === null) return null;
@@ -27,7 +37,7 @@ export function readCreditsExhausted(body: unknown): CreditsExhausted | null {
   const used = sub.character_count;
   const limit = sub.character_limit;
   if (typeof used !== "number" || typeof limit !== "number") return null;
-  if (used < limit) return null;
+  if (limit - used >= MIN_LESSON_CHARACTERS) return null;
   if (sub.can_extend_character_limit === true && sub.allowed_to_extend_character_limit === true) {
     return null;
   }
