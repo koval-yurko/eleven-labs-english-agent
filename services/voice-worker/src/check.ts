@@ -5,7 +5,7 @@
  * Run with `pnpm --filter voice-worker check`.
  */
 import process from "node:process";
-import { initializeLogger, ChatMessage, FunctionCall, FunctionCallOutput, type ChatItem } from "@livekit/agents";
+import { initializeLogger, ChatMessage, FunctionCall, FunctionCallOutput, tts, type ChatItem } from "@livekit/agents";
 
 import { CONTEXT_NOTE_PREFIX, applyCacheControl, buildAnthropicMessages, buildMessageParams, thinkingFor } from "./claude-request.ts";
 import { DEFAULT_MODEL } from "./claude-llm.ts";
@@ -18,6 +18,7 @@ import { WebSocketServer, WebSocket as WsClient } from "ws";
 import { AutoContinue } from "./auto-continue.ts";
 import { Pacer } from "./pacer.ts";
 import { SocketPool } from "./qwen-socket-pool.ts";
+import { QwenTTS } from "./qwen-tts.ts";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
 import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
 
@@ -573,6 +574,87 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
   }
+}
+
+// Qwen: a task the server finishes before `finish-task` is not the end of the reply (lessons 38c7d389,
+// 6538b35c, 8141c92a, f10644a5). Against a local server that ends the first task after one piece, every
+// piece must still go out, on a second task, and the worker must hear about it.
+{
+  const server = new WebSocketServer({ port: 0 });
+  await new Promise((r) => server.once("listening", r));
+  const port = (server.address() as { port: number }).port;
+  const received: string[] = [];
+  let tasks = 0;
+  server.on("connection", (ws) => {
+    let piecesThisTask = 0;
+    let earlyTask = false;
+    ws.on("message", (data) => {
+      const { header, payload } = JSON.parse(data.toString()) as {
+        header: { action: string; task_id: string };
+        payload: { input?: { text?: string } };
+      };
+      const reply = (event: string) => ws.send(JSON.stringify({ header: { event, task_id: header.task_id } }));
+      if (header.action === "run-task") {
+        tasks += 1;
+        piecesThisTask = 0;
+        earlyTask = tasks === 1;
+        reply("task-started");
+      } else if (header.action === "continue-task") {
+        received.push(payload.input?.text ?? "");
+        piecesThisTask += 1;
+        ws.send(Buffer.alloc(4800)); // 0.1 s of silence
+        if (earlyTask && piecesThisTask === 1) reply("task-finished");
+      } else if (header.action === "finish-task") {
+        reply("task-finished");
+      }
+    });
+  });
+
+  const qwen = new QwenTTS({
+    apiKey: "offline",
+    workspaceId: "offline",
+    region: "offline",
+    model: "offline",
+    voice: "offline",
+    language: "English",
+    url: `ws://127.0.0.1:${port}`,
+  });
+  const anomalies: string[] = [];
+  qwen.onAnomaly = (code) => anomalies.push(code);
+  const sentences = [
+    "Accompaniment is something that goes along with the main thing and completes it. ",
+    "Intervene means to step into a situation on purpose, usually to change what happens. ",
+    "Depleted describes something that has been used up until very little of it is left. ",
+  ];
+  const text = sentences.join("");
+  const stream = qwen.stream();
+  // Sentence by sentence, the way Claude writes, so the server's early finish lands mid-reply.
+  void (async () => {
+    for (const sentence of sentences) {
+      stream.pushText(sentence);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    stream.endInput();
+  })();
+  let frames = 0;
+  let ended = false;
+  const drain = (async () => {
+    for await (const audio of stream) {
+      if (audio === tts.SynthesizeStream.END_OF_STREAM) {
+        ended = true;
+        break;
+      }
+      frames += 1;
+    }
+  })();
+  await Promise.race([drain, new Promise((r) => setTimeout(r, 5000))]);
+  ok("qwen: a reply the server finished early still reaches the end of its stream", ended);
+  eq("qwen: every piece goes out, none lost to the early finish", received.join(""), text);
+  eq("qwen: the rest went out on a second task", tasks, 2);
+  eq("qwen: the worker is told, so the ledger records it", anomalies, ["tts:early-finish"]);
+  ok("qwen: audio from both tasks is played", frames > 0);
+  await qwen.close();
+  server.close();
 }
 
 console.log(`checked ${checked} voice-worker properties`);

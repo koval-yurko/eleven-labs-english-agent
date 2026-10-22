@@ -40,6 +40,11 @@ const THROTTLE_BACKOFF_MS = 400;
 const IDLE_SOCKET_MS = 45_000;
 /** How long a cancelled task may take to answer `task-finished` before its socket is thrown away. */
 const CANCEL_GRACE_MS = 1500;
+/**
+ * How many times one reply may carry on in a new task after the server finished the old one early.
+ * A whole-lesson reply is ~10 minutes of speech; this is far more than it has ever needed.
+ */
+const MAX_CONTINUATIONS = 20;
 
 /**
  * A counting gate whose waiters can leave. A reply the learner talked over is aborted while it is
@@ -94,6 +99,8 @@ export interface QwenTtsOptions {
   voice: string;
   /** One of Model Studio's `language_hints`; only the first is processed. */
   language: string;
+  /** The whole endpoint, overriding workspace and region. Only `check.ts` sets it, at a local server. */
+  url?: string;
 }
 
 export class QwenTTS extends tts.TTS {
@@ -101,6 +108,11 @@ export class QwenTTS extends tts.TTS {
   readonly opts: QwenTtsOptions;
   readonly gate = new Gate(MAX_IN_FLIGHT);
   readonly pool: SocketPool;
+  /**
+   * Told about a reply that went wrong without failing (`"tts:early-finish"`), so the worker can put
+   * it in the turn ledger. The ledger is the only record that outlives `lk agent logs`.
+   */
+  onAnomaly?: (code: string) => void;
 
   constructor(opts: QwenTtsOptions) {
     super(SAMPLE_RATE, NUM_CHANNELS, { streaming: true });
@@ -137,7 +149,7 @@ export class QwenTTS extends tts.TTS {
 
   #openSocket(): Promise<WebSocket> {
     const { opts } = this;
-    const url = `wss://${opts.workspaceId}.${opts.region}.maas.aliyuncs.com/api-ws/v1/inference`;
+    const url = opts.url ?? `wss://${opts.workspaceId}.${opts.region}.maas.aliyuncs.com/api-ws/v1/inference`;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${opts.apiKey}` } });
       // A parked socket can error with nobody listening; that must not crash the worker.
@@ -189,6 +201,13 @@ class QwenChunkedStream extends tts.ChunkedStream {
  * Cancelling (the learner talks over the tutor) is `finish-task` with `directive: "cancel"`, which
  * the server answers with `task-finished` and no further audio (client-events doc) — and the socket
  * is reusable after it.
+ *
+ * A `task-finished` we did not ask for is NOT the end of the reply. Lessons 38c7d389, 6538b35c,
+ * 8141c92a and f10644a5 (2026-10-22): a ~10,000-character first reply stopped playing after 45–120 s
+ * with no error and no barge-in, so the framework counted the whole text as heard and the tutor went
+ * on as if it had taught all five words. The one clean way this stream could end that early is the
+ * server finishing the task before `finish-task`, which used to be taken as success. Now the rest of
+ * the text goes out on a new task, and the worker is told (`onAnomaly`).
  */
 class QwenSynthesizeStream extends tts.SynthesizeStream {
   label = "qwen.SynthesizeStream";
@@ -214,6 +233,9 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
 
     // The answer so far, cut into pieces. Kept whole so a throttled attempt can be replayed.
     const pieces: string[] = [];
+    // The next piece to send. Outlives a task, so a reply the server finished early carries on from it.
+    let cursor = 0;
+    let continuations = 0;
     let inputEnded = false;
     let wake: (() => void) | null = null;
     const notify = () => {
@@ -255,7 +277,8 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
     let socketNote = "";
     const events: Record<string, number> = {};
 
-    const attempt = async (): Promise<void> => {
+    /** Resolves true when the server finished the task before we sent `finish-task`. */
+    const attempt = async (): Promise<boolean> => {
       const opened = Date.now();
       const taken: TakenSocket = await pool.take();
       const { ws, reused } = taken;
@@ -263,16 +286,16 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
         ? `warm socket (idle ${(taken.idleMs / 1000).toFixed(1)}s)`
         : `fresh socket (${Date.now() - opened}ms to open)`;
       log(`start model=${opts.model} voice=${opts.voice} — ${socketNote}`);
-      await new Promise<void>((resolve, reject) => {
+      return await new Promise<boolean>((resolve, reject) => {
         const taskId = randomUUID();
         const header = (action: string) => ({ action, task_id: taskId, streaming: "duplex" });
         let done = false;
         let started = false;
         let cancelling = false;
-        let cursor = 0;
+        let finishSent = false;
         let cancelTimer: NodeJS.Timeout | undefined;
 
-        const finish = (outcome: { reuse: boolean; error?: Error }) => {
+        const finish = (outcome: { reuse: boolean; error?: Error; early?: boolean }) => {
           if (done) return;
           done = true;
           clearTimeout(cancelTimer);
@@ -283,7 +306,7 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
           if (outcome.reuse) pool.give(ws);
           else pool.discard(ws);
           if (outcome.error) reject(outcome.error);
-          else resolve();
+          else resolve(outcome.early ?? false);
         };
         const onAbort = () => {
           log(
@@ -330,6 +353,7 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
               continue;
             }
             if (inputEnded) {
+              finishSent = true;
               ws.send(JSON.stringify({ header: header("finish-task"), payload: { input: {} } }));
               log(`all text sent at ${since()}: ${cursor} pieces, ${sentChars} chars`);
               return;
@@ -366,10 +390,13 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
               started = true;
               void sender().catch((e: unknown) => finish({ reuse: false, error: e instanceof Error ? e : new Error(String(e)) }));
               break;
-            case "task-finished":
+            case "task-finished": {
               if (!cancelling) for (const frame of bstream.flush()) emit(frame);
-              finish({ reuse: true });
+              const early = !finishSent && !cancelling;
+              // A socket whose task ended unasked is not trusted with the next one.
+              finish({ reuse: !early, early });
               break;
+            }
             case "task-failed": {
               log(`task-failed: ${raw.slice(0, 600)}`);
               const code = event.header?.error_code ?? "";
@@ -421,8 +448,19 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
       let stale = 0;
       for (let n = 0; ; ) {
         try {
-          await attempt();
-          break;
+          const early = await attempt();
+          if (!early || signal.aborted) break;
+          if (continuations >= MAX_CONTINUATIONS) {
+            log(`the server finished the task early again; giving up after ${continuations} continuations`);
+            break;
+          }
+          continuations += 1;
+          log(
+            `the server finished the task before finish-task at ${since()}: ${cursor}/${pieces.length} pieces sent` +
+              `${inputEnded ? "" : ", text still arriving"}; continuing on a new task (${continuations}/${MAX_CONTINUATIONS})`,
+          );
+          this.#owner.onAnomaly?.("tts:early-finish");
+          continue;
         } catch (error) {
           if (signal.aborted || bytes > 0) throw error;
           if (error instanceof StaleSocketError && stale < 2) {
@@ -435,6 +473,8 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
           n += 1;
           log(`throttled (attempt ${n}/${THROTTLE_RETRIES + 1}); retrying in ${wait}ms`);
           pacer.reset();
+          // No audio yet (`bytes > 0` threw above), so the replay starts from the first piece.
+          cursor = 0;
           sentChars = 0;
           await new Promise((r) => setTimeout(r, wait));
         }
@@ -446,6 +486,7 @@ class QwenSynthesizeStream extends tts.SynthesizeStream {
       log(
         `done in ${since()} firstAudio=${firstAudioMs ?? "-"}ms bytes=${bytes} ` +
           `(${(bytes / (SAMPLE_RATE * 2)).toFixed(1)}s audio) chars=${sentChars} — ${socketNote} ` +
+          (continuations ? `continuations=${continuations} ` : "") +
           `events=${JSON.stringify(events)}` +
           (bytes === 0 && sentChars > 0 ? " — FINISHED WITH NO AUDIO" : ""),
       );

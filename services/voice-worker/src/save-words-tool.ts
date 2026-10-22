@@ -14,6 +14,12 @@ import type { Backend } from "./backend.ts";
  *
  * Declared only when a grant exists (`agent.ts`). A tutor that has been handed a saving tool it
  * cannot use would promise the learner a word was kept and be wrong.
+ *
+ * The description is the only guard the `words-4.x` versions have: their prompt is the bare podcast
+ * lesson, without `SAVE_TO_COLLECTION_CLAUSE`. It used to invite saving "a word worth keeping", and
+ * in all four lessons of 2026-10-22 the tutor saved today's own items unasked, heard "already
+ * present", and wrapped the lesson up as done (reports 1ea56197, dd64d531, dbd66780, 06389b51). So
+ * it now carries the clause's two rules: only on request, never the lesson's own items.
  */
 
 /** The MCP tool's own limits, so the two paths refuse the same inputs. */
@@ -25,8 +31,11 @@ export function saveWordsTool(backend: Backend) {
   // both is a type error rather than a duplicate.
   return llm.tool({
     description:
-      "Save English words, phrases or sentences to the learner's vocabulary collection. Use it " +
-      "when the learner asks to remember something, or when they meet a word worth keeping.",
+      "Save English words, phrases or sentences to the learner's vocabulary collection. Use it ONLY " +
+      "when the learner asks you to save or remember something. Never save anything they did not ask " +
+      "for, and never save the items in today's lesson: they are already in the collection, which is " +
+      "where the lesson came from. Saving does not end or advance the lesson; confirm it in a few " +
+      "words and carry on teaching where you were.",
     parameters: z.object({
       words: z
         .array(z.string().min(1).max(MAX_WORD_LENGTH))

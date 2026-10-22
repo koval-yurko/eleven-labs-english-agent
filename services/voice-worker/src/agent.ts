@@ -279,7 +279,10 @@ export default defineAgent({
     );
     const voiceTts = createTtsFor(metadata.tts);
     // Open the socket the first reply will use now, while the room is still being set up.
-    if (voiceTts instanceof QwenTTS) voiceTts.warm();
+    if (voiceTts instanceof QwenTTS) {
+      voiceTts.warm();
+      voiceTts.onAnomaly = (code) => ledger.error(code);
+    }
     const session = new voice.AgentSession({
       stt: createStt(),
       tts: voiceTts,
