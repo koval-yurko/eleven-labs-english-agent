@@ -220,6 +220,14 @@ export type TutorSessionControls = {
 /** The narrow view every other screen needs: is something running, and where. */
 export type ActiveSession = { lessonId: string; title: string; held: boolean } | null;
 
+/**
+ * What each side is saying RIGHT NOW, before it becomes a line: the tutor's reply growing as it
+ * plays, the learner's words as recognition hears them. Display only; never journalled or stored.
+ * Belongs to the session's lesson (`TutorSessionState.lessonId`), like `lines`.
+ */
+export type LiveLines = { agent: string | null; user: string | null };
+const NO_LIVE_LINES: LiveLines = { agent: null, user: null };
+
 const StateContext = createContext<TutorSessionState | null>(null);
 const ControlsContext = createContext<TutorSessionControls | null>(null);
 /**
@@ -230,6 +238,12 @@ const ControlsContext = createContext<TutorSessionControls | null>(null);
  * several times a minute; this value changes only when the session starts, ends or pauses.
  */
 const ActiveContext = createContext<ActiveSession>(null);
+/**
+ * A FOURTH context, for the same reason as `ActiveContext`: the live line changes several times a
+ * second while the tutor talks, and only the transcript panel needs it. On the state context it
+ * would redraw the whole lesson screen, word list included, at that rate.
+ */
+const LiveContext = createContext<LiveLines>(NO_LIVE_LINES);
 
 /** How often a held pause pings `user_activity` — see `TUTOR_HEARTBEAT_MS` for the reasoning. */
 const HEARTBEAT_MS = TUTOR_HEARTBEAT_MS;
@@ -290,6 +304,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   const [preferredVersion, setPreferredVersion] = useState<string | null>(null);
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [carried, setCarried] = useState<TranscriptLine[]>([]);
+  const [live, setLive] = useState<LiveLines>(NO_LIVE_LINES);
   const [starting, setStarting] = useState(false);
   /**
    * The End press has been taken and the hangup is in flight. Cleared by `start`, not by the
@@ -527,6 +542,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     },
     onTurn: ({ role, text }) => {
       if (!ownsRef.current) return;
+      // The line is committed (or is the hidden kickoff): either way it is no longer "being said".
+      setLive((prev) => (prev[role] === null ? prev : { ...prev, [role]: null }));
       // The kickoff is the trigger, not something the learner said — every other writer filters it
       // out of the stored history, so it must not be collected here either.
       if (role === "user" && HIDDEN_KICKOFF_MESSAGES.includes(text)) return;
@@ -538,6 +555,11 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       // transcript after the reply has started) owes no gap. Arming on it would time the tutor's
       // NEXT reply from the wrong line.
       if (role === "user") userTurnAtRef.current = speakingRef.current ? null : Date.now();
+    },
+    onPartial: (role, text) => {
+      if (!ownsRef.current) return;
+      if (role === "user" && text !== null && HIDDEN_KICKOFF_MESSAGES.includes(text)) return;
+      setLive((prev) => (prev[role] === text ? prev : { ...prev, [role]: text }));
     },
     /**
      * Barge-in. Without this the record claims the teacher finished sentences the learner cut off —
@@ -583,6 +605,8 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     onEnd: (reason) => {
       if (!ownsRef.current) return;
       userTurnAtRef.current = null;
+      // A reply cut off by the hang-up never commits, and its half-line must not outlive the call.
+      setLive(NO_LIVE_LINES);
       emit({
         level: reason === "error" ? "error" : "info",
         code: "session.end",
@@ -658,6 +682,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
     return {
       onTransportId: (id, kind) => mine() && events.onTransportId(id, kind),
       onTurn: (line) => mine() && events.onTurn(line),
+      onPartial: (role, text) => mine() && events.onPartial?.(role, text),
       onTurnCorrected: (previous, corrected) => mine() && events.onTurnCorrected(previous, corrected),
       onStatus: (next) => mine() && events.onStatus(next),
       onUsage: (usage) => mine() && events.onUsage(usage),
@@ -1125,6 +1150,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
       setLessonId(next);
       setMeta(null);
       setLines([]);
+      setLive(NO_LIVE_LINES);
       setCarried([]);
       setPause(null);
       setError(null);
@@ -1446,6 +1472,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
         usageRef.current = null;
         setLessonId(input.lessonId);
         setLines([]);
+        setLive(NO_LIVE_LINES);
         setCarried([]);
         setPause(null);
       }
@@ -1496,6 +1523,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
             const previous = linesRef.current;
             setCarried(resuming ? (prev) => [...prev, ...previous] : []);
             setLines([]);
+            setLive(NO_LIVE_LINES);
             linesRef.current = [];
             usageRef.current = null;
             await clearJournal(input.lessonId);
@@ -1694,7 +1722,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
   return (
     <ControlsContext.Provider value={controls}>
       <ActiveContext.Provider value={active}>
-        <StateContext.Provider value={state}>{children}</StateContext.Provider>
+        <StateContext.Provider value={state}>
+          <LiveContext.Provider value={live}>{children}</LiveContext.Provider>
+        </StateContext.Provider>
       </ActiveContext.Provider>
     </ControlsContext.Provider>
   );
@@ -1720,4 +1750,9 @@ export function useTutorControls(): TutorSessionControls {
  */
 export function useActiveSession(): ActiveSession {
   return useContext(ActiveContext);
+}
+
+/** What is being said right now, for the transcript panel only — see `LiveContext`. */
+export function useLiveLines(): LiveLines {
+  return useContext(LiveContext);
 }

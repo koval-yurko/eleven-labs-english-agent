@@ -372,14 +372,32 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
            * Committed learner and tutor lines both arrive on LiveKit's own transcription topic.
            * Only FINAL segments become turns: an interim one would write a line per word into the
            * stored transcript, which is the mistake the Vapi adapter names in its own handler.
+           *
+           * Read chunk by chunk rather than with `readAll()`, because a tutor reply is ONE stream
+           * that grows in step with the audio (the worker's transcription is synced to playout) and
+           * only closes when the reply ends — up to ten minutes later on `words-4.1`. Waiting for
+           * the close left the screen empty while the tutor talked (report `afbb6cf3`). The text so
+           * far goes to `onPartial` for display; the turn is still committed only at the end, and
+           * only if the trailer says final, which is when `info.attributes` is complete.
            */
           room.registerTextStreamHandler(LIVEKIT_STREAM.TRANSCRIPTION, (reader, participant) => {
+            const role = participant.identity !== room.localParticipant.identity ? "agent" : "user";
             void (async () => {
-              const text = (await reader.readAll()).trim();
+              let sofar = "";
+              try {
+                for await (const chunk of reader) {
+                  sofar += chunk;
+                  const shown = sofar.trim();
+                  if (shown) eventsRef.current.onPartial?.(role, shown);
+                }
+              } catch {
+                // The room went away mid-stream. The teardown clears the live line; nothing to commit.
+                return;
+              }
+              const text = sofar.trim();
               if (!text) return;
               if (reader.info.attributes?.["lk.transcription_final"] !== "true") return;
-              const isAgent = participant.identity !== room.localParticipant.identity;
-              eventsRef.current.onTurn({ role: isAgent ? "agent" : "user", text });
+              eventsRef.current.onTurn({ role, text });
             })();
           });
 

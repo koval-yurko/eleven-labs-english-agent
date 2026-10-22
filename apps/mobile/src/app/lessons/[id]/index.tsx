@@ -27,6 +27,7 @@ import type { SendOutcome } from "@/lib/diagnostics-spool";
 import { emit } from "@/lib/diagnostics";
 import {
   useActiveSession,
+  useLiveLines,
   useTutorControls,
   useTutorSession,
   type LessonMeta,
@@ -875,13 +876,7 @@ export default function LessonScreen() {
       />
 
       {/* ── Live transcript ────────────────────────────────────────────────────────────────── */}
-      {transcript.length > 0 ? (
-        <Panel title="Live transcript">
-          {transcript.map((line, i) => (
-            <Line key={i} line={line} />
-          ))}
-        </Panel>
-      ) : null}
+      <LiveTranscript transcript={transcript} isOurs={isOurs} />
 
       {/* ── Word changes ───────────────────────────────────────────────────────────────────── */}
       {events.length > 0 ? (
@@ -1060,7 +1055,7 @@ function SessionEntry({ session }: { session: LessonSession }) {
  * `useConversation` hook is deliberately kept for the port (D37), and splitting its hooks is an
  * optimisation to make with a measurement.
  */
-const Line = memo(function Line({ line }: { line: TranscriptLine }) {
+const Line = memo(function Line({ line, live = false }: { line: TranscriptLine; live?: boolean }) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   return (
@@ -1068,10 +1063,39 @@ const Line = memo(function Line({ line }: { line: TranscriptLine }) {
       <Text style={line.role === "agent" ? styles.agent : styles.you}>
         {line.role === "agent" ? "Teacher" : "You"}:{" "}
       </Text>
-      <Text style={styles.muted}>{line.text}</Text>
+      <Text style={styles.muted}>
+        {line.text}
+        {live ? " …" : ""}
+      </Text>
     </Body>
   );
 });
+
+/**
+ * The transcript panel: the committed lines, then what is being said right now (report `afbb6cf3`:
+ * "want to see what tutor said"). Its own component because `useLiveLines()` changes several times a
+ * second while the tutor talks, and only this panel should redraw at that rate.
+ *
+ * The live lines belong to the session's lesson, so a screen showing another lesson leaves them out,
+ * the same way it shows that session's `lines` as empty.
+ */
+function LiveTranscript({ transcript, isOurs }: { transcript: TranscriptLine[]; isOurs: boolean }) {
+  const live = useLiveLines();
+  const speaking: TranscriptLine[] = [];
+  if (isOurs && live.agent) speaking.push({ role: "agent", text: live.agent });
+  if (isOurs && live.user) speaking.push({ role: "user", text: live.user });
+  if (transcript.length === 0 && speaking.length === 0) return null;
+  return (
+    <Panel title="Live transcript">
+      {transcript.map((line, i) => (
+        <Line key={i} line={line} />
+      ))}
+      {speaking.map((line) => (
+        <Line key={`live-${line.role}`} line={line} live />
+      ))}
+    </Panel>
+  );
+}
 
 const makeStyles = (t: Palette) =>
   StyleSheet.create({

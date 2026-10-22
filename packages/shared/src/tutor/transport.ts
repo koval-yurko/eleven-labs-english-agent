@@ -94,6 +94,12 @@ export type TutorTransportIdKind =
 export interface TutorTransportEvents {
   onStatus(status: TutorStatus): void;
   onTurn(line: TranscriptLine): void;
+  /**
+   * The line being spoken right now, growing as it plays; `null` clears it. For display only and
+   * never stored: the committed line still arrives through `onTurn`. Optional because only an
+   * adapter whose SDK streams the text while it plays can report it (LiveKit, report `afbb6cf3`).
+   */
+  onPartial?(role: TranscriptLine["role"], text: string | null): void;
   onTurnCorrected(previous: string, corrected: string): void;
   onEnd(reason: TutorEndReason): void;
   onError(message: string): void;
