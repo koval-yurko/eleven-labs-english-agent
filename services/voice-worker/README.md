@@ -59,6 +59,7 @@ Fill the new `.env` using the existing project/vendor credentials:
 | `ANTHROPIC_API_KEY` | Claude API access |
 | `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
 | `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` / `words-4.2` (Alibaba Qwen-Audio TTS Plus) |
+| `VOICEBOX_URL`, `VOICEBOX_API_KEY` | Only `words-4.3` (local Voicebox over `/tts/ws`). Optional for a local worker; a Cloud worker needs the tunnel URL and key |
 | `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
 | `API_BASE_URL` | Backend origin used for transcript/ledger/collection writes |

@@ -45,6 +45,7 @@ import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
 import { createStt } from "./pipeline.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
+import { VoiceboxTTS } from "./voicebox-tts.ts";
 import { lessonCompleteTool } from "./lesson-complete-tool.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
@@ -283,6 +284,8 @@ export default defineAgent({
       voiceTts.warm();
       voiceTts.onAnomaly = (code) => ledger.error(code);
     }
+    // Load the Voicebox model now: a cold one takes ~35 s, which the first reply would otherwise pay.
+    if (voiceTts instanceof VoiceboxTTS) voiceTts.warm();
     const session = new voice.AgentSession({
       stt: createStt(),
       tts: voiceTts,

@@ -4,6 +4,7 @@
  * `@livekit/agents`' own classes, the same shapes the framework hands `ClaudeLLM.chat()` at runtime.
  * Run with `pnpm --filter voice-worker check`.
  */
+import { createServer, type ServerResponse } from "node:http";
 import process from "node:process";
 import { initializeLogger, ChatMessage, FunctionCall, FunctionCallOutput, tts, type ChatItem } from "@livekit/agents";
 
@@ -19,6 +20,7 @@ import { AutoContinue } from "./auto-continue.ts";
 import { Pacer } from "./pacer.ts";
 import { SocketPool } from "./qwen-socket-pool.ts";
 import { QwenTTS } from "./qwen-tts.ts";
+import { VoiceboxTTS } from "./voicebox-tts.ts";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
 import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
 
@@ -555,6 +557,7 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
     eq("tts: no profile named means Deepgram", resolveTtsProfile(undefined).id, "deepgram");
     eq("tts: an unknown profile falls back, flagged", [resolveTtsProfile("nope").id, resolveTtsProfile("nope").fellBack], ["deepgram", true]);
     eq("tts: a known profile is not a fallback", [resolveTtsProfile("qwen").id, resolveTtsProfile("qwen").fellBack], ["qwen", false]);
+    eq("tts: voicebox needs no secret (a local worker reaches the local app)", missingSecrets(TTS_PROFILES.voicebox!), []);
     for (const name of ["DEEPGRAM_API_KEY", "DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"]) delete process.env[name];
     eq("tts: qwen without keys names both", missingSecrets(TTS_PROFILES.qwen!), ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"]);
     let message = "";
@@ -570,6 +573,7 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
       QWEN_WORKSPACE_ID: "ws-offline",
     });
     for (const id of Object.keys(TTS_PROFILES)) ok(`tts: ${id} builds on its keys`, Boolean(createTtsFor(id)));
+    ok("tts: voicebox streams text in over /tts/ws", createTtsFor("voicebox").capabilities.streaming);
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
@@ -654,6 +658,172 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   eq("qwen: the worker is told, so the ledger records it", anomalies, ["tts:early-finish"]);
   ok("qwen: audio from both tasks is played", frames > 0);
   await qwen.close();
+  server.close();
+}
+
+// Voicebox over http (phase 1): one sentence is one POST /tts/stream; its raw PCM body becomes frames, the last marked
+// final. At most 2 requests are open at once, and a sentence aborted while it waits never reaches the
+// server (an aborted request still costs the real server GPU time). A 404 fails without a retry.
+{
+  type Held = { body: { profile_id?: string; text?: string; format?: string }; res: ServerResponse };
+  const requests: Held[] = [];
+  let arrived: (() => void) | null = null;
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c: Buffer) => (raw += c.toString()));
+    req.on("end", () => {
+      const body = JSON.parse(raw) as Held["body"];
+      if (body.text === "missing profile") {
+        res.writeHead(404, { "content-type": "application/json" }).end('{"detail":"Profile not found"}');
+        return;
+      }
+      requests.push({ body, res });
+      arrived?.();
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  const nextRequest = () => new Promise<void>((r) => (arrived = r));
+  const answer = (held: Held, seconds: number) => {
+    held.res.writeHead(200, { "content-type": "audio/pcm", "x-sample-rate": "24000", "x-channels": "1", "x-first-chunk-ms": "7" });
+    // Odd split points: a sample may straddle two chunks.
+    const pcm = Buffer.alloc(Math.round(seconds * 24000) * 2, 1);
+    held.res.write(pcm.subarray(0, 1001));
+    held.res.end(pcm.subarray(1001));
+  };
+  const drain = async (stream: tts.ChunkedStream) => {
+    const frames: { samples: number; final: boolean }[] = [];
+    for await (const audio of stream) frames.push({ samples: audio.frame.samplesPerChannel, final: audio.final });
+    return frames;
+  };
+
+  const vb = new VoiceboxTTS({ url: `http://127.0.0.1:${port}/`, profileId: "p-1", language: "en", modelSize: "1.7B", intervalMs: 320, transport: "http" });
+  vb.on("error", () => undefined); // a failed stream also emits on the TTS; with no listener that would throw
+  const gone = new AbortController();
+  let r1 = nextRequest();
+  const first = drain(vb.synthesize("First sentence. "));
+  await r1;
+  r1 = nextRequest();
+  const second = drain(vb.synthesize("Second sentence. "));
+  await r1;
+  const third = drain(vb.synthesize("Third sentence. ", undefined, gone.signal));
+  await new Promise((r) => setTimeout(r, 50));
+  eq("voicebox: only 2 requests are open at once", requests.length, 2);
+  gone.abort();
+  eq("voicebox: a sentence aborted in line yields nothing", await third, []);
+  answer(requests[0]!, 0.5);
+  const firstFrames = await first;
+  eq("voicebox: the request names the profile and the sentence", [requests[0]!.body.profile_id, requests[0]!.body.text, requests[0]!.body.format], ["p-1", "First sentence. ", "pcm"]);
+  eq("voicebox: every sample of the PCM body is played", firstFrames.reduce((n, f) => n + f.samples, 0), 12000);
+  eq("voicebox: only the last frame is final", firstFrames.map((f) => f.final).lastIndexOf(false), firstFrames.length - 2);
+  ok("voicebox: the last frame is final", firstFrames.at(-1)?.final === true);
+  answer(requests[1]!, 0.1);
+  await second;
+  await new Promise((r) => setTimeout(r, 50));
+  eq("voicebox: the aborted sentence never reached the server", requests.length, 2);
+
+  const missing = vb.synthesize("missing profile");
+  eq("voicebox: a 404 plays nothing", await drain(missing), []);
+  ok("voicebox: a 404 fails with the server's reason, not retried", /HTTP 404.*Profile not found/.test(missing.error?.message ?? ""));
+  await vb.close();
+  server.close();
+}
+
+// Voicebox over ws (phase 2): a reply is one /tts/ws session on a socket that already sent `start`.
+// Text goes out as it is written and the end of input as `end`; the PCM frames come back on the same
+// socket. The next reply gets a parked socket. Barge-in sends `cancel` and closes the socket.
+{
+  const server = new WebSocketServer({ port: 0 });
+  await new Promise((r) => server.once("listening", r));
+  const port = (server.address() as { port: number }).port;
+  const sessions: { start?: Record<string, unknown>; texts: string[]; flushes: number; cancelled: boolean; closed: boolean }[] = [];
+  server.on("connection", (ws) => {
+    const session = { texts: [] as string[], flushes: 0, cancelled: false, closed: false } as (typeof sessions)[number];
+    sessions.push(session);
+    ws.on("close", () => (session.closed = true));
+    ws.on("message", (data) => {
+      const message = JSON.parse(data.toString()) as { type: string; text?: string } & Record<string, unknown>;
+      const send = (payload: object) => ws.send(JSON.stringify(payload));
+      if (message.type === "start") {
+        session.start = message;
+        send({ type: "ready", sample_rate: 24000, channels: 1, format: "s16le", engine: "qwen" });
+      } else if (message.type === "text") {
+        session.texts.push(message.text ?? "");
+        if (message.text === "Long. ") {
+          send({ type: "segment_start", id: 1, text: "Long." });
+          ws.send(Buffer.alloc(14400, 1)); // the first 0.3 s; the rest never comes before the barge-in
+        }
+      } else if (message.type === "flush") {
+        session.flushes += 1;
+      } else if (message.type === "cancel") {
+        session.cancelled = true;
+        send({ type: "cancelled" });
+      } else if (message.type === "end") {
+        send({ type: "segment_start", id: 1, text: session.texts.join("") });
+        // 0.25 s of audio in two frames with an odd split: a sample straddles them.
+        const pcm = Buffer.alloc(12000, 1);
+        ws.send(pcm.subarray(0, 1001));
+        ws.send(pcm.subarray(1001));
+        send({ type: "segment_end", id: 1, first_chunk_ms: 9, audio_ms: 250 });
+        send({ type: "end" });
+        ws.close();
+      }
+    });
+  });
+
+  const vb = new VoiceboxTTS({ url: `http://127.0.0.1:${port}`, profileId: "p-ws", language: "en", modelSize: "1.7B", intervalMs: 160, transport: "ws" });
+  vb.on("error", () => undefined);
+  ok("voicebox ws: the TTS streams text in", vb.capabilities.streaming);
+  const speak = async (pieces: string[], abortAfterFirstFrame = false) => {
+    const stream = vb.stream();
+    void (async () => {
+      for (const piece of pieces) {
+        stream.pushText(piece);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // A barged-in reply is still being written when the learner speaks.
+      if (abortAfterFirstFrame) return;
+      stream.flush();
+      stream.endInput();
+    })();
+    const frames: { samples: number; final: boolean }[] = [];
+    let ended = false;
+    const drain = (async () => {
+      for await (const audio of stream) {
+        if (audio === tts.SynthesizeStream.END_OF_STREAM) {
+          ended = true;
+          break;
+        }
+        frames.push({ samples: audio.frame.samplesPerChannel, final: audio.final });
+        if (abortAfterFirstFrame) {
+          stream.close();
+          break;
+        }
+      }
+    })();
+    await Promise.race([drain, new Promise((r) => setTimeout(r, 3000))]);
+    return { frames, ended };
+  };
+
+  vb.warm();
+  await new Promise((r) => setTimeout(r, 100)); // the parked socket is open and ready
+  eq("voicebox ws: warm() opens one socket and sends start with the profile", [sessions.length, sessions[0]?.start?.profile_id, sessions[0]?.start?.interval_ms], [1, "p-ws", 160]);
+  const reply = await speak(["Hello there, ", "and welcome back. ", "Today: weather."]);
+  ok("voicebox ws: the reply reaches its end", reply.ended);
+  eq("voicebox ws: every piece of text goes out in order", sessions[0]!.texts.join(""), "Hello there, and welcome back. Today: weather.");
+  ok("voicebox ws: a framework flush is forwarded", sessions[0]!.flushes >= 1);
+  eq("voicebox ws: every sample is played", reply.frames.reduce((n, f) => n + f.samples, 0), 6000);
+  ok("voicebox ws: only the last frame is final", reply.frames.at(-1)?.final === true && reply.frames.slice(0, -1).every((f) => !f.final));
+
+  await new Promise((r) => setTimeout(r, 100));
+  const before = sessions.length;
+  const bargeIn = await speak(["Long. ", "More text that nobody hears. "], true);
+  await new Promise((r) => setTimeout(r, 100));
+  const session = sessions[before - 1]!;
+  ok("voicebox ws: the second reply used the socket parked while the first was speaking", session.texts[0] === "Long. ");
+  ok("voicebox ws: barge-in played the audio that came before it", bargeIn.frames.length > 0 && !bargeIn.ended);
+  ok("voicebox ws: barge-in sends cancel and closes the socket", session.cancelled && session.closed);
+  await vb.close();
   server.close();
 }
 

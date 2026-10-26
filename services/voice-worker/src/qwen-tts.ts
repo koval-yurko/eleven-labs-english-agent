@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { type APIConnectOptions, APIConnectionError, AudioByteStream, tts } from "@livekit/agents";
 import type { AudioFrame } from "@livekit/rtc-node";
 import WebSocket from "ws";
+import { Gate } from "./gate.ts";
 import { Pacer } from "./pacer.ts";
 import { SocketPool, type TakenSocket } from "./qwen-socket-pool.ts";
 import { segment } from "./speech-segments.ts";
@@ -45,45 +46,6 @@ const CANCEL_GRACE_MS = 1500;
  * A whole-lesson reply is ~10 minutes of speech; this is far more than it has ever needed.
  */
 const MAX_CONTINUATIONS = 20;
-
-/**
- * A counting gate whose waiters can leave. A reply the learner talked over is aborted while it is
- * still queued; it must give its place up at once, or every live reply waits behind work nobody
- * will hear (lesson d688e87d: requests sat ~19 s in line behind stale ones).
- */
-class Gate {
-  #free: number;
-  readonly #waiting: Array<() => void> = [];
-  constructor(limit: number) {
-    this.#free = limit;
-  }
-  /** Resolves true when the caller holds a slot (and must `release`), false if it was aborted first. */
-  acquire(signal: AbortSignal): Promise<boolean> {
-    if (signal.aborted) return Promise.resolve(false);
-    if (this.#free > 0) {
-      this.#free -= 1;
-      return Promise.resolve(true);
-    }
-    return new Promise((resolve) => {
-      const grant = () => {
-        signal.removeEventListener("abort", leave);
-        resolve(true);
-      };
-      const leave = () => {
-        const i = this.#waiting.indexOf(grant);
-        if (i >= 0) this.#waiting.splice(i, 1);
-        resolve(false);
-      };
-      this.#waiting.push(grant);
-      signal.addEventListener("abort", leave, { once: true });
-    });
-  }
-  release(): void {
-    const next = this.#waiting.shift();
-    if (next) next();
-    else this.#free += 1;
-  }
-}
 
 class ThrottledError extends Error {}
 /** A reused socket that the server had already closed: retry at once on a fresh one. */

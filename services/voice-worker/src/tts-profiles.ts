@@ -11,6 +11,7 @@
 import type { tts } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import { QwenTTS } from "./qwen-tts.ts";
+import { VoiceboxTTS, type VoiceboxTransport } from "./voicebox-tts.ts";
 
 export interface TtsProfile {
   label: string;
@@ -21,8 +22,34 @@ export interface TtsProfile {
 
 export const DEFAULT_TTS_PROFILE = "deepgram";
 export const DEFAULT_TTS_MODEL = "aura-2-asteria-en";
+/** "Qwen Clone Demo", the voice profile made in this Mac's Voicebox. Another machine sets `VOICEBOX_PROFILE_ID`. */
+export const DEFAULT_VOICEBOX_PROFILE_ID = "8a956f8e-0145-488a-b176-6efa64c20403";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
+
+/**
+ * Voicebox (local Qwen3-TTS voice clone). Nothing is required: every value has a default that works
+ * with a local worker and the local app. A LiveKit Cloud worker cannot reach 127.0.0.1, so it needs
+ * VOICEBOX_URL (the tunnel) and VOICEBOX_API_KEY — docs/2026-10-25-voicebox-custom-build-streaming-api.md
+ * in the Voice-Agent project. `ws`: one `/tts/ws` session per reply; `http`: one `POST /tts/stream`
+ * per sentence.
+ */
+function voiceboxProfile(transport: VoiceboxTransport): TtsProfile {
+  return {
+    label: `Voicebox (local Qwen3-TTS voice clone, ${transport === "ws" ? "/tts/ws" : "/tts/stream"})`,
+    secrets: [],
+    create: () =>
+      new VoiceboxTTS({
+        url: env("VOICEBOX_URL") ?? "http://127.0.0.1:17493",
+        profileId: env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
+        apiKey: env("VOICEBOX_API_KEY"),
+        language: env("VOICEBOX_LANGUAGE") ?? "en",
+        modelSize: env("VOICEBOX_MODEL_SIZE") ?? "1.7B",
+        intervalMs: Number(env("VOICEBOX_INTERVAL_MS") ?? 320),
+        transport,
+      }),
+  };
+}
 
 export const TTS_PROFILES: Record<string, TtsProfile> = {
   deepgram: {
@@ -49,6 +76,9 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
         language: env("QWEN_TTS_LANGUAGE") ?? "en",
       }),
   },
+  // `/tts/ws`. The `http` transport (`/tts/stream`) stays in VoiceboxTTS; its profile and version
+  // (`voicebox-http`, `words-4.4`) were retired on 2026-10-26 after the device comparison.
+  voicebox: voiceboxProfile("ws"),
 };
 
 export function missingSecrets(profile: TtsProfile): string[] {
