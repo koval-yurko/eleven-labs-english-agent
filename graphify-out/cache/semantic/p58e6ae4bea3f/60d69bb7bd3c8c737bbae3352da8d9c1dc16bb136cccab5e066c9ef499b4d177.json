@@ -1,0 +1,1 @@
+{"nodes": [{"id": "skill_diagrams", "label": "diagrams skill", "file_type": "document", "source_file": ".claude/skills/diagrams/SKILL.md", "rationale": "Diagrams must use real values and pass the cut test; draw.io exported with fixed flags.", "_origin": "semantic"}], "edges": [], "hyperedges": []}
