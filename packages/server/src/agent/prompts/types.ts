@@ -1,3 +1,4 @@
+import type { TutorWorker } from "@tutor/shared/tutor/livekit-wire";
 import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 /**
@@ -66,6 +67,11 @@ export interface PromptVersion {
    * provider with a baked agent — their voice is `voiceId` / `ttsModelId`.
    */
   tts?: string;
+  /**
+   * LiveKit only: which worker the token route dispatches to. `"local"` is the worker on the Mac
+   * that runs Voicebox (`LIVEKIT_LOCAL_AGENT_NAME`); omitted = the LiveKit Cloud worker.
+   */
+  worker?: TutorWorker;
   /**
    * LiveKit only: the lesson is written in chunks (`./podcast-lesson-chunked.ts`) and the worker
    * asks for the next one when a chunk ends and the learner is silent. See

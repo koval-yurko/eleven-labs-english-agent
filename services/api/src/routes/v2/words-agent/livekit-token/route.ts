@@ -4,10 +4,7 @@ import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-serve
 
 import type { LiveKitTokenResponse, RealtimeTokenRequest } from "@tutor/shared/api";
 import { formatItemsList, type TutorItem } from "@tutor/shared/tutor/session";
-import {
-  LIVEKIT_AGENT_NAME,
-  type LiveKitDispatchMetadata,
-} from "@tutor/shared/tutor/livekit-wire";
+import { livekitAgentName, type LiveKitDispatchMetadata } from "@tutor/shared/tutor/livekit-wire";
 
 import { effectiveConfig, findVersion } from "@tutor/server/agent/prompts";
 import { resolveVersion } from "@tutor/server/agent-registry";
@@ -40,9 +37,10 @@ export const OPTIONS = preflight;
  *
  * `agentName` turns OFF LiveKit's automatic dispatch, so a room gets a tutor only when a token asks
  * for one by name. Without it every room the project ever creates would summon a worker. The name
- * is `LIVEKIT_AGENT_NAME` from the wire contract, not a string typed here, because the worker's
+ * comes from the wire contract (`livekitAgentName`), not a string typed here, because the worker's
  * `ServerOptions.agentName` must match it byte-for-byte or the job is never assigned — a failure
- * that looks like a tutor who simply never speaks.
+ * that looks like a tutor who simply never speaks. A version with `worker: "local"` goes to
+ * `tutor-local`, the worker on the Mac that runs Voicebox; every other version goes to `tutor`.
  *
  * ## Which versions this route serves
  *
@@ -145,7 +143,7 @@ export const POST = withBearer(async (req, ownerId) => {
   at.roomConfig = new RoomConfiguration({
     agents: [
       new RoomAgentDispatch({
-        agentName: LIVEKIT_AGENT_NAME,
+        agentName: livekitAgentName(chosen.worker),
         metadata: JSON.stringify(metadata),
       }),
     ],

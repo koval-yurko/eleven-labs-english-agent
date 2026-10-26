@@ -453,5 +453,7 @@ export default defineAgent({
 });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName: LIVEKIT_AGENT_NAME }));
+  // The Mac worker sets LIVEKIT_AGENT_NAME=tutor-local (LIVEKIT_LOCAL_AGENT_NAME); the Cloud worker sets nothing.
+  const agentName = process.env.LIVEKIT_AGENT_NAME?.trim() || LIVEKIT_AGENT_NAME;
+  cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName }));
 }

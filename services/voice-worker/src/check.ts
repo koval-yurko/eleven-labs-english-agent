@@ -13,7 +13,7 @@ import { DEFAULT_MODEL } from "./claude-llm.ts";
 import { isSilent, tapSpeech, type SpeechOutcome } from "./speech-watch.ts";
 import { TurnLedger, type LedgerLlmCall, type LedgerMessage } from "./turn-ledger.ts";
 import { TURN_PLANS, turnHandlingFor } from "./turn-plans.ts";
-import type { TurnRecord } from "@tutor/shared/tutor/livekit-wire";
+import { LIVEKIT_AGENT_NAME, LIVEKIT_LOCAL_AGENT_NAME, livekitAgentName, type TurnRecord } from "@tutor/shared/tutor/livekit-wire";
 
 import { WebSocketServer, WebSocket as WsClient } from "ws";
 import { AutoContinue } from "./auto-continue.ts";
@@ -22,7 +22,13 @@ import { SocketPool } from "./qwen-socket-pool.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { VoiceboxTTS } from "./voicebox-tts.ts";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
-import { createTtsFor, missingSecrets, resolveTtsProfile, TTS_PROFILES } from "./tts-profiles.ts";
+import {
+  createTtsFor,
+  DEFAULT_VOICEBOX_PROFILE_ID,
+  missingSecrets,
+  resolveTtsProfile,
+  TTS_PROFILES,
+} from "./tts-profiles.ts";
 
 const failures: string[] = [];
 let checked = 0;
@@ -549,6 +555,11 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   ok("pacer: a failed chunk gives its estimate back", settled.aheadMs < 50);
 }
 
+// Worker routing: a version with worker "local" goes to the Mac worker; everything else to the Cloud agent.
+eq("routing: no worker named means the Cloud agent", livekitAgentName(undefined), LIVEKIT_AGENT_NAME);
+eq("routing: worker cloud is the Cloud agent", livekitAgentName("cloud"), "tutor");
+eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_LOCAL_AGENT_NAME);
+
 // TTS profiles: a version names one; an unknown name falls back; a missing key is named, not silent.
 {
   const saved = { ...process.env };
@@ -574,6 +585,14 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
     });
     for (const id of Object.keys(TTS_PROFILES)) ok(`tts: ${id} builds on its keys`, Boolean(createTtsFor(id)));
     ok("tts: voicebox streams text in over /tts/ws", createTtsFor("voicebox").capabilities.streaming);
+    Object.assign(process.env, { VOICEBOX_URL: "https://tts.example", VOICEBOX_API_KEY: "tunnel-key" });
+    const cloudVb = createTtsFor("voicebox") as VoiceboxTTS;
+    const localVb = createTtsFor("voicebox-local") as VoiceboxTTS;
+    eq("tts: voicebox follows VOICEBOX_URL and its key (the Cloud worker's tunnel)", [cloudVb.opts.url, cloudVb.opts.apiKey], ["https://tts.example", "tunnel-key"]);
+    eq("tts: voicebox-local ignores the tunnel and its key, and reaches this Mac", [localVb.opts.url, localVb.opts.apiKey], ["http://127.0.0.1:17493", undefined]);
+    eq("tts: voicebox and voicebox-local both speak as Men 1", [cloudVb.opts.profileId, localVb.opts.profileId], ["6536ab39-8909-4528-8327-27d61a390e45", DEFAULT_VOICEBOX_PROFILE_ID]);
+    process.env.VOICEBOX_LOCAL_URL = "http://127.0.0.1:18000/";
+    eq("tts: voicebox-local takes VOICEBOX_LOCAL_URL", (createTtsFor("voicebox-local") as VoiceboxTTS).opts.url, "http://127.0.0.1:18000");
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);

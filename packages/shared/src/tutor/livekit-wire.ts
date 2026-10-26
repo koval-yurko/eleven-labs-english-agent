@@ -19,6 +19,23 @@ import type { TutorCapabilities } from "./transport";
 export const LIVEKIT_AGENT_NAME = "tutor";
 
 /**
+ * The same worker, run on the Mac that also runs Voicebox, registered under its own name. Two
+ * workers with one name share the dispatches at random, so the Mac worker gets only the versions
+ * that ask for it (`PromptVersion.worker = "local"`), and the LiveKit Cloud worker keeps the rest.
+ * The Mac worker sets `LIVEKIT_AGENT_NAME=tutor-local` in its environment.
+ * Voice-Agent project: docs/2026-10-27-local-voice-worker-on-mac-research.md.
+ */
+export const LIVEKIT_LOCAL_AGENT_NAME = "tutor-local";
+
+/** Which worker serves a LiveKit version: the LiveKit Cloud agent, or the worker on the Mac. */
+export type TutorWorker = "cloud" | "local";
+
+/** The agent name the token route dispatches to for a version's `worker` (absent = cloud). */
+export function livekitAgentName(worker: TutorWorker | undefined): string {
+  return worker === "local" ? LIVEKIT_LOCAL_AGENT_NAME : LIVEKIT_AGENT_NAME;
+}
+
+/**
  * RPC methods the phone calls on the worker's agent participant.
  *
  * Both map to a `TutorTransportControls` method (`say`, `cancelTurn`) — see the Q6 table. Neither

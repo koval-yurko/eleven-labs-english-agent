@@ -19,6 +19,7 @@ import words40 from "./words-4.0";
 import words41 from "./words-4.1";
 import words42 from "./words-4.2";
 import words43 from "./words-4.3";
+import words44 from "./words-4.4";
 
 export type { PromptVersion } from "./types";
 
@@ -84,8 +85,12 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * `services/voice-worker/src/tts-profiles.ts` plus a module like it. `words-4.2` is `words-4.1` with the
  * lesson delivered in ~45-second chunks and the worker carrying on between them (`autoContinue`).
  * `words-4.3` is `words-4.0` again with only the TTS swapped, this time for our local Voicebox build
- * over `/tts/ws`. `words-4.4` was the same voice over `/tts/stream`, one request per sentence; it was
- * retired on 2026-10-26 after the device test chose `/tts/ws`, so a `words-4.4` session is that one.
+ * over `/tts/ws`. `words-4.4` is `words-4.3` served by the worker on the Mac that runs Voicebox
+ * (`worker: "local"`, dispatched to `tutor-local`), so 4.3 measures the Cloud worker through the tunnel
+ * and 4.4 the local path. Both speak as the Voicebox voice "Men 1" ("Qwen Clone Demo" before
+ * 2026-10-27). The name was used before: until 2026-10-26 `words-4.4` was the 4.3 voice over
+ * `/tts/stream`, retired after the device test chose `/tts/ws` — a `words-4.4` session stored before
+ * 2026-10-27 is that one.
  * Two retired candidates are worth knowing about when reading old debug reports: `words-4.2` first
  * named a Gemini Flash TTS (reports 407fcad4 and 1aecfbcf, died within a minute: 10 requests/min and
  * 100/day cannot carry a lesson), and `words-4.3` was the chunked lesson before it took the name
@@ -108,6 +113,7 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words41,
   words42,
   words43,
+  words44,
 ];
 
 /**

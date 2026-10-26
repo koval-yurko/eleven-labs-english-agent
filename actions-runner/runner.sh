@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The GitHub Actions self-hosted runner that ships the iOS preview build from this Mac.
+# The GitHub Actions self-hosted runner that ships the iOS preview build from this Mac, and deploys
+# the `tutor-local` voice worker (deploy-voice-worker-local.yml).
 #
 #   actions-runner/runner.sh install <registration-token>   download, verify, register, start at login
 #   actions-runner/runner.sh start | stop | restart | status
@@ -97,6 +98,7 @@ cmd_env() {
   set_env LANG en_US.UTF-8                                         # CocoaPods aborts on non-UTF-8
   set_env ACTIONS_RUNNER_HOOK_JOB_STARTED "$DIR/hooks/job-started.sh" # the public-repo guard
   set_env TUTOR_MOBILE_ENV "$MOBILE_ENV"                           # copied into each checkout
+  set_env TUTOR_WORKER_HOME "$HOME/voice-worker"                   # deploy-voice-worker-local.yml
   echo "PATH for jobs: $(cat "$DIR/.path")"
 }
 

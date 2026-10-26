@@ -7,12 +7,16 @@
 # PR. GitHub's fork-approval setting is the first gate; this is the one an attacker cannot edit,
 # because it runs from this Mac's working copy, not from the job's checkout.
 #
-# The rule: only ship-preview.yml, as it exists on master, started by an allow-listed account.
+# The rule: only ship-preview.yml or deploy-voice-worker-local.yml, as they exist on master, started
+# by an allow-listed account.
 # Pull requests (pull_request, pull_request_target) never match. Anything unset fails closed.
 set -euo pipefail
 
 REPOSITORY=koval-yurko/eleven-labs-english-agent
-WORKFLOW_REF=$REPOSITORY/.github/workflows/ship-preview.yml@refs/heads/master
+WORKFLOW_REFS=(
+  "$REPOSITORY/.github/workflows/ship-preview.yml@refs/heads/master"
+  "$REPOSITORY/.github/workflows/deploy-voice-worker-local.yml@refs/heads/master"
+)
 EVENTS=(push workflow_dispatch repository_dispatch)
 ACTORS=(koval-yurko)
 
@@ -38,7 +42,8 @@ echo "actor=${GITHUB_ACTOR-} triggering_actor=${GITHUB_TRIGGERING_ACTOR-}"
 [[ ${GITHUB_REPOSITORY-} == "$REPOSITORY" ]] || deny "repository is not $REPOSITORY"
 one_of "${GITHUB_EVENT_NAME-}" "${EVENTS[@]}" || deny "event ${GITHUB_EVENT_NAME-unset} is not allowed"
 [[ ${GITHUB_REF-} == refs/heads/master ]] || deny "ref is not master"
-[[ ${GITHUB_WORKFLOW_REF-} == "$WORKFLOW_REF" ]] || deny "workflow is not ship-preview.yml on master"
+one_of "${GITHUB_WORKFLOW_REF-}" "${WORKFLOW_REFS[@]}" ||
+  deny "workflow ${GITHUB_WORKFLOW_REF-unset} is not ship-preview.yml or deploy-voice-worker-local.yml on master"
 one_of "${GITHUB_ACTOR-}" "${ACTORS[@]}" || deny "actor ${GITHUB_ACTOR-unset} is not allow-listed"
 # A re-run is started by whoever clicks Re-run, which may not be the original actor.
 one_of "${GITHUB_TRIGGERING_ACTOR:-${GITHUB_ACTOR-}}" "${ACTORS[@]}" ||

@@ -1,0 +1,75 @@
+name: Deploy voice worker (Mac)
+
+# Deploys the `tutor-local` worker — the one that serves words-4.4 next to Voicebox — on the
+# maintainer's Mac, through the same self-hosted runner as ship-preview.yml. The LiveKit Cloud
+# worker (`tutor`) is deploy-voice-worker.yml; both run on the same pushes.
+#
+# The job runs the worker's offline checks, then services/voice-worker/scripts/local-worker.sh
+# deploy, which copies this checkout into ~/voice-worker/releases/<sha>, installs it there, restarts
+# the LaunchAgent and fails unless the worker registers as `tutor-local`. The worker's secrets are
+# the Mac's ~/voice-worker/.env; nothing secret comes from GitHub.
+#
+# The repo is public, so the runner refuses any job that isn't this file or ship-preview.yml on
+# master started by an allow-listed account (actions-runner/hooks/job-started.sh). Never add
+# pull_request or pull_request_target here — the hook rejects them anyway.
+#
+# Voice-Agent project: docs/2026-10-27-local-voice-worker-on-mac-research.md.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'services/voice-worker/**'
+      - 'packages/shared/**'
+      - 'packages/server/package.json'
+      - 'services/api/package.json'
+      - 'apps/tutor-web/package.json'
+      - 'apps/feedback-tracker/package.json'
+      - 'apps/mobile/package.json'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/deploy-voice-worker-local.yml'
+  workflow_dispatch:
+
+# A deploy restarts the running worker; let one finish before the next starts. The runner runs one
+# job at a time, so this also queues behind (and ahead of) an iOS build.
+concurrency:
+  group: voice-worker-local
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, macOS, ios-builder]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash # explicit, so steps run with -eo pipefail
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The whole workspace, not `--filter voice-worker...`: this _work/ checkout is shared with
+      # ship-preview.yml, and a filtered install would prune the mobile app's dependencies.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check worker and shared contracts
+        run: |
+          pnpm --filter voice-worker typecheck
+          pnpm --filter voice-worker lint
+          pnpm --filter voice-worker check
+          pnpm --filter @tutor/shared typecheck
+          pnpm --filter @tutor/shared lint
+          pnpm check:shared
+
+      # TUTOR_WORKER_HOME comes from the runner's .env (actions-runner/runner.sh env).
+      - name: Deploy to this Mac
+        run: services/voice-worker/scripts/local-worker.sh deploy "$GITHUB_WORKSPACE"
+
+      - name: Worker status
+        if: always()
+        run: services/voice-worker/scripts/local-worker.sh status

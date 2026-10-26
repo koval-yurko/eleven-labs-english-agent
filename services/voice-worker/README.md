@@ -59,7 +59,8 @@ Fill the new `.env` using the existing project/vendor credentials:
 | `ANTHROPIC_API_KEY` | Claude API access |
 | `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
 | `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` / `words-4.2` (Alibaba Qwen-Audio TTS Plus) |
-| `VOICEBOX_URL`, `VOICEBOX_API_KEY` | Only `words-4.3` (local Voicebox over `/tts/ws`). Optional for a local worker; a Cloud worker needs the tunnel URL and key |
+| `VOICEBOX_URL`, `VOICEBOX_API_KEY` | Only `words-4.3` (Voicebox over `/tts/ws`, Cloud worker through the tunnel). `words-4.4` ignores both and uses `127.0.0.1` (`VOICEBOX_LOCAL_URL`) |
+| `LIVEKIT_AGENT_NAME` | Unset = `tutor`. Only the worker on the Voicebox Mac sets `tutor-local`; set it in the shell, not in `.env` |
 | `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
 | `API_BASE_URL` | Backend origin used for transcript/ledger/collection writes |
@@ -73,6 +74,35 @@ pnpm --filter voice-worker dev             # register a local worker; accept dis
 pnpm --filter voice-worker console         # text conversation
 pnpm --filter voice-worker console:voice   # microphone/speaker conversation
 ```
+
+### The worker on the Voicebox Mac (`words-4.4`)
+
+`words-4.4` is `words-4.3` dispatched to the agent name `tutor-local` instead of `tutor`. A worker
+that registers as `tutor` next to the Cloud worker gets real lessons at random, so the Mac worker
+uses its own name and the Cloud worker keeps every other version:
+
+```sh
+LIVEKIT_AGENT_NAME=tutor-local pnpm --filter voice-worker start
+```
+
+It speaks through Voicebox on `127.0.0.1:17493` (`voicebox-local` profile), with no tunnel and no key.
+Both `words-4.3` and `words-4.4` use the Voicebox voice "Men 1" (`VOICEBOX_PROFILE_ID`).
+When it is not running, a `words-4.4` lesson gets no tutor. Research: Voice-Agent project,
+`docs/2026-10-27-local-voice-worker-on-mac-research.md`.
+
+On that Mac it runs as a LaunchAgent (`win.kovalchuk.voice-worker`), managed by
+[`scripts/local-worker.sh`](scripts/local-worker.sh), never from a Git checkout:
+
+```sh
+install -m 600 services/voice-worker/.env ~/voice-worker/.env   # once; the worker's secrets
+services/voice-worker/scripts/local-worker.sh deploy "$PWD"      # copy → ~/voice-worker/releases/<sha>, install, restart, wait for registration
+services/voice-worker/scripts/local-worker.sh status | logs | restart | stop | start | rollback
+```
+
+A push to `master` deploys it the same way through
+[`deploy-voice-worker-local.yml`](../../.github/workflows/deploy-voice-worker-local.yml) on the
+self-hosted runner (`actions-runner/`). Logs are in `~/Library/Logs/voice-worker/worker.log`.
+After changing `~/voice-worker/.env`, run `deploy` again (it copies the file into the release).
 
 Without dispatch metadata or a fixture, console mode uses a small diagnostic prompt, not the
 real lesson prompt. To use a real prompt with sample vocabulary:

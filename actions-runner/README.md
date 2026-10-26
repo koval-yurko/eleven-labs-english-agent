@@ -11,6 +11,8 @@ actions-runner/runner.sh env && actions-runner/runner.sh restart   # after chang
 ```
 
 `hooks/job-started.sh` is the guard for a public repo: the runner refuses every job that isn't
-`ship-preview.yml` on `master`, started by an allow-listed account.
+`ship-preview.yml` or `deploy-voice-worker-local.yml` on `master`, started by an allow-listed account.
+The second one deploys the `tutor-local` voice worker on this Mac
+(`services/voice-worker/scripts/local-worker.sh`).
 
 Full design, setup and security notes: `docs/2026-10-03-remote-triggers-for-local-ios-build.md`.
