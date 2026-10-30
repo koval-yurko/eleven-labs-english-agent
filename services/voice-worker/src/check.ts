@@ -21,10 +21,15 @@ import { Pacer } from "./pacer.ts";
 import { SocketPool } from "./qwen-socket-pool.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { VoiceboxTTS } from "./voicebox-tts.ts";
+import { VoiceboxSTT } from "./voicebox-stt.ts";
+import { createSttFor, missingSttSecrets, resolveSttProfile, STT_PROFILES } from "./stt-profiles.ts";
+import { AudioFrame } from "@livekit/rtc-node";
+import { stt } from "@livekit/agents";
 import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
 import {
   createTtsFor,
   DEFAULT_VOICEBOX_PROFILE_ID,
+  VOICEBOX_WOMAN_2_PROFILE_ID,
   missingSecrets,
   resolveTtsProfile,
   TTS_PROFILES,
@@ -593,6 +598,13 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
     eq("tts: voicebox and voicebox-local both speak as Men 1", [cloudVb.opts.profileId, localVb.opts.profileId], ["6536ab39-8909-4528-8327-27d61a390e45", DEFAULT_VOICEBOX_PROFILE_ID]);
     process.env.VOICEBOX_LOCAL_URL = "http://127.0.0.1:18000/";
     eq("tts: voicebox-local takes VOICEBOX_LOCAL_URL", (createTtsFor("voicebox-local") as VoiceboxTTS).opts.url, "http://127.0.0.1:18000");
+    process.env.VOICEBOX_PROFILE_ID = "some-other-voice";
+    const woman2 = createTtsFor("voicebox-local-woman-2") as VoiceboxTTS;
+    eq(
+      "tts: voicebox-local-woman-2 speaks as Woman 2 on this Mac, whatever VOICEBOX_PROFILE_ID says",
+      [woman2.opts.profileId, woman2.opts.url, woman2.opts.apiKey],
+      [VOICEBOX_WOMAN_2_PROFILE_ID, "http://127.0.0.1:18000", undefined],
+    );
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
@@ -846,6 +858,138 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
   server.close();
 }
 
+// STT profiles: a version names one; an unknown name falls back to Deepgram; each Voicebox profile is one fixed
+// model on this Mac.
+{
+  eq("stt: no profile named means Deepgram", resolveSttProfile(undefined).id, "deepgram");
+  eq("stt: an unknown profile falls back, flagged", [resolveSttProfile("nope").id, resolveSttProfile("nope").fellBack], ["deepgram", true]);
+  const voiceboxModels = {
+    "voicebox-qwen-asr-0.6b": "qwen-asr-0.6B",
+    "voicebox-qwen-asr-1.7b": "qwen-asr-1.7B",
+    "voicebox-whisper-turbo": "whisper-turbo",
+    "voicebox-whisper-base": "whisper-base",
+  };
+  eq("stt: one Voicebox profile per model", Object.keys(STT_PROFILES).filter((id) => id.startsWith("voicebox-")), Object.keys(voiceboxModels));
+  for (const id of Object.keys(voiceboxModels)) eq(`stt: ${id} needs no secret`, missingSttSecrets(STT_PROFILES[id]!), []);
+  const saved = { ...process.env };
+  process.env.VOICEBOX_LOCAL_URL = "http://127.0.0.1:18000/";
+  for (const [id, model] of Object.entries(voiceboxModels)) {
+    const built = createSttFor(id) as VoiceboxSTT;
+    eq(`stt: ${id} asks for ${model} on VOICEBOX_LOCAL_URL, language detected`, [built.opts.url, built.opts.model, built.opts.language], ["http://127.0.0.1:18000", model, undefined]);
+  }
+  delete process.env.DEEPGRAM_API_KEY;
+  let message = "";
+  try {
+    createSttFor("deepgram");
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  ok("stt: Deepgram without its key refuses to build, naming the variable", message.includes("DEEPGRAM_API_KEY"));
+  for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+  Object.assign(process.env, saved);
+}
+
+// Voicebox STT over /stt/ws (the Python plugin's tests, tests/test_plugins.py): `start` asks for 16 kHz, audio goes
+// out as binary, the four segment events map to speech events, a flush is `end_segment`, the end of input is `end`.
+{
+  const server = new WebSocketServer({ port: 0 });
+  await new Promise((r) => server.once("listening", r));
+  const port = (server.address() as { port: number }).port;
+  const sessions: { start?: Record<string, unknown>; bytes: number[]; endSegments: number; ended: boolean }[] = [];
+  server.on("connection", (ws) => {
+    const session = { bytes: [] as number[], endSegments: 0, ended: false } as (typeof sessions)[number];
+    sessions.push(session);
+    const send = (payload: object) => ws.send(JSON.stringify(payload));
+    ws.on("message", (data, isBinary) => {
+      if (isBinary) {
+        session.bytes.push((data as Buffer).byteLength);
+        if (session.bytes.length === 1 && session.start?.vad) {
+          send({ type: "speech_start", segment_id: 1, start_s: 0.1 });
+          send({ type: "interim", segment_id: 1, text: "hel", stable_text: "" });
+        }
+        return;
+      }
+      const message = JSON.parse(data.toString()) as { type: string } & Record<string, unknown>;
+      if (message.type === "start") {
+        session.start = message;
+        if (message.model === "missing") send({ type: "error", message: "Qwen3-ASR 9B is not downloaded" });
+        else send({ type: "ready", model: message.model, sample_rate: 16000, vad: message.vad, capabilities: { interim_results: true } });
+      } else if (message.type === "end_segment") {
+        session.endSegments += 1;
+        send({ type: "speech_end", segment_id: 1, end_s: 0.9 });
+        send({ type: "final", segment_id: 1, text: "hello", language: "en", start_s: 0.1, end_s: 0.9 });
+      } else if (message.type === "end") {
+        session.ended = true;
+        if (session.start?.model === "open-at-end") send({ type: "speech_start", segment_id: 2, start_s: 1 });
+        if (session.start?.vad === false) {
+          send({ type: "final", segment_id: 1, text: "good", language: "en", start_s: 0, end_s: 0.4 });
+          send({ type: "final", segment_id: 2, text: "morning", language: "en", start_s: 0.5, end_s: 1 });
+        }
+        send({ type: "end" });
+        ws.close();
+      }
+    });
+  });
+
+  const errors: { message: string; recoverable: boolean }[] = [];
+  const make = (model: string) => {
+    const vb = new VoiceboxSTT({ url: `http://127.0.0.1:${port}/`, model, interim: true, interimIntervalMs: 500, maxSegmentS: 30 });
+    vb.on("error", (e) => errors.push({ message: e.error.message, recoverable: e.recoverable }));
+    return vb;
+  };
+  const frame = (rate: number, ms: number) => new AudioFrame(new Int16Array((rate * ms) / 1000).fill(100), rate, 1, (rate * ms) / 1000);
+  const collect = async (stream: stt.SpeechStream) => {
+    const events: stt.SpeechEvent[] = [];
+    const drain = (async () => {
+      for await (const event of stream) events.push(event);
+    })();
+    await Promise.race([drain, new Promise((r) => setTimeout(r, 3000))]);
+    stream.close();
+    return events;
+  };
+
+  const vb = make("qwen-asr-0.6B");
+  ok("voicebox stt: interim results are off until the server says so", !vb.capabilities.interimResults);
+  const stream = vb.stream();
+  for (let i = 0; i < 5; i += 1) stream.pushFrame(frame(48000, 20));
+  await new Promise((r) => setTimeout(r, 100));
+  stream.flush();
+  await new Promise((r) => setTimeout(r, 50));
+  stream.endInput();
+  const events = await collect(stream);
+  const S = stt.SpeechEventType;
+  eq("voicebox stt: start asks for 16 kHz with the server VAD, interim on, and the model", [sessions[0]?.start?.sample_rate, sessions[0]?.start?.vad, sessions[0]?.start?.interim, sessions[0]?.start?.model], [16000, true, true, "qwen-asr-0.6B"]);
+  ok("voicebox stt: interim results follow the server's ready", vb.capabilities.interimResults);
+  const sent = sessions[0]!.bytes.reduce((n, b) => n + b, 0);
+  ok(`voicebox stt: 100 ms at 48 kHz goes out as about 100 ms of 16 kHz PCM16 (${sent} bytes)`, sent > 2000 && sent <= 3200);
+  eq("voicebox stt: the events map in the server's order", events.map((e) => e.type), [S.START_OF_SPEECH, S.INTERIM_TRANSCRIPT, S.END_OF_SPEECH, S.FINAL_TRANSCRIPT]);
+  eq("voicebox stt: the final carries the text, language and times", [events[3]?.alternatives?.[0].text, events[3]?.alternatives?.[0].language, events[3]?.requestId], ["hello", "en", "1"]);
+  ok("voicebox stt: final times are in seconds on the stream clock", Math.abs((events[3]?.alternatives?.[0].endTime ?? 0) - 0.9) < 0.5);
+  eq("voicebox stt: a flush is end_segment, the end of input is end", [sessions[0]!.endSegments, sessions[0]!.ended], [1, true]);
+
+  const open = make("open-at-end");
+  const openStream = open.stream();
+  openStream.pushFrame(frame(16000, 20));
+  await new Promise((r) => setTimeout(r, 50));
+  openStream.endInput();
+  const openEvents = await collect(openStream);
+  eq("voicebox stt: a stream that ends inside speech still ends the speech", openEvents.map((e) => e.type).slice(-1), [S.END_OF_SPEECH]);
+
+  const before = sessions.length;
+  const refused = make("missing");
+  const refusedEvents = await collect(refused.stream());
+  eq("voicebox stt: a refused start yields nothing", refusedEvents, []);
+  eq("voicebox stt: a refused start is tried once, not retried", sessions.length - before, 1);
+  ok("voicebox stt: a refused start reports the server's reason as unrecoverable", errors.some((e) => !e.recoverable && e.message.includes("not downloaded")));
+
+  const batch = make("qwen-asr-0.6B");
+  const result = await batch.recognize(frame(16000, 250));
+  const batchSession = sessions.at(-1)!;
+  eq("voicebox stt: recognize sends one segment with no server VAD", [batchSession.start?.vad, batchSession.bytes], [false, [8000]]);
+  eq("voicebox stt: recognize joins the finals", [result.type, result.alternatives?.[0].text], [S.FINAL_TRANSCRIPT, "good morning"]);
+  server.close();
+}
+
 console.log(`checked ${checked} voice-worker properties`);
 if (failures.length > 0) {
   console.error(`FAILED: ${failures.length}`);
@@ -853,3 +997,6 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log("voice-worker request builder, ledger and turn plans: all properties hold");
+// The STT stream's 48 kHz → 16 kHz resampler starts @livekit/rtc-node's native runtime, which keeps
+// the event loop alive after every check has finished.
+process.exit(0);

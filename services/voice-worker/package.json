@@ -16,6 +16,7 @@
     "check": "tsx src/check.ts",
     "smoke": "tsx src/smoke.ts",
     "stt:check": "tsx src/stt-language-check.ts",
+    "stt:voicebox": "tsx src/voicebox-stt-smoke.ts",
     "replay": "tsx src/replay.ts"
   },
   "dependencies": {

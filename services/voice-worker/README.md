@@ -90,6 +90,29 @@ Both `words-4.3` and `words-4.4` use the Voicebox voice "Men 1" (`VOICEBOX_PROFI
 When it is not running, a `words-4.4` lesson gets no tutor. Research: Voice-Agent project,
 `docs/2026-10-27-local-voice-worker-on-mac-research.md`.
 
+`words-4.5` is `words-4.4` with the STT swapped too: the worker listens through Voicebox's own
+`/stt/ws` (`src/voicebox-stt.ts`, Voicebox `0.6.0-custom.1` or later) instead of Deepgram Flux.
+A version names the model through its STT profile (`src/stt-profiles.ts`):
+
+| `stt` | Voicebox model |
+|---|---|
+| `voicebox-qwen-asr-0.6b` | `qwen-asr-0.6B` (`words-4.5`) |
+| `voicebox-qwen-asr-1.7b` | `qwen-asr-1.7B` |
+| `voicebox-whisper-turbo` | `whisper-turbo` |
+| `voicebox-whisper-base` | `whisper-base` |
+
+The model must be downloaded in Voicebox. It speaks with the Voicebox voice "Woman 2"
+(TTS profile `voicebox-local-woman-2`, a fixed voice that `VOICEBOX_PROFILE_ID` does not change). Only the Mac worker can serve it: the tunnel lets
+`/tts/*` through and nothing else. Check the app's STT before a lesson:
+
+```sh
+say -o /tmp/s.wav --data-format=LEI16@16000 "Hello, this is a test."
+pnpm --filter voice-worker stt:voicebox /tmp/s.wav                                  # voicebox-qwen-asr-0.6b
+pnpm --filter voice-worker stt:voicebox /tmp/s.wav --profile voicebox-whisper-turbo  # any STT profile above
+```
+
+Research: `docs/2026-10-30-livekit-voicebox-plugins-node.md`.
+
 On that Mac it runs as a LaunchAgent (`win.kovalchuk.voice-worker`), managed by
 [`scripts/local-worker.sh`](scripts/local-worker.sh), never from a Git checkout:
 
@@ -127,7 +150,7 @@ pnpm --filter @tutor/shared lint
 pnpm check:shared
 ```
 
-These are offline checks. `smoke`, `stt:check`, `replay` and cloud audio simulations call real
+These are offline checks. `smoke`, `stt:check`, `stt:voicebox`, `replay` and cloud audio simulations call real
 services and consume usage. Replay needs real learner clips; see the
 [completion checklist](../../docs/2026-09-25-livekit-completion-checklist.md).
 

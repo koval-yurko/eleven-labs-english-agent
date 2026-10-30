@@ -28,6 +28,11 @@ export const DEFAULT_TTS_MODEL = "aura-2-asteria-en";
  * Another machine sets `VOICEBOX_PROFILE_ID`.
  */
 export const DEFAULT_VOICEBOX_PROFILE_ID = "6536ab39-8909-4528-8327-27d61a390e45";
+/**
+ * "Woman 2", the voice of `words-4.5` (`voicebox-local-woman-2`). A fixed voice on purpose:
+ * VOICEBOX_PROFILE_ID does not change it, so a `.env` value cannot turn 4.5 back into "Men 1".
+ */
+export const VOICEBOX_WOMAN_2_PROFILE_ID = "b3b92303-6ba8-40e9-a1c6-6b13be5452ce";
 export const DEFAULT_VOICEBOX_URL = "http://127.0.0.1:17493";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
@@ -41,14 +46,19 @@ const env = (name: string): string | undefined => process.env[name] || undefined
  * (VOICEBOX_LOCAL_URL, default 127.0.0.1): the Mac worker shares its `.env` with the Cloud worker's
  * secret sync, so VOICEBOX_URL there is the tunnel.
  */
-function voiceboxProfile(transport: VoiceboxTransport, { local = false } = {}): TtsProfile {
+function voiceboxProfile(
+  transport: VoiceboxTransport,
+  { local = false, voice }: { local?: boolean; voice?: { name: string; profileId: string } } = {},
+): TtsProfile {
   return {
-    label: `Voicebox (${local ? "this Mac" : "local Qwen3-TTS voice clone"}, ${transport === "ws" ? "/tts/ws" : "/tts/stream"})`,
+    label:
+      `Voicebox (${local ? "this Mac" : "local Qwen3-TTS voice clone"}, ${transport === "ws" ? "/tts/ws" : "/tts/stream"}` +
+      `${voice ? `, "${voice.name}"` : ""})`,
     secrets: [],
     create: () =>
       new VoiceboxTTS({
         url: (local ? env("VOICEBOX_LOCAL_URL") : env("VOICEBOX_URL")) ?? DEFAULT_VOICEBOX_URL,
-        profileId: env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
+        profileId: voice?.profileId ?? env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
         apiKey: local ? undefined : env("VOICEBOX_API_KEY"),
         language: env("VOICEBOX_LANGUAGE") ?? "en",
         modelSize: env("VOICEBOX_MODEL_SIZE") ?? "1.7B",
@@ -88,6 +98,11 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
   voicebox: voiceboxProfile("ws"),
   // `words-4.4`: the same voice for the worker on the Mac (`tutor-local`), never through the tunnel.
   "voicebox-local": voiceboxProfile("ws", { local: true }),
+  // `words-4.5`: the same path as `voicebox-local`, with the voice "Woman 2".
+  "voicebox-local-woman-2": voiceboxProfile("ws", {
+    local: true,
+    voice: { name: "Woman 2", profileId: VOICEBOX_WOMAN_2_PROFILE_ID },
+  }),
 };
 
 export function missingSecrets(profile: TtsProfile): string[] {

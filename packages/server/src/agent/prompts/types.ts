@@ -68,6 +68,11 @@ export interface PromptVersion {
    */
   tts?: string;
   /**
+   * LiveKit only: the worker's STT profile for this version (a key of `STT_PROFILES` in
+   * `services/voice-worker/src/stt-profiles.ts`). Omitted = the worker's default (Deepgram Flux).
+   */
+  stt?: string;
+  /**
    * LiveKit only: which worker the token route dispatches to. `"local"` is the worker on the Mac
    * that runs Voicebox (`LIVEKIT_LOCAL_AGENT_NAME`); omitted = the LiveKit Cloud worker.
    */

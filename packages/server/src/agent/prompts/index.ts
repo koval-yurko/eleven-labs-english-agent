@@ -20,6 +20,7 @@ import words41 from "./words-4.1";
 import words42 from "./words-4.2";
 import words43 from "./words-4.3";
 import words44 from "./words-4.4";
+import words45 from "./words-4.5";
 
 export type { PromptVersion } from "./types";
 
@@ -90,7 +91,9 @@ export const DEFAULT_SILENCE_END_CALL_TIMEOUT_SECONDS = -1;
  * and 4.4 the local path. Both speak as the Voicebox voice "Men 1" ("Qwen Clone Demo" before
  * 2026-10-27). The name was used before: until 2026-10-26 `words-4.4` was the 4.3 voice over
  * `/tts/stream`, retired after the device test chose `/tts/ws` — a `words-4.4` session stored before
- * 2026-10-27 is that one.
+ * 2026-10-27 is that one. `words-4.5` is `words-4.4` with the STT swapped for Voicebox's own
+ * `/stt/ws` on the same Mac (docs/2026-10-30-livekit-voicebox-plugins-node.md), and the voice
+ * swapped for the Voicebox profile "Woman 2".
  * Two retired candidates are worth knowing about when reading old debug reports: `words-4.2` first
  * named a Gemini Flash TTS (reports 407fcad4 and 1aecfbcf, died within a minute: 10 requests/min and
  * 100/day cannot carry a lesson), and `words-4.3` was the chunked lesson before it took the name
@@ -114,6 +117,7 @@ export const PROMPT_VERSIONS: PromptVersion[] = [
   words42,
   words43,
   words44,
+  words45,
 ];
 
 /**

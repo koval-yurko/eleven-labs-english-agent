@@ -42,7 +42,7 @@ import type { AutoContinue } from "./auto-continue.ts";
 import { wireAutoContinue } from "./auto-continue-wiring.ts";
 import { Backend, LEDGER_BATCH_SIZE } from "./backend.ts";
 import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
-import { createStt } from "./pipeline.ts";
+import { createSttFor, resolveSttProfile } from "./stt-profiles.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
 import { VoiceboxTTS } from "./voicebox-tts.ts";
@@ -166,6 +166,7 @@ export default defineAgent({
     const dispatched = isDispatched(ctx.job.metadata);
     const model = metadata.llm ?? DEFAULT_MODEL;
     const ttsProfile = resolveTtsProfile(metadata.tts);
+    const sttProfile = resolveSttProfile(metadata.stt);
     const startedAtMs = Date.now();
 
     /**
@@ -287,7 +288,8 @@ export default defineAgent({
     // Load the Voicebox model now: a cold one takes ~35 s, which the first reply would otherwise pay.
     if (voiceTts instanceof VoiceboxTTS) voiceTts.warm();
     const session = new voice.AgentSession({
-      stt: createStt(),
+      // A Voicebox STT loads its model in `prewarm()`, which the session calls when the agent starts.
+      stt: createSttFor(metadata.stt),
       tts: voiceTts,
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
@@ -391,6 +393,7 @@ export default defineAgent({
     await session.start({ agent, room: ctx.room });
     console.log(
       `[worker] lesson ${metadata.conversationId} (${metadata.version}) on ${model}, ` +
+        `stt ${sttProfile.id}${sttProfile.fellBack ? ` (unknown "${metadata.stt}", default used)` : ""}, ` +
         `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${metadata.tts}", default used)` : ""}, ` +
         `turn plan ${metadata.turnPlan ?? `${DEFAULT_TURN_PLAN} (default)`}` +
         (backend ? "" : " — no grant, writing nothing back"),

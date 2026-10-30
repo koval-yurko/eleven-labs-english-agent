@@ -192,6 +192,12 @@ export interface LiveKitDispatchMetadata {
    */
   tts?: string;
   /**
+   * Which STT the worker listens with: a key of `STT_PROFILES` in `services/voice-worker/src/stt-profiles.ts`.
+   * Absent = the worker's default (Deepgram Flux). Same rules as `tts`: an unknown name falls back,
+   * loudly.
+   */
+  stt?: string;
+  /**
    * The lesson is delivered in chunks and the worker carries on between them
    * (`services/voice-worker/src/auto-continue.ts`): after a chunk ends naturally and the learner says
    * nothing, it asks the tutor for the next one, until the tutor calls `lesson_complete`. Absent =
