@@ -1,0 +1,7 @@
+{
+  "worktree": {
+    "setup": [
+      "cd \"$PASEO_SOURCE_CHECKOUT_PATH\" && find . \\( -name node_modules -o -name .git -o -name actions-runner \\) -prune -o -type f -name '.env*' ! -name '*.example' -print | while read -r f; do [ -d \"$PASEO_WORKTREE_PATH/$(dirname \"$f\")\" ] && cp -n \"$f\" \"$PASEO_WORKTREE_PATH/$f\" && echo \"copied $f\"; done; true"
+    ]
+  }
+}
