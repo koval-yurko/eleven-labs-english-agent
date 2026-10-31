@@ -21,6 +21,7 @@
  * records the id — but no client that can open it yet. It is therefore deliberately WITHHELD here
  * rather than listed with a null id: see `CLIENT_READY`.
  */
+import type { CustomizationSchema } from "@tutor/shared/tutor/customization";
 import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 import lockfile from "./agent/agents.lock.json";
@@ -43,6 +44,8 @@ export interface ActiveVersion {
   /** The provisioned ElevenLabs agent, or `null` for a provider that has no such object. */
   agentId: string | null;
   label?: string;
+  /** The version's declared options (`PromptVersion.customization`); absent = none. */
+  customization?: CustomizationSchema;
 }
 
 /**
@@ -101,19 +104,20 @@ export function activeVersions(): ActiveVersion[] {
   return PROMPT_VERSIONS.flatMap<ActiveVersion>((v) => {
     const provider: TutorProviderId = v.provider ?? "elevenlabs";
     const label = v.label ?? v.version;
+    const extra = v.customization ? { customization: v.customization } : {};
     // Provisioned but un-offerable. See CLIENT_READY.
     if (!CLIENT_READY.has(provider)) return [];
     // A provider with NO remote object is active by existing on disk — there is nothing to look up,
     // because its session config is built per request by its own token route. Only OpenAI is this
     // shape today.
     if (!PROVISIONED.has(provider)) {
-      return [{ version: v.version, provider, agentId: null, label }];
+      return [{ version: v.version, provider, agentId: null, label, ...extra }];
     }
     const a = lock.agents[v.version];
     // Unprovisioned or retired: NOT active. Offering it would put a version in the picker that
     // cannot start a session, and the failure would land on the learner rather than on a sync.
     if (!a || a.status !== "active" || !a.agentId) return [];
-    return [{ version: v.version, provider, agentId: a.agentId, label }];
+    return [{ version: v.version, provider, agentId: a.agentId, label, ...extra }];
   });
 }
 

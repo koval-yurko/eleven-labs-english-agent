@@ -1,4 +1,5 @@
 import type { TutorWorker } from "@tutor/shared/tutor/livekit-wire";
+import type { CustomizationSchema } from "@tutor/shared/tutor/customization";
 import type { TutorProviderId } from "@tutor/shared/tutor/transport";
 
 /**
@@ -83,6 +84,15 @@ export interface PromptVersion {
    * `services/voice-worker/src/auto-continue.ts`. Omitted = off.
    */
   autoContinue?: boolean;
+  /**
+   * LiveKit only: the options the learner may change for this version, declared as data
+   * (`@tutor/shared/tutor/customization`). The phone renders them in one generic modal and saves the
+   * values per version; the token route validates them and sends all of them, defaults included, to
+   * the worker as `overrides`. The defaults must equal what the version runs without them, so a
+   * learner who never opens the modal hears the version as written. Omitted = no "Customize" link.
+   * Research: docs/2026-10-30-prompt-version-customization.md.
+   */
+  customization?: CustomizationSchema;
   /** Teacher voice id. Defaults to env ELEVENLABS_TEACHER_VOICE_ID at sync time. */
   voiceId?: string;
   /** Real-time TTS model. Defaults to DEFAULT_TTS_MODEL (see ./index.ts). */

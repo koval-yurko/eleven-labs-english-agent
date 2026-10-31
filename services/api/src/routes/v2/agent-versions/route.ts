@@ -31,10 +31,13 @@ export const GET = withBearer(async () => {
     // `provider` rides along because picking a version IS picking a provider (§13 Q1/Q2): the
     // client opens a different transport for each, and inferring which from a naming convention
     // would put a copy of a server-side rule inside shipped binaries.
-    versions: active.map(({ version, label, provider }) => ({
+    // `customization` is the version's option schema, sent as data so one generic modal on the
+    // phone can render any version's options (docs/2026-10-30-prompt-version-customization.md).
+    versions: active.map(({ version, label, provider, customization }) => ({
       version,
       label: label ?? version,
       provider,
+      ...(customization ? { customization } : {}),
     })),
     defaultVersion: fallback.version,
   };

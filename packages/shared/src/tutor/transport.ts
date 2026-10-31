@@ -1,5 +1,6 @@
 /** The contract between a tutor session and whatever is carrying the voice. The only thing a second provider must satisfy.
  *  See ../../docs/tutor.md. */
+import type { CustomizationValues } from "./customization";
 import type { TranscriptLine, TutorItem } from "./session";
 
 /**
@@ -62,6 +63,11 @@ export interface TutorStartRequest {
   lessonId: string;
   items: TutorItem[];
   version: string | null;
+  /**
+   * The learner's saved customization of `version`, by field key (`./customization.ts`). Only the
+   * LiveKit adapter sends it today; the server validates it, so a stale value is harmless.
+   */
+  options?: CustomizationValues;
 }
 
 export interface TutorSessionDescriptor {

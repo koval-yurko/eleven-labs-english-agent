@@ -55,6 +55,15 @@ import {
   type DebugLevel,
 } from "./src/debug/report";
 import { DEBUG_CODES, isKnownDebugCode } from "./src/debug/codes";
+import {
+  changedCustomization,
+  customizationDefaults,
+  customizationOverrides,
+  isCustomizationSchema,
+  parseCustomizationTarget,
+  resolveCustomization,
+  type CustomizationSchema,
+} from "./src/tutor/customization";
 import { createFakeTransport } from "./src/testing/fake-transport";
 import type { TutorCapabilities } from "./src/tutor/transport";
 import {
@@ -973,6 +982,59 @@ eq("sanitizeDebugReport: an unknown kind", sanitizeDebugReport({ kind: "wat" }),
 }
 
 console.log(`checked debug-report properties (${DEBUG_CODES.length} codes)`);
+
+// ── tutor customization ──────────────────────────────────────────────────────────────────────
+// The phone and the API both run `resolveCustomization` on values that came from storage or a
+// request body, so it must never throw and never pass a value the schema does not offer. A saved
+// value that a later schema no longer accepts falls back to the default — that is how a version can
+// drop an option without breaking a learner who picked it.
+{
+  const schema: CustomizationSchema = {
+    fields: [
+      { key: "voice", target: "tts.voice", kind: "select", label: "Voice", default: "a", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] },
+      { key: "speed", target: "tts.speed", kind: "number", label: "Speed", default: 1, min: 0.75, max: 1.25, step: 0.05 },
+      { key: "flag", target: "stt.profile", kind: "boolean", label: "Flag", default: false },
+    ],
+  };
+  eq("customization: defaults", customizationDefaults(schema), { voice: "a", speed: 1, flag: false });
+  for (const junk of [undefined, null, 7, "x", [], [1, 2]]) {
+    eq(`customization: junk ${JSON.stringify(junk)} resolves to defaults`, resolveCustomization(schema, junk), { voice: "a", speed: 1, flag: false });
+  }
+  eq(
+    "customization: valid values pass, unknown keys drop",
+    resolveCustomization(schema, { voice: "b", speed: 0.8, flag: true, extra: "x" }),
+    { voice: "b", speed: 0.8, flag: true },
+  );
+  eq(
+    "customization: an option the schema does not offer, and wrong types, fall back",
+    resolveCustomization(schema, { voice: "gone", speed: "1.1", flag: "yes" }),
+    { voice: "a", speed: 1, flag: false },
+  );
+  eq("customization: numbers clamp", resolveCustomization(schema, { speed: 9 }).speed, 1.25);
+  eq("customization: numbers clamp low", resolveCustomization(schema, { speed: -1 }).speed, 0.75);
+  eq("customization: numbers snap to the step without float noise", resolveCustomization(schema, { speed: 1.0333 }).speed, 1.05);
+  eq("customization: NaN falls back", resolveCustomization(schema, { speed: Number.NaN }).speed, 1);
+  eq("customization: changed keeps only non-defaults", changedCustomization(schema, { voice: "a", speed: 1.1 }), { speed: 1.1 });
+  // Every field goes to the worker, defaults included: a default left out would let a worker env var
+  // win over the value the modal shows as selected.
+  eq(
+    "customization: overrides group by stage and key, and carry the defaults",
+    customizationOverrides(schema, { voice: "b", speed: 1.1, flag: true }),
+    { tts: { voice: "b", speed: 1.1 }, stt: { profile: true } },
+  );
+  eq("customization: no values sends every default", customizationOverrides(schema, undefined), { tts: { voice: "a", speed: 1 }, stt: { profile: false } });
+  // A prototype key must not read as a stored value.
+  eq("customization: __proto__ is not a value", resolveCustomization(schema, JSON.parse('{"__proto__":{"voice":"b"}}')).voice, "a");
+  eq("customization: schema survives the wire", isCustomizationSchema(JSON.parse(JSON.stringify(schema))), true);
+  // The stage is closed, the key is open: a provider's own key needs no change in this package.
+  eq("customization: any key on a known stage is a target", isCustomizationSchema({ fields: [{ key: "k", label: "L", target: "tts.instruct", kind: "boolean", default: true }] }), true);
+  for (const bad of ["llm.model", "tts", "tts.", ".voice", "voice", 7, undefined]) {
+    eq(`customization: ${JSON.stringify(bad)} is not a target`, parseCustomizationTarget(bad), null);
+  }
+  eq("customization: the key may itself hold a dot", parseCustomizationTarget("tts.voice.id"), { stage: "tts", key: "voice.id" });
+  eq("customization: unknown kind is rejected", isCustomizationSchema({ fields: [{ key: "k", label: "L", target: "tts.voice", kind: "text", default: "" }] }), false);
+  console.log("checked customization properties");
+}
 
 if (failures.length > 0) {
   console.error(`FAILED: ${failures.length}`);

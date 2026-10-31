@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 
 import type { LiveKitTokenResponse, RealtimeTokenRequest } from "@tutor/shared/api";
+import { customizationOverrides } from "@tutor/shared/tutor/customization";
 import { formatItemsList, type TutorItem } from "@tutor/shared/tutor/session";
 import { livekitAgentName, type LiveKitDispatchMetadata } from "@tutor/shared/tutor/livekit-wire";
 
@@ -108,6 +109,14 @@ export const POST = withBearer(async (req, ownerId) => {
    * at the end, after the learner has spent twenty minutes on it. Failing here costs a retry;
    * failing there costs the session.
    */
+  /**
+   * The learner's customization, checked against the version's own schema: an unknown key, a value
+   * the schema does not offer or a wrong type falls back to the default. Every field reaches the
+   * worker, defaults included, so it runs what the modal shows. A version without a schema ignores
+   * `options` entirely.
+   */
+  const overrides = chosen.customization ? customizationOverrides(chosen.customization, body.options) : {};
+
   const grant = await signLessonGrant({ conversationId, ownerId, lessonId: lesson.id });
   if (!grant) {
     return apiError(500, "config", "LIVEKIT_GRANT_SECRET is not set; the lesson could not be authorized.");
@@ -123,6 +132,7 @@ export const POST = withBearer(async (req, ownerId) => {
     ...(chosen.tts ? { tts: chosen.tts } : {}),
     ...(chosen.stt ? { stt: chosen.stt } : {}),
     ...(chosen.autoContinue ? { autoContinue: true } : {}),
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
     grant,
   };
 

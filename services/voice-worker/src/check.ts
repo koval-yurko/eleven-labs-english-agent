@@ -30,10 +30,13 @@ import {
   createTtsFor,
   DEFAULT_VOICEBOX_PROFILE_ID,
   VOICEBOX_WOMAN_2_PROFILE_ID,
+  VOICEBOX_VOICES,
   missingSecrets,
   resolveTtsProfile,
   TTS_PROFILES,
 } from "./tts-profiles.ts";
+import { sessionVoice } from "./overrides.ts";
+import { splitOptions } from "./profile-options.ts";
 
 const failures: string[] = [];
 let checked = 0;
@@ -605,6 +608,15 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
       [woman2.opts.profileId, woman2.opts.url, woman2.opts.apiKey],
       [VOICEBOX_WOMAN_2_PROFILE_ID, "http://127.0.0.1:18000", undefined],
     );
+    // A learner's customization (words-4.5): the voice and the model size replace the profile's own,
+    // so the warmup and every socket ask Voicebox for the chosen ones.
+    const chosen = createTtsFor("voicebox-local-woman-2", { voice: "men-1", model: "0.6B" }) as VoiceboxTTS;
+    eq("tts: overrides set the Voicebox voice and model size", [chosen.opts.profileId, chosen.opts.modelSize], [DEFAULT_VOICEBOX_PROFILE_ID, "0.6B"]);
+    eq("tts: Deepgram reads no option, and says which it ignores", splitOptions(TTS_PROFILES.deepgram!.accepts, { voice: "x" }).ignored, ["voice"]);
+    eq("tts: Voicebox reads voice and model, ignores a key it does not know", splitOptions(TTS_PROFILES["voicebox-local"]!.accepts, { voice: "x", model: "0.6B", region: "eu" }), { accepted: { voice: "x", model: "0.6B" }, ignored: ["region"] });
+    eq("tts: an option of the wrong type falls back to the profile's own", (createTtsFor("voicebox-local-woman-2", { voice: 3 }) as VoiceboxTTS).opts.profileId, VOICEBOX_WOMAN_2_PROFILE_ID);
+    eq("tts: an unknown voice name keeps the profile's own voice", (createTtsFor("voicebox-local-woman-2", { voice: "nobody" }) as VoiceboxTTS).opts.profileId, VOICEBOX_WOMAN_2_PROFILE_ID);
+    eq("tts: the voice the version declares by default is the profile's own", VOICEBOX_VOICES["woman-2"]!.profileId, VOICEBOX_WOMAN_2_PROFILE_ID);
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
@@ -856,6 +868,33 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
   ok("voicebox ws: barge-in sends cancel and closes the socket", session.cancelled && session.closed);
   await vb.close();
   server.close();
+}
+
+// Customization overrides → what the session builds. Absent overrides are the version as written.
+{
+  eq(
+    "overrides: none",
+    sessionVoice({ stt: "voicebox-qwen-asr-0.6b", tts: "voicebox-local-woman-2" }),
+    { stt: { profile: "voicebox-qwen-asr-0.6b", options: {} }, tts: { profile: "voicebox-local-woman-2", options: {} }, applied: [] },
+  );
+  eq(
+    "overrides: `profile` replaces the version's own; other keys go to the profile, whatever they are",
+    sessionVoice({
+      stt: "voicebox-qwen-asr-0.6b",
+      tts: "voicebox-local-woman-2",
+      overrides: { stt: { profile: "deepgram" }, tts: { model: "0.6B", voice: "v1", instruct: "slowly" } },
+    }),
+    {
+      stt: { profile: "deepgram", options: {} },
+      tts: { profile: "voicebox-local-woman-2", options: { model: "0.6B", voice: "v1", instruct: "slowly" } },
+      applied: ["stt.profile=deepgram", "tts.model=0.6B", "tts.voice=v1", "tts.instruct=slowly"],
+    },
+  );
+  eq(
+    "overrides: a non-string profile and a non-value option are dropped",
+    sessionVoice({ stt: "a", overrides: { stt: { profile: 3 }, tts: { voice: { x: 1 } as unknown as string } } }),
+    { stt: { profile: "a", options: {} }, tts: { profile: undefined, options: {} }, applied: [] },
+  );
 }
 
 // STT profiles: a version names one; an unknown name falls back to Deepgram; each Voicebox profile is one fixed

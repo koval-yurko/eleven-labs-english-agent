@@ -8,6 +8,7 @@
  *  docs/2026-09-20-livekit-spike-task-plan.md Phase 1.
  */
 import type { TutorCapabilities } from "./transport";
+import type { CustomizationOverrides } from "./customization";
 
 /**
  * The worker's LiveKit agent name. Three things must agree on it byte-for-byte: the worker's
@@ -204,6 +205,14 @@ export interface LiveKitDispatchMetadata {
    * one long turn, then silence until the learner speaks (words-4.0 / 4.1).
    */
   autoContinue?: boolean;
+  /**
+   * The learner's customization of this version, grouped by stage then key (`./customization.ts`),
+   * already validated against the version's schema by the token route. Every declared field is
+   * present, defaults included; absent = a version with no customization. The reserved key `profile`
+   * replaces `stt` / `tts`; every other key goes to that stage's profile, which reads the keys it
+   * lists in `accepts` and the worker logs the rest as ignored.
+   */
+  overrides?: CustomizationOverrides;
   /** HMAC grant over `{conversationId, ownerId, exp}` — undesigned (open question 1). Absent in
    *  Phase 1, which skips `add_words_to_collection` entirely rather than exercise the old
    *  `ANONYMOUS` path. */

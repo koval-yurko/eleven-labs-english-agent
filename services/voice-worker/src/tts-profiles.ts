@@ -12,12 +12,19 @@ import type { tts } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import { QwenTTS } from "./qwen-tts.ts";
 import { VoiceboxTTS, type VoiceboxTransport } from "./voicebox-tts.ts";
+import { splitOptions, stringOption, type ProfileOptions } from "./profile-options.ts";
 
 export interface TtsProfile {
   label: string;
   /** Env vars that must all be set. */
   secrets: readonly string[];
-  create(): tts.TTS;
+  /**
+   * The learner options (`tts.<key>` in a version's customization) this profile reads. Its own
+   * vocabulary: a new provider adds its keys here and nowhere else. The worker drops and logs the rest.
+   */
+  accepts: readonly string[];
+  /** `options` holds only keys from `accepts`. */
+  create(options?: ProfileOptions): tts.TTS;
 }
 
 export const DEFAULT_TTS_PROFILE = "deepgram";
@@ -33,6 +40,15 @@ export const DEFAULT_VOICEBOX_PROFILE_ID = "6536ab39-8909-4528-8327-27d61a390e45
  * VOICEBOX_PROFILE_ID does not change it, so a `.env` value cannot turn 4.5 back into "Men 1".
  */
 export const VOICEBOX_WOMAN_2_PROFILE_ID = "b3b92303-6ba8-40e9-a1c6-6b13be5452ce";
+/**
+ * The voices a learner may pick (`tts.voice` in a version's customization), by name. A version names
+ * a voice, never a Voicebox id: the ids are this Mac's and live only here, so a version cannot hold
+ * a stale copy of one.
+ */
+export const VOICEBOX_VOICES: Readonly<Record<string, { name: string; profileId: string }>> = {
+  "woman-2": { name: "Woman 2", profileId: VOICEBOX_WOMAN_2_PROFILE_ID },
+  "men-1": { name: "Men 1", profileId: DEFAULT_VOICEBOX_PROFILE_ID },
+};
 export const DEFAULT_VOICEBOX_URL = "http://127.0.0.1:17493";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
@@ -46,6 +62,14 @@ const env = (name: string): string | undefined => process.env[name] || undefined
  * (VOICEBOX_LOCAL_URL, default 127.0.0.1): the Mac worker shares its `.env` with the Cloud worker's
  * secret sync, so VOICEBOX_URL there is the tunnel.
  */
+/** A voice name → its Voicebox id; an unknown name keeps the profile's own voice, and says so. */
+function chosenVoice(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  const found = VOICEBOX_VOICES[name];
+  if (!found) console.log(`[voicebox] unknown voice "${name}", the profile's own voice is used`);
+  return found?.profileId;
+}
+
 function voiceboxProfile(
   transport: VoiceboxTransport,
   { local = false, voice }: { local?: boolean; voice?: { name: string; profileId: string } } = {},
@@ -55,13 +79,16 @@ function voiceboxProfile(
       `Voicebox (${local ? "this Mac" : "local Qwen3-TTS voice clone"}, ${transport === "ws" ? "/tts/ws" : "/tts/stream"}` +
       `${voice ? `, "${voice.name}"` : ""})`,
     secrets: [],
-    create: () =>
+    // `voice`: a name from VOICEBOX_VOICES. `model`: the Qwen3-TTS `model_size` (`1.7B`, `0.6B`).
+    accepts: ["voice", "model"],
+    create: (options = {}) =>
       new VoiceboxTTS({
         url: (local ? env("VOICEBOX_LOCAL_URL") : env("VOICEBOX_URL")) ?? DEFAULT_VOICEBOX_URL,
-        profileId: voice?.profileId ?? env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
+        profileId:
+          chosenVoice(stringOption(options, "voice")) ?? voice?.profileId ?? env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
         apiKey: local ? undefined : env("VOICEBOX_API_KEY"),
         language: env("VOICEBOX_LANGUAGE") ?? "en",
-        modelSize: env("VOICEBOX_MODEL_SIZE") ?? "1.7B",
+        modelSize: stringOption(options, "model") ?? env("VOICEBOX_MODEL_SIZE") ?? "1.7B",
         intervalMs: Number(env("VOICEBOX_INTERVAL_MS") ?? 320),
         transport,
       }),
@@ -72,6 +99,7 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
   deepgram: {
     label: "Deepgram Aura-2",
     secrets: ["DEEPGRAM_API_KEY"],
+    accepts: [],
     // The plugin captures the key at import; passing it keeps a Cloud-secret key working.
     create: () =>
       new deepgram.TTS({ model: env("DEEPGRAM_TTS_MODEL") ?? DEFAULT_TTS_MODEL, apiKey: process.env.DEEPGRAM_API_KEY }),
@@ -79,6 +107,7 @@ export const TTS_PROFILES: Record<string, TtsProfile> = {
   qwen: {
     label: "Alibaba Qwen-Audio 3.0 TTS Plus",
     secrets: ["DASHSCOPE_API_KEY", "QWEN_WORKSPACE_ID"],
+    accepts: [],
     create: () =>
       new QwenTTS({
         apiKey: process.env.DASHSCOPE_API_KEY ?? "",
@@ -115,11 +144,14 @@ export function resolveTtsProfile(id: string | undefined): { id: string; profile
   return { id: DEFAULT_TTS_PROFILE, profile: TTS_PROFILES[DEFAULT_TTS_PROFILE]!, fellBack: id !== undefined };
 }
 
-export function createTtsFor(id: string | undefined): tts.TTS {
+/** `options` are the learner's `tts.*` values; the profile gets only the keys it `accepts`. */
+export function createTtsFor(id: string | undefined, options: ProfileOptions = {}): tts.TTS {
   const { id: resolved, profile } = resolveTtsProfile(id);
   const missing = missingSecrets(profile);
   if (missing.length > 0) {
     throw new Error(`TTS profile "${resolved}" (${profile.label}) needs ${missing.join(", ")} — set it as a worker secret.`);
   }
-  return profile.create();
+  const { accepted, ignored } = splitOptions(profile.accepts, options);
+  if (ignored.length > 0) console.log(`[worker] TTS profile "${resolved}" ignores options: ${ignored.join(", ")}`);
+  return profile.create(accepted);
 }

@@ -5,6 +5,7 @@ import { serializeItemsQuery } from "./words/query";
 import type { LessonDetail, LessonItem, LessonListItem, LessonSession } from "./lessons/types";
 import type { TranscriptLine, TutorItem } from "./tutor/session";
 import type { TutorProviderId, TutorUsage } from "./tutor/transport";
+import type { CustomizationSchema, CustomizationValues } from "./tutor/customization";
 import type { AddWordResult, ItemDetail, ItemFacet, ItemRow, LexiconLevel } from "./words/types";
 import type {
   DebugReportKind,
@@ -290,6 +291,11 @@ export interface RealtimeTokenRequest {
   lessonId: string;
   items: TutorItem[];
   version?: string;
+  /**
+   * The learner's saved customization for `version`, by field key. The route validates it against
+   * the version's schema (`resolveCustomization`); a version without a schema ignores it.
+   */
+  options?: CustomizationValues;
 }
 
 export type RealtimeTurnDetection =
@@ -442,6 +448,8 @@ export interface AgentVersionSummary {
   version: string;
   label: string;
   provider: TutorProviderId;
+  /** The options this version lets the learner change. Absent = no "Customize" link. */
+  customization?: CustomizationSchema;
 }
 
 export interface AgentVersionsResponse {

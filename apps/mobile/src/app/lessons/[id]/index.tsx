@@ -12,6 +12,12 @@ import { buildAddItemsOp, MAX_ITEMS } from "@tutor/shared/offline/ops";
 import { clientDedupeKey } from "@tutor/shared/words/key";
 import { type Palette } from "@tutor/shared/theme";
 import type { TranscriptLine } from "@tutor/shared/tutor/session";
+import {
+  changedCustomization,
+  isCustomizationSchema,
+  resolveCustomization,
+  type CustomizationValues,
+} from "@tutor/shared/tutor/customization";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +39,8 @@ import {
   type LessonMeta,
 } from "@/lib/tutor-session";
 import { resolveTutorVersion } from "@/lib/tutor-version";
+import { readTutorOptions, writeTutorOptions } from "@/lib/tutor-options";
+import { customizationSummary, TutorOptionsModal } from "@/lib/tutor-options-modal";
 import { useTheme } from "@/theme";
 import {
   Autocomplete,
@@ -44,6 +52,7 @@ import {
   ConfirmDialog,
   Disclosure,
   ErrorText,
+  Faint,
   H1,
   Link,
   Muted,
@@ -453,6 +462,45 @@ export default function LessonScreen() {
     versions?.versions.find((v) => v.version === selectedVersion)?.provider ?? null;
 
   /**
+   * The chosen version's options, if it declares any — the "Customize" link shows only then.
+   * Checked with `isCustomizationSchema` because an older API sends no schema and a newer one could
+   * send a field kind this build cannot render; either way the link is hidden, not broken.
+   * docs/2026-10-30-prompt-version-customization.md.
+   */
+  const selectedSummary = versions?.versions.find((v) => v.version === selectedVersion);
+  const optionsSchema = isCustomizationSchema(selectedSummary?.customization) ? selectedSummary.customization : null;
+  /** The saved values, tagged with their version so a slow read never lands on another version. */
+  const [savedOptions, setSavedOptions] = useState<{ version: string; values: CustomizationValues } | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  useEffect(() => {
+    if (!selectedVersion || !optionsSchema) return;
+    let live = true;
+    void readTutorOptions(selectedVersion).then((values) => {
+      if (live) setSavedOptions({ version: selectedVersion, values });
+    });
+    return () => {
+      live = false;
+    };
+  }, [selectedVersion, optionsSchema]);
+  const optionValues = useMemo(
+    () =>
+      optionsSchema
+        ? resolveCustomization(optionsSchema, savedOptions?.version === selectedVersion ? savedOptions.values : {})
+        : {},
+    [optionsSchema, savedOptions, selectedVersion],
+  );
+  const optionsSummary = optionsSchema ? customizationSummary(optionsSchema, optionValues) : "";
+  const saveOptions = useCallback(
+    (next: CustomizationValues) => {
+      if (!selectedVersion || !optionsSchema) return;
+      const changed = changedCustomization(optionsSchema, next);
+      setSavedOptions({ version: selectedVersion, values: changed });
+      void writeTutorOptions(selectedVersion, changed);
+    },
+    [selectedVersion, optionsSchema],
+  );
+
+  /**
    * Another lesson has the microphone.
    *
    * From `useActiveSession` rather than from `session` above, because it carries the other lesson's
@@ -553,8 +601,9 @@ export default function LessonScreen() {
       itemsDetailed: detail.lesson.itemsDetailed,
       version: selectedVersion,
       provider: selectedProvider,
+      ...(optionsSchema ? { options: changedCustomization(optionsSchema, optionValues) } : {}),
     });
-  }, [busy, detail, lessonId, lessonMeta, selectedVersion, selectedProvider, start]);
+  }, [busy, detail, lessonId, lessonMeta, selectedVersion, selectedProvider, optionsSchema, optionValues, start]);
 
   // ── render ─────────────────────────────────────────────────────────────────────────────────
   const transcript = useMemo(() => carried.concat(lines), [carried, lines]);
@@ -773,6 +822,25 @@ export default function LessonScreen() {
           </View>
         ) : null}
 
+        {/* Below the picker, and shown even when the picker is not (one version offered): the
+            options belong to the chosen version, not to the act of choosing. Disabled while a
+            session runs — the worker reads them once, at dispatch. */}
+        {optionsSchema && selectedVersion ? (
+          <View style={styles.optionsRow}>
+            <Button
+              variant="inline"
+              label="Customize"
+              disabled={connected || busy}
+              onPress={() => setOptionsOpen(true)}
+            />
+            {optionsSummary ? (
+              <Faint numberOfLines={1} style={styles.optionsSummary}>
+                {optionsSummary}
+              </Faint>
+            ) : null}
+          </View>
+        ) : null}
+
         {/* Three slots, always in the same order, so a control never moves under the thumb that is
             reaching for it: the session verb, the pause verb, the microphone. The layout is the one
             the lock-screen card will mirror — see docs/2026-08-16-background-controls-lock-screen.md
@@ -868,6 +936,17 @@ export default function LessonScreen() {
           </View>
         ) : null}
       </Panel>
+
+      {optionsSchema ? (
+        <TutorOptionsModal
+          open={optionsOpen}
+          onOpenChange={setOptionsOpen}
+          title={selectedSummary?.label ?? selectedVersion ?? ""}
+          schema={optionsSchema}
+          values={optionValues}
+          onSave={saveOptions}
+        />
+      ) : null}
 
       <DiagnosticsModal
         open={diagnosticsOpen}
@@ -1115,6 +1194,13 @@ const makeStyles = (t: Palette) =>
       gap: space.row,
       marginTop: space.row,
     },
+    optionsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.row,
+      marginTop: space.row,
+    },
+    optionsSummary: { flexShrink: 1 },
     line: { marginBottom: space.row },
     agent: { color: t.accent, fontWeight: type.weightBold },
     you: { color: t.ok, fontWeight: type.weightBold },

@@ -10,6 +10,7 @@
     "@livekit/react-native-expo-plugin": "^1.0.2",
     "@livekit/react-native-webrtc": "137.0.3",
     "@react-native-async-storage/async-storage": "1.24.0",
+    "@react-native-community/slider": "5.2.0",
     "@tutor/shared": "workspace:*",
     "@vapi-ai/react-native": "^0.3.0",
     "expo": "~57.0.13",

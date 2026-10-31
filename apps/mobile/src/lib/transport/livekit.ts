@@ -219,6 +219,7 @@ export function useLiveKitTransport(events: TutorTransportEvents): TutorTranspor
               lessonId: request.lessonId,
               items: request.items,
               version: request.version ?? undefined,
+              options: request.options,
             }),
           });
         } catch (e) {

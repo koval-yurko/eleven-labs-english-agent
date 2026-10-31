@@ -10,12 +10,16 @@ import type { stt } from "@livekit/agents";
 import { createStt } from "./pipeline.ts";
 import { DEFAULT_VOICEBOX_URL } from "./tts-profiles.ts";
 import { VOICEBOX_STT_DEFAULTS, VoiceboxSTT } from "./voicebox-stt.ts";
+import { splitOptions, type ProfileOptions } from "./profile-options.ts";
 
 export interface SttProfile {
   label: string;
   /** Env vars that must all be set. */
   secrets: readonly string[];
-  create(): stt.STT;
+  /** The learner options (`stt.<key>`) this profile reads; none today. Same rule as `TtsProfile.accepts`. */
+  accepts: readonly string[];
+  /** `options` holds only keys from `accepts`. */
+  create(options?: ProfileOptions): stt.STT;
 }
 
 export const DEFAULT_STT_PROFILE = "deepgram";
@@ -33,6 +37,7 @@ function voiceboxStt(model: string, name: string): SttProfile {
   return {
     label: `Voicebox STT ${name} (this Mac, /stt/ws)`,
     secrets: [],
+    accepts: [],
     create: () =>
       new VoiceboxSTT({
         url: env("VOICEBOX_LOCAL_URL") ?? DEFAULT_VOICEBOX_URL,
@@ -49,6 +54,7 @@ export const STT_PROFILES: Record<string, SttProfile> = {
   deepgram: {
     label: "Deepgram Flux",
     secrets: ["DEEPGRAM_API_KEY"],
+    accepts: [],
     create: () => createStt(),
   },
   "voicebox-qwen-asr-0.6b": voiceboxStt("qwen-asr-0.6B", "Qwen3-ASR 0.6B"),
@@ -67,11 +73,14 @@ export function resolveSttProfile(id: string | undefined): { id: string; profile
   return { id: DEFAULT_STT_PROFILE, profile: STT_PROFILES[DEFAULT_STT_PROFILE]!, fellBack: id !== undefined };
 }
 
-export function createSttFor(id: string | undefined): stt.STT {
+/** `options` are the learner's `stt.*` values; the profile gets only the keys it `accepts`. */
+export function createSttFor(id: string | undefined, options: ProfileOptions = {}): stt.STT {
   const { id: resolved, profile } = resolveSttProfile(id);
   const missing = missingSttSecrets(profile);
   if (missing.length > 0) {
     throw new Error(`STT profile "${resolved}" (${profile.label}) needs ${missing.join(", ")} — set it as a worker secret.`);
   }
-  return profile.create();
+  const { accepted, ignored } = splitOptions(profile.accepts, options);
+  if (ignored.length > 0) console.log(`[worker] STT profile "${resolved}" ignores options: ${ignored.join(", ")}`);
+  return profile.create(accepted);
 }

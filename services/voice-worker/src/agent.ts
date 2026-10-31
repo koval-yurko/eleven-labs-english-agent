@@ -45,6 +45,7 @@ import { ClaudeLLM, DEFAULT_MODEL } from "./claude-llm.ts";
 import { createSttFor, resolveSttProfile } from "./stt-profiles.ts";
 import { QwenTTS } from "./qwen-tts.ts";
 import { createTtsFor, resolveTtsProfile } from "./tts-profiles.ts";
+import { sessionVoice } from "./overrides.ts";
 import { VoiceboxTTS } from "./voicebox-tts.ts";
 import { lessonCompleteTool } from "./lesson-complete-tool.ts";
 import { saveWordsTool } from "./save-words-tool.ts";
@@ -165,8 +166,10 @@ export default defineAgent({
     const metadata = loadDispatchMetadata(ctx.job.metadata);
     const dispatched = isDispatched(ctx.job.metadata);
     const model = metadata.llm ?? DEFAULT_MODEL;
-    const ttsProfile = resolveTtsProfile(metadata.tts);
-    const sttProfile = resolveSttProfile(metadata.stt);
+    // The learner's customization of the version, if any: per stage, a profile and its options.
+    const voiceChoice = sessionVoice(metadata);
+    const ttsProfile = resolveTtsProfile(voiceChoice.tts.profile);
+    const sttProfile = resolveSttProfile(voiceChoice.stt.profile);
     const startedAtMs = Date.now();
 
     /**
@@ -279,7 +282,7 @@ export default defineAgent({
         speechFailed();
       },
     );
-    const voiceTts = createTtsFor(metadata.tts);
+    const voiceTts = createTtsFor(voiceChoice.tts.profile, voiceChoice.tts.options);
     // Open the socket the first reply will use now, while the room is still being set up.
     if (voiceTts instanceof QwenTTS) {
       voiceTts.warm();
@@ -289,7 +292,7 @@ export default defineAgent({
     if (voiceTts instanceof VoiceboxTTS) voiceTts.warm();
     const session = new voice.AgentSession({
       // A Voicebox STT loads its model in `prewarm()`, which the session calls when the agent starts.
-      stt: createSttFor(metadata.stt),
+      stt: createSttFor(voiceChoice.stt.profile, voiceChoice.stt.options),
       tts: voiceTts,
       turnHandling: turnHandlingFor(metadata.turnPlan),
     });
@@ -393,8 +396,9 @@ export default defineAgent({
     await session.start({ agent, room: ctx.room });
     console.log(
       `[worker] lesson ${metadata.conversationId} (${metadata.version}) on ${model}, ` +
-        `stt ${sttProfile.id}${sttProfile.fellBack ? ` (unknown "${metadata.stt}", default used)` : ""}, ` +
-        `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${metadata.tts}", default used)` : ""}, ` +
+        `stt ${sttProfile.id}${sttProfile.fellBack ? ` (unknown "${voiceChoice.stt.profile}", default used)` : ""}, ` +
+        `tts ${ttsProfile.id}${ttsProfile.fellBack ? ` (unknown "${voiceChoice.tts.profile}", default used)` : ""}, ` +
+        (voiceChoice.applied.length > 0 ? `options ${voiceChoice.applied.join(" ")}, ` : "") +
         `turn plan ${metadata.turnPlan ?? `${DEFAULT_TURN_PLAN} (default)`}` +
         (backend ? "" : " — no grant, writing nothing back"),
     );

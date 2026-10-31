@@ -1,4 +1,5 @@
 import { API_V2_ROUTES, type TutorSessionInput } from "@tutor/shared/api";
+import type { CustomizationValues } from "@tutor/shared/tutor/customization";
 import {
   formatResumeContext,
   HIDDEN_KICKOFF_MESSAGES,
@@ -161,6 +162,8 @@ export type StartInput = {
    * (§13 Q1/Q2). The session falls back to `DEFAULT_TUTOR_PROVIDER` rather than refusing.
    */
   provider: TutorProviderId | null;
+  /** The saved customization of `version` (`tutor-options.ts`); absent = the version as written. */
+  options?: CustomizationValues;
 };
 
 /** Everything a lesson screen renders. One object, so a screen reads one context. */
@@ -1400,6 +1403,9 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
           lessonId: input.lessonId,
           version: input.version,
           items: input.itemsDetailed.length,
+          // The learner's customization of `version` (only what differs from its defaults), so a
+          // report says which voice and models the lesson ran with; `null` = the version as written.
+          options: input.options && Object.keys(input.options).length > 0 ? JSON.stringify(input.options) : null,
           // A start that takes the line away from a live lesson is the one navigation-shaped act
           // that ends a session, and the takeover half-beat below is where the hardest bugs live.
           takeover: statusRef.current === "connected",
@@ -1502,6 +1508,7 @@ export function TutorSessionProvider({ children }: { children: ReactNode }) {
             // variable on one provider, server-side interpolation on another.
             items: input.itemsDetailed,
             version: input.version,
+            ...(input.options ? { options: input.options } : {}),
           },
           /**
            * The window between "we have a row key" and "the line is up". Everything here used to sit
