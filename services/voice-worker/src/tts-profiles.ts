@@ -11,7 +11,7 @@
 import type { tts } from "@livekit/agents";
 import * as deepgram from "@livekit/agents-plugin-deepgram";
 import { QwenTTS } from "./qwen-tts.ts";
-import { VoiceboxTTS, type VoiceboxTransport } from "./voicebox-tts.ts";
+import { DEFAULT_PARAGRAPH_PAUSE_MS, DEFAULT_SENTENCE_PAUSE_MS, VoiceboxTTS, type VoiceboxTransport } from "./voicebox-tts.ts";
 import { splitOptions, stringOption, type ProfileOptions } from "./profile-options.ts";
 
 export interface TtsProfile {
@@ -91,6 +91,8 @@ function voiceboxProfile(
         modelSize: stringOption(options, "model") ?? env("VOICEBOX_MODEL_SIZE") ?? "1.7B",
         intervalMs: Number(env("VOICEBOX_INTERVAL_MS") ?? 320),
         transport,
+        sentencePauseMs: Number(env("VOICEBOX_SENTENCE_PAUSE_MS") ?? DEFAULT_SENTENCE_PAUSE_MS),
+        paragraphPauseMs: Number(env("VOICEBOX_PARAGRAPH_PAUSE_MS") ?? DEFAULT_PARAGRAPH_PAUSE_MS),
       }),
   };
 }

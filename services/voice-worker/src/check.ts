@@ -25,7 +25,7 @@ import { VoiceboxSTT } from "./voicebox-stt.ts";
 import { createSttFor, missingSttSecrets, resolveSttProfile, STT_PROFILES } from "./stt-profiles.ts";
 import { AudioFrame } from "@livekit/rtc-node";
 import { stt } from "@livekit/agents";
-import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, segment } from "./speech-segments.ts";
+import { MAX_PIECE_CHARS, MIN_PIECE_CHARS, breakAfter, segment } from "./speech-segments.ts";
 import {
   createTtsFor,
   DEFAULT_VOICEBOX_PROFILE_ID,
@@ -348,6 +348,15 @@ function lastMessage(messages: ReturnType<typeof buildAnthropicMessages>["messag
   const long = segment(run, true);
   ok("segments: a run with no sentence end is still cut under the cap", long.pieces.length > 1 && long.pieces.every((p) => p.length <= MAX_PIECE_CHARS));
   eq("segments: a long run loses nothing", long.pieces.join(""), run);
+  const reply = "Hello there. Now the family.\n\nThe noun is amendment, and that is, in short, it.";
+  const first = breakAfter(reply, 0, "Hello there.");
+  eq("breaks: an end of sentence earns a sentence pause", first.kind, "sentence");
+  const second = breakAfter(reply, first.next, "Now the family.");
+  eq("breaks: a newline after the segment is a paragraph", second.kind, "paragraph");
+  eq("breaks: a clause cut in a long sentence earns no pause", breakAfter(reply, second.next, "The noun is amendment,").kind, "none");
+  eq("breaks: text the server changed is no pause, and the cursor stays", breakAfter(reply, 5, "Not in the reply."), { kind: "none", next: 5 });
+  eq("breaks: the last segment of a reply with no whitespace yet", breakAfter("Done.", 0, "Done.").kind, "sentence");
+  eq("breaks: a repeated sentence is found after the cursor", breakAfter("Yes. No.\nYes. ", 9, "Yes.").kind, "sentence");
   eq("segments: Cyrillic sentences split too", segment("Это первое предложение, довольно длинное для теста. А это второе предложение, тоже длинное. ", false).pieces.length >= 1, true);
 }
 
@@ -802,12 +811,16 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
         session.cancelled = true;
         send({ type: "cancelled" });
       } else if (message.type === "end") {
-        send({ type: "segment_start", id: 1, text: session.texts.join("") });
-        // 0.25 s of audio in two frames with an odd split: a sample straddles them.
-        const pcm = Buffer.alloc(12000, 1);
-        ws.send(pcm.subarray(0, 1001));
-        ws.send(pcm.subarray(1001));
-        send({ type: "segment_end", id: 1, first_chunk_ms: 9, audio_ms: 250 });
+        // Like the server: one segment per sentence, trimmed, so the paragraph breaks are gone.
+        const sentences = session.texts.join("").split(/(?<=[.!?])\s+/).filter(Boolean);
+        sentences.forEach((text, i) => {
+          send({ type: "segment_start", id: i + 1, text: text.trim() });
+          // 0.25 s of audio in two frames with an odd split: a sample straddles them.
+          const pcm = Buffer.alloc(12000, 1);
+          ws.send(pcm.subarray(0, 1001));
+          ws.send(pcm.subarray(1001));
+          send({ type: "segment_end", id: i + 1, first_chunk_ms: 9, audio_ms: 250 });
+        });
         send({ type: "end" });
         ws.close();
       }
@@ -855,8 +868,13 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
   ok("voicebox ws: the reply reaches its end", reply.ended);
   eq("voicebox ws: every piece of text goes out in order", sessions[0]!.texts.join(""), "Hello there, and welcome back. Today: weather.");
   ok("voicebox ws: a framework flush is forwarded", sessions[0]!.flushes >= 1);
-  eq("voicebox ws: every sample is played", reply.frames.reduce((n, f) => n + f.samples, 0), 6000);
+  // 2 sentences of 6000 samples and 250 ms (6000 samples) of silence between them, none after the last.
+  eq("voicebox ws: every sample is played, with a sentence pause between the 2 sentences", reply.frames.reduce((n, f) => n + f.samples, 0), 18000);
   ok("voicebox ws: only the last frame is final", reply.frames.at(-1)?.final === true && reply.frames.slice(0, -1).every((f) => !f.final));
+  await new Promise((r) => setTimeout(r, 100));
+  const paragraphs = await speak(["Line one. ", "Line two.\n\n", "Para two, ", "the end."]);
+  // 3 sentences (18000) + a sentence pause (6000) + a paragraph pause of 600 ms (14400).
+  eq("voicebox ws: a paragraph break gets the longer pause", paragraphs.frames.reduce((n, f) => n + f.samples, 0), 38400);
 
   await new Promise((r) => setTimeout(r, 100));
   const before = sessions.length;

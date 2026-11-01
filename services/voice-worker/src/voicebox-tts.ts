@@ -31,6 +31,7 @@ import type { AudioFrame } from "@livekit/rtc-node";
 import WebSocket from "ws";
 import { Gate } from "./gate.ts";
 import { SocketPool, type TakenSocket } from "./qwen-socket-pool.ts";
+import { breakAfter } from "./speech-segments.ts";
 
 const SAMPLE_RATE = 24000;
 const NUM_CHANNELS = 1;
@@ -60,7 +61,17 @@ export interface VoiceboxTtsOptions {
   intervalMs: number;
   /** `ws`: one socket per reply, text streamed in. `http`: one request per sentence. */
   transport: VoiceboxTransport;
+  /**
+   * Silence (ms) put between two sentences and between two paragraphs (`ws` only). The server plays
+   * each sentence right after the one before and drops the paragraph breaks, so a reply is one flat
+   * stream without them (report 152bb06c).
+   */
+  sentencePauseMs?: number;
+  paragraphPauseMs?: number;
 }
+
+export const DEFAULT_SENTENCE_PAUSE_MS = 250;
+export const DEFAULT_PARAGRAPH_PAUSE_MS = 600;
 
 export class VoiceboxTTS extends tts.TTS {
   label = "voicebox.TTS";
@@ -174,6 +185,7 @@ export class VoiceboxTTS extends tts.TTS {
 interface VoiceboxMessage {
   type?: string;
   message?: string;
+  text?: string;
   sample_rate?: number;
   channels?: number;
   first_chunk_ms?: number;
@@ -229,6 +241,13 @@ class VoiceboxSynthesizeStream extends tts.SynthesizeStream {
     let firstAudioMs: number | null = null;
     let sentChars = 0;
     let segments = 0;
+    // The text as sent, to find what follows each segment; the pause it earns plays before the next one.
+    let sent = "";
+    let cursor = 0;
+    let segmentText = "";
+    let owedPauseMs = 0;
+    let pauseBytes = 0;
+    const { sentencePauseMs = DEFAULT_SENTENCE_PAUSE_MS, paragraphPauseMs = DEFAULT_PARAGRAPH_PAUSE_MS } = this.#owner.opts;
     const serverFirstChunks: number[] = [];
     const errors: string[] = [];
     let socketNote = "";
@@ -293,12 +312,25 @@ class VoiceboxSynthesizeStream extends tts.SynthesizeStream {
           }
           const message = parse(data);
           switch (message.type) {
-            case "segment_start":
+            case "segment_start": {
               segments += 1;
+              segmentText = message.text ?? "";
+              // Only between two segments, and only after one that was heard: never at the end of a reply.
+              const samples = bytes > 0 ? Math.round((SAMPLE_RATE * owedPauseMs) / 1000) : 0;
+              if (samples > 0 && !cancelling) {
+                pauseBytes += samples * 2 * NUM_CHANNELS;
+                for (const frame of bstream.write(new ArrayBuffer(samples * 2 * NUM_CHANNELS))) emit(frame);
+              }
+              owedPauseMs = 0;
               break;
-            case "segment_end":
+            }
+            case "segment_end": {
               if (typeof message.first_chunk_ms === "number") serverFirstChunks.push(message.first_chunk_ms);
+              const found = breakAfter(sent, cursor, segmentText);
+              cursor = found.next;
+              owedPauseMs = found.kind === "paragraph" ? paragraphPauseMs : found.kind === "sentence" ? sentencePauseMs : 0;
               break;
+            }
             case "end":
               for (const frame of bstream.flush()) emit(frame);
               finish();
@@ -333,6 +365,7 @@ class VoiceboxSynthesizeStream extends tts.SynthesizeStream {
             }
             this.markStarted();
             send({ type: "text", text: data });
+            sent += data;
             sentChars += data.length;
           }
           send({ type: "end" });
@@ -345,7 +378,8 @@ class VoiceboxSynthesizeStream extends tts.SynthesizeStream {
       this.queue.put(tts.SynthesizeStream.END_OF_STREAM);
       log(
         `done in ${since()} firstAudio=${firstAudioMs ?? "-"}ms serverFirstChunk=${JSON.stringify(serverFirstChunks)} ` +
-          `audio=${(bytes / (SAMPLE_RATE * 2)).toFixed(1)}s chars=${sentChars} sentences=${segments} — ${socketNote}` +
+          `audio=${(bytes / (SAMPLE_RATE * 2)).toFixed(1)}s pauses=${(pauseBytes / (SAMPLE_RATE * 2)).toFixed(1)}s ` +
+          `chars=${sentChars} sentences=${segments} — ${socketNote}` +
           (errors.length ? ` errors=${errors.length}` : "") +
           (bytes === 0 && sentChars > 0 ? " — FINISHED WITH NO AUDIO" : ""),
       );

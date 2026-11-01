@@ -46,3 +46,22 @@ export function segment(buffer: string, final: boolean): { pieces: string[]; res
   }
   return { pieces, rest };
 }
+
+/** What follows a segment the TTS server cut off: a pause after a sentence or a paragraph, none inside one. */
+export type SegmentBreak = "paragraph" | "sentence" | "none";
+
+/**
+ * Finds `segmentText` (the server trims it) in `sent`, the reply text as sent so far, from `from`
+ * on, and tells which break follows it: a newline after it is a paragraph, an end of sentence is a
+ * sentence, anything else (a clause cut in a long sentence, or text that cannot be found) is none.
+ * `next` is where the next lookup starts.
+ */
+export function breakAfter(sent: string, from: number, segmentText: string): { kind: SegmentBreak; next: number } {
+  const text = segmentText.trim();
+  const at = text ? sent.indexOf(text, from) : -1;
+  if (at < 0) return { kind: "none", next: from };
+  const end = at + text.length;
+  const gap = /^\s*/.exec(sent.slice(end))![0];
+  if (gap.includes("\n")) return { kind: "paragraph", next: end };
+  return { kind: /[.!?…。！？]["'”’)\]]*$/.test(text) ? "sentence" : "none", next: end };
+}
