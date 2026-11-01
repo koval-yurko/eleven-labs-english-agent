@@ -602,14 +602,14 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
     });
     for (const id of Object.keys(TTS_PROFILES)) ok(`tts: ${id} builds on its keys`, Boolean(createTtsFor(id)));
     ok("tts: voicebox streams text in over /tts/ws", createTtsFor("voicebox").capabilities.streaming);
-    Object.assign(process.env, { VOICEBOX_URL: "https://tts.example", VOICEBOX_API_KEY: "tunnel-key" });
+    Object.assign(process.env, { VOICEBOX_TTS_URL: "https://tts.example", VOICEBOX_API_KEY: "tunnel-key" });
     const cloudVb = createTtsFor("voicebox") as VoiceboxTTS;
     const localVb = createTtsFor("voicebox-local") as VoiceboxTTS;
-    eq("tts: voicebox follows VOICEBOX_URL and its key (the Cloud worker's tunnel)", [cloudVb.opts.url, cloudVb.opts.apiKey], ["https://tts.example", "tunnel-key"]);
-    eq("tts: voicebox-local ignores the tunnel and its key, and reaches this Mac", [localVb.opts.url, localVb.opts.apiKey], ["http://127.0.0.1:17493", undefined]);
+    eq("tts: voicebox follows VOICEBOX_TTS_URL and its key (the Cloud worker's tunnel)", [cloudVb.opts.url, cloudVb.opts.apiKey], ["https://tts.example", "tunnel-key"]);
+    eq("tts: voicebox-local ignores the tunnel and its key, and reaches this Mac", [localVb.opts.url, localVb.opts.apiKey], ["http://127.0.0.1:17494", undefined]);
     eq("tts: voicebox and voicebox-local both speak as Men 1", [cloudVb.opts.profileId, localVb.opts.profileId], ["6536ab39-8909-4528-8327-27d61a390e45", DEFAULT_VOICEBOX_PROFILE_ID]);
-    process.env.VOICEBOX_LOCAL_URL = "http://127.0.0.1:18000/";
-    eq("tts: voicebox-local takes VOICEBOX_LOCAL_URL", (createTtsFor("voicebox-local") as VoiceboxTTS).opts.url, "http://127.0.0.1:18000");
+    process.env.VOICEBOX_LOCAL_TTS_URL = "http://127.0.0.1:18000/";
+    eq("tts: voicebox-local takes VOICEBOX_LOCAL_TTS_URL", (createTtsFor("voicebox-local") as VoiceboxTTS).opts.url, "http://127.0.0.1:18000");
     process.env.VOICEBOX_PROFILE_ID = "some-other-voice";
     const woman2 = createTtsFor("voicebox-local-woman-2") as VoiceboxTTS;
     eq(
@@ -926,14 +926,28 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
     "voicebox-whisper-turbo": "whisper-turbo",
     "voicebox-whisper-base": "whisper-base",
   };
-  eq("stt: one Voicebox profile per model", Object.keys(STT_PROFILES).filter((id) => id.startsWith("voicebox-")), Object.keys(voiceboxModels));
+  eq("stt: one Mac Voicebox profile per model", Object.keys(STT_PROFILES).filter((id) => id.startsWith("voicebox-") && !id.startsWith("voicebox-remote-")), Object.keys(voiceboxModels));
+  eq("stt: one tunnel Voicebox profile per model", Object.keys(STT_PROFILES).filter((id) => id.startsWith("voicebox-remote-")), Object.keys(voiceboxModels).map((id) => id.replace("voicebox-", "voicebox-remote-")));
   for (const id of Object.keys(voiceboxModels)) eq(`stt: ${id} needs no secret`, missingSttSecrets(STT_PROFILES[id]!), []);
   const saved = { ...process.env };
-  process.env.VOICEBOX_LOCAL_URL = "http://127.0.0.1:18000/";
+  process.env.VOICEBOX_LOCAL_STT_URL = "http://127.0.0.1:18000/";
   for (const [id, model] of Object.entries(voiceboxModels)) {
     const built = createSttFor(id) as VoiceboxSTT;
-    eq(`stt: ${id} asks for ${model} on VOICEBOX_LOCAL_URL, language detected`, [built.opts.url, built.opts.model, built.opts.language], ["http://127.0.0.1:18000", model, undefined]);
+    eq(`stt: ${id} asks for ${model} on VOICEBOX_LOCAL_STT_URL, language detected`, [built.opts.url, built.opts.model, built.opts.language], ["http://127.0.0.1:18000", model, undefined]);
   }
+  delete process.env.VOICEBOX_STT_URL;
+  delete process.env.VOICEBOX_API_KEY;
+  let remoteMessage = "";
+  try {
+    createSttFor("voicebox-remote-qwen-asr-0.6b");
+  } catch (error) {
+    remoteMessage = error instanceof Error ? error.message : String(error);
+  }
+  ok("stt: a tunnel Voicebox profile without its URL and key refuses to build, naming both", remoteMessage.includes("VOICEBOX_STT_URL") && remoteMessage.includes("VOICEBOX_API_KEY"));
+  Object.assign(process.env, { VOICEBOX_STT_URL: "https://stt.example", VOICEBOX_API_KEY: "tunnel-key" });
+  const remote = createSttFor("voicebox-remote-qwen-asr-0.6b") as VoiceboxSTT;
+  eq("stt: a tunnel Voicebox profile uses VOICEBOX_STT_URL and the key", [remote.opts.url, remote.opts.apiKey, remote.opts.model], ["https://stt.example", "tunnel-key", "qwen-asr-0.6B"]);
+  eq("stt: a Mac Voicebox profile ignores the tunnel and the key", [(createSttFor("voicebox-qwen-asr-0.6b") as VoiceboxSTT).opts.url, (createSttFor("voicebox-qwen-asr-0.6b") as VoiceboxSTT).opts.apiKey], ["http://127.0.0.1:18000", undefined]);
   delete process.env.DEEPGRAM_API_KEY;
   let message = "";
   try {
@@ -1044,6 +1058,48 @@ eq("routing: worker local is the Mac agent", livekitAgentName("local"), LIVEKIT_
   const batchSession = sessions.at(-1)!;
   eq("voicebox stt: recognize sends one segment with no server VAD", [batchSession.start?.vad, batchSession.bytes], [false, [8000]]);
   eq("voicebox stt: recognize joins the finals", [result.type, result.alternatives?.[0].text], [S.FINAL_TRANSCRIPT, "good morning"]);
+  server.close();
+}
+
+// Voicebox YK main server with TTS/STT workers: it accepts /tts/ws and /stt/ws and closes at once with
+// 1008 and the worker's URL. Both adapters fail on that close with the reason, not after a timeout.
+{
+  const saved = process.env.VOICEBOX_LOCAL_STT_URL;
+  delete process.env.VOICEBOX_LOCAL_STT_URL;
+  eq("stt: Voicebox STT defaults to the STT worker", (createSttFor("voicebox-qwen-asr-0.6b") as VoiceboxSTT).opts.url, "http://127.0.0.1:17495");
+  if (saved !== undefined) process.env.VOICEBOX_LOCAL_STT_URL = saved;
+
+  const server = new WebSocketServer({ port: 0 });
+  await new Promise((r) => server.once("listening", r));
+  const port = (server.address() as { port: number }).port;
+  const authHeaders: (string | undefined)[] = [];
+  server.on("connection", (ws, req) => {
+    authHeaders.push(req.headers.authorization);
+    ws.close(1008, `${req.url} runs on the worker at http://127.0.0.1:17494`);
+  });
+
+  const t0 = Date.now();
+  const sttError = await new VoiceboxSTT({ url: `http://127.0.0.1:${port}`, apiKey: "stt-key", model: "qwen-asr-0.6B", interim: true, interimIntervalMs: 500, maxSegmentS: 30 })
+    .open({ type: "start" }, 5000)
+    .then(() => "", (error: Error) => error.message);
+  eq("voicebox stt: the API key goes out as a Bearer header", authHeaders[0], "Bearer stt-key");
+  ok(`voicebox stt: a main-server refusal fails at once with its reason (${Date.now() - t0}ms)`, sttError.includes("1008") && sttError.includes("runs on the worker") && Date.now() - t0 < 2000);
+
+  const vb = new VoiceboxTTS({ url: `http://127.0.0.1:${port}`, profileId: "p", language: "en", modelSize: "1.7B", intervalMs: 320, transport: "ws" });
+  const ttsErrors: string[] = [];
+  vb.on("error", (e: { error?: Error }) => ttsErrors.push(e.error?.message ?? String(e)));
+  const t1 = Date.now();
+  const stream = vb.stream();
+  stream.pushText("Hello. ");
+  stream.endInput();
+  await Promise.race([
+    (async () => {
+      for await (const _ of stream) void _;
+    })().catch(() => undefined),
+    new Promise((r) => setTimeout(r, 5000)),
+  ]);
+  ok(`voicebox ws: a main-server refusal fails at once with its reason (${Date.now() - t1}ms)`, ttsErrors.some((m) => m.includes("1008") && m.includes("runs on the worker")) && Date.now() - t1 < 4000);
+  await vb.close();
   server.close();
 }
 

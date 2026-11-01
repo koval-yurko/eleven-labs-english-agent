@@ -15,8 +15,8 @@
  * decides alone (500 ms of silence), and `final` lands that long plus one decode after the learner
  * stops. A flush from any other caller still goes out as `end_segment`.
  *
- * Reachable only from a worker on the Mac: the tunnel's API-key gate lets `/tts/*` through and
- * nothing else, so a LiveKit Cloud worker gets 403 here even with a key.
+ * The profiles point it at this Mac's STT worker, or at the tunnel with an API key (`stt-profiles.ts`); the main server refuses
+ * `/stt/ws` while it runs with workers, and closes the socket with the worker's URL as the reason.
  *
  * Every stream logs `[voicebox stt …]` lines to the worker's stdout: segment counts and timing,
  * never the learner's words.
@@ -43,8 +43,10 @@ const SAMPLE_RATE = 16000;
 const READY_TIMEOUT_MS = 60_000;
 
 export interface VoiceboxSttOptions {
-  /** Server origin, e.g. `http://127.0.0.1:17493`. */
+  /** STT worker origin, e.g. `http://127.0.0.1:17495` or the tunnel's `https://stt.<domain>`. */
   url: string;
+  /** Sent as `Authorization: Bearer …`; only the tunnel needs it, local requests do not. */
+  apiKey?: string;
   /** Voicebox STT model, e.g. `qwen-asr-0.6B`. Absent = the default of the app's capture settings. */
   model?: string;
   /** ISO code. Absent = the model detects it per segment (learners answer in English and Russian). */
@@ -155,7 +157,7 @@ export class VoiceboxSTT extends stt.STT {
   async open(message: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<WebSocket> {
     const url = `${this.opts.url.replace(/^http/, "ws")}/stt/ws`;
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, { headers: this.opts.apiKey ? { authorization: `Bearer ${this.opts.apiKey}` } : {} });
       let settled = false;
       const timeout = (ms: number, message: string) => setTimeout(() => fail(new APITimeoutError({ message })), ms);
       let timer = timeout(timeoutMs, `Voicebox STT: no connection within ${timeoutMs}ms`);
@@ -172,7 +174,7 @@ export class VoiceboxSTT extends stt.STT {
       };
       signal?.addEventListener("abort", onAbort, { once: true });
       ws.on("error", (error) => fail(new APIConnectionError({ message: `Voicebox STT: cannot reach ${url} (${error.message})` })));
-      // The upgrade was refused: 403 from the tunnel gate, or an app without /stt/ws (before 0.6.0).
+      // The upgrade was refused: 403 from an API-key gate, or an app without /stt/ws (before 0.6.0).
       ws.once("unexpected-response", (_req, res) =>
         fail(
           new APIStatusError({
@@ -186,7 +188,10 @@ export class VoiceboxSTT extends stt.STT {
         timer = timeout(READY_TIMEOUT_MS, `Voicebox STT sent no ready within ${READY_TIMEOUT_MS}ms`);
         ws.send(JSON.stringify(message));
       });
-      ws.once("close", (code) => fail(new APIConnectionError({ message: `Voicebox STT closed before ready (${code})` })));
+      // The main server (not the STT worker) accepts and closes at once with 1008 and the worker's URL.
+      ws.once("close", (code, reason) =>
+        fail(new APIConnectionError({ message: `Voicebox STT closed before ready (${code}) ${reason.toString()}`.trim(), options: { retryable: code !== 1008 } })),
+      );
       ws.on("message", (data, isBinary) => {
         if (isBinary) return;
         const reply = parse(data);

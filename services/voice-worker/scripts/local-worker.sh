@@ -18,7 +18,7 @@
 # The LaunchAgent sets LIVEKIT_AGENT_NAME=tutor-local, so this worker gets only the versions with
 # `worker: "local"` (words-4.4) and the LiveKit Cloud worker keeps the rest. `.env` is the same file
 # as the Cloud worker's (`pnpm env:push --target worker`); words-4.4 speaks with the
-# `voicebox-local` profile, which ignores its tunnel VOICEBOX_URL.
+# `voicebox-local` profile, which ignores its tunnel VOICEBOX_TTS_URL.
 #
 # Deployed on every push to master by .github/workflows/deploy-voice-worker-local.yml on the
 # self-hosted runner. Voice-Agent project: docs/2026-10-27-local-voice-worker-on-mac-research.md.

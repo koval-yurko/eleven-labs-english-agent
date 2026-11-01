@@ -8,7 +8,6 @@
  */
 import type { stt } from "@livekit/agents";
 import { createStt } from "./pipeline.ts";
-import { DEFAULT_VOICEBOX_URL } from "./tts-profiles.ts";
 import { VOICEBOX_STT_DEFAULTS, VoiceboxSTT } from "./voicebox-stt.ts";
 import { splitOptions, type ProfileOptions } from "./profile-options.ts";
 
@@ -26,21 +25,30 @@ export const DEFAULT_STT_PROFILE = "deepgram";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
 
+/** The STT worker of Voicebox YK on this Mac; the main server (17593) refuses `/stt/ws` while it has workers. */
+export const DEFAULT_VOICEBOX_STT_URL = "http://127.0.0.1:17495";
+
 /**
- * Voicebox's `/stt/ws` on this Mac, one profile per model so a version names the exact model it ran
- * with. The model must be downloaded in Voicebox; a missing one fails at session start with the
- * server's reason. Always VOICEBOX_LOCAL_URL (default 127.0.0.1), never the tunnel: its key gate does
- * not let `/stt/*` through, so only the Mac worker can serve these. The language is detected per
- * segment unless VOICEBOX_STT_LANGUAGE pins it: learners answer in Russian too.
+ * Voicebox's `/stt/ws`, one profile per model so a version names the exact model it ran with. The
+ * model must be downloaded in Voicebox; a missing one fails at session start with the server's reason.
+ * The language is detected per segment unless VOICEBOX_STT_LANGUAGE pins it: learners answer in
+ * Russian too.
+ *
+ * - `voicebox-<model>`: this Mac's STT worker (VOICEBOX_LOCAL_STT_URL, default 127.0.0.1:17495), no
+ *   key, so only the Mac worker serves these (`words-4.5`).
+ * - `voicebox-remote-<model>`: the tunnel to the same STT worker (VOICEBOX_STT_URL) with
+ *   VOICEBOX_API_KEY, for the LiveKit Cloud worker. Both secrets are required; a missing one fails at
+ *   session start with its name.
  */
-function voiceboxStt(model: string, name: string): SttProfile {
+function voiceboxStt(model: string, name: string, remote = false): SttProfile {
   return {
-    label: `Voicebox STT ${name} (this Mac, /stt/ws)`,
-    secrets: [],
+    label: `Voicebox STT ${name} (${remote ? "tunnel" : "this Mac"}, /stt/ws)`,
+    secrets: remote ? ["VOICEBOX_STT_URL", "VOICEBOX_API_KEY"] : [],
     accepts: [],
     create: () =>
       new VoiceboxSTT({
-        url: env("VOICEBOX_LOCAL_URL") ?? DEFAULT_VOICEBOX_URL,
+        url: (remote ? env("VOICEBOX_STT_URL") : env("VOICEBOX_LOCAL_STT_URL")) ?? DEFAULT_VOICEBOX_STT_URL,
+        apiKey: remote ? env("VOICEBOX_API_KEY") : undefined,
         model,
         language: env("VOICEBOX_STT_LANGUAGE"),
         interim: VOICEBOX_STT_DEFAULTS.interim,
@@ -50,6 +58,13 @@ function voiceboxStt(model: string, name: string): SttProfile {
   };
 }
 
+const VOICEBOX_STT_MODELS: readonly [id: string, model: string, name: string][] = [
+  ["qwen-asr-0.6b", "qwen-asr-0.6B", "Qwen3-ASR 0.6B"],
+  ["qwen-asr-1.7b", "qwen-asr-1.7B", "Qwen3-ASR 1.7B"],
+  ["whisper-turbo", "whisper-turbo", "Whisper large-v3 turbo"],
+  ["whisper-base", "whisper-base", "Whisper base"],
+];
+
 export const STT_PROFILES: Record<string, SttProfile> = {
   deepgram: {
     label: "Deepgram Flux",
@@ -57,10 +72,8 @@ export const STT_PROFILES: Record<string, SttProfile> = {
     accepts: [],
     create: () => createStt(),
   },
-  "voicebox-qwen-asr-0.6b": voiceboxStt("qwen-asr-0.6B", "Qwen3-ASR 0.6B"),
-  "voicebox-qwen-asr-1.7b": voiceboxStt("qwen-asr-1.7B", "Qwen3-ASR 1.7B"),
-  "voicebox-whisper-turbo": voiceboxStt("whisper-turbo", "Whisper large-v3 turbo"),
-  "voicebox-whisper-base": voiceboxStt("whisper-base", "Whisper base"),
+  ...Object.fromEntries(VOICEBOX_STT_MODELS.map(([id, model, name]) => [`voicebox-${id}`, voiceboxStt(model, name)])),
+  ...Object.fromEntries(VOICEBOX_STT_MODELS.map(([id, model, name]) => [`voicebox-remote-${id}`, voiceboxStt(model, name, true)])),
 };
 
 export function missingSttSecrets(profile: SttProfile): string[] {

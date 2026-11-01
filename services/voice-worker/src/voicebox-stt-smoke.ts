@@ -10,8 +10,8 @@
  * run uses the same model and settings as a lesson on it. Default: `voicebox-qwen-asr-0.6b`.
  *
  * The WAV must be 16-bit PCM, any rate, mono or stereo. `say -o /tmp/s.wav --data-format=LEI16@16000 "…"`
- * makes one. Fails (exit 1) when no final transcript comes back. Uses VOICEBOX_LOCAL_URL, default
- * 127.0.0.1:17493.
+ * makes one. Fails (exit 1) when no final transcript comes back. Uses the STT worker at
+ * VOICEBOX_LOCAL_STT_URL, default 127.0.0.1:17495.
  */
 import "./env.ts";
 

@@ -59,7 +59,7 @@ Fill the new `.env` using the existing project/vendor credentials:
 | `ANTHROPIC_API_KEY` | Claude API access |
 | `DEEPGRAM_API_KEY` | Speech recognition and synthesis (Aura-2) |
 | `DASHSCOPE_API_KEY`, `QWEN_WORKSPACE_ID` | Only `words-4.1` / `words-4.2` (Alibaba Qwen-Audio TTS Plus) |
-| `VOICEBOX_URL`, `VOICEBOX_API_KEY` | Only `words-4.3` (Voicebox over `/tts/ws`, Cloud worker through the tunnel). `words-4.4` ignores both and uses `127.0.0.1` (`VOICEBOX_LOCAL_URL`) |
+| `VOICEBOX_TTS_URL`, `VOICEBOX_STT_URL`, `VOICEBOX_API_KEY` | The Cloud worker through the tunnel: `VOICEBOX_TTS_URL` for the TTS profile `voicebox` (`words-4.3`), `VOICEBOX_STT_URL` for the STT profiles `voicebox-remote-<model>`; the key goes to both. `words-4.4` and `words-4.5` ignore all three and use the workers on `127.0.0.1` (`VOICEBOX_LOCAL_TTS_URL`, `VOICEBOX_LOCAL_STT_URL`) |
 | `LIVEKIT_AGENT_NAME` | Unset = `tutor`. Only the worker on the Voicebox Mac sets `tutor-local`; set it in the shell, not in `.env` |
 | `ELEVENLABS_API_KEY` | Only `stt:check`; the worker no longer speaks with ElevenLabs |
 | `LIVEKIT_GRANT_SECRET` | Must match the backend's value exactly |
@@ -85,13 +85,15 @@ uses its own name and the Cloud worker keeps every other version:
 LIVEKIT_AGENT_NAME=tutor-local pnpm --filter voice-worker start
 ```
 
-It speaks through Voicebox on `127.0.0.1:17493` (`voicebox-local` profile), with no tunnel and no key.
+It speaks through the Voicebox YK TTS worker on `127.0.0.1:17494` (`voicebox-local` profile), with no tunnel and no key.
+Since Voicebox YK 0.8.0, TTS and STT run as separate processes: the TTS worker on `17494`, the STT worker
+on `17495`, and the main server on `17593`, which refuses `/tts/*` and `/stt/ws` while it has workers.
 Both `words-4.3` and `words-4.4` use the Voicebox voice "Men 1" (`VOICEBOX_PROFILE_ID`).
 When it is not running, a `words-4.4` lesson gets no tutor. Research: Voice-Agent project,
 `docs/2026-10-27-local-voice-worker-on-mac-research.md`.
 
 `words-4.5` is `words-4.4` with the STT swapped too: the worker listens through Voicebox's own
-`/stt/ws` (`src/voicebox-stt.ts`, Voicebox `0.6.0-custom.1` or later) instead of Deepgram Flux.
+`/stt/ws` on the STT worker (`127.0.0.1:17495`, `VOICEBOX_LOCAL_STT_URL`; `src/voicebox-stt.ts`) instead of Deepgram Flux.
 A version names the model through its STT profile (`src/stt-profiles.ts`):
 
 | `stt` | Voicebox model |
@@ -101,9 +103,11 @@ A version names the model through its STT profile (`src/stt-profiles.ts`):
 | `voicebox-whisper-turbo` | `whisper-turbo` |
 | `voicebox-whisper-base` | `whisper-base` |
 
+Each model also has a tunnel profile, `voicebox-remote-<model>` (for example `voicebox-remote-qwen-asr-0.6b`),
+for the Cloud worker: `VOICEBOX_STT_URL` and `VOICEBOX_API_KEY`. No version names one yet.
+
 The model must be downloaded in Voicebox. It speaks with the Voicebox voice "Woman 2"
-(TTS profile `voicebox-local-woman-2`, a fixed voice that `VOICEBOX_PROFILE_ID` does not change). Only the Mac worker can serve it: the tunnel lets
-`/tts/*` through and nothing else. Check the app's STT before a lesson:
+(TTS profile `voicebox-local-woman-2`, a fixed voice that `VOICEBOX_PROFILE_ID` does not change). Only the Mac worker serves it: the STT profiles never use the tunnel. Check the app's STT before a lesson:
 
 ```sh
 say -o /tmp/s.wav --data-format=LEI16@16000 "Hello, this is a test."

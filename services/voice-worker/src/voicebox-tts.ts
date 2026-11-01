@@ -21,7 +21,8 @@
  * The rest wait here, and an aborted sentence leaves without the server ever seeing it.
  *
  * The server must be reachable from the worker: a local worker (`pnpm --filter voice-worker dev`)
- * reaches `127.0.0.1:17493`; a LiveKit Cloud worker needs the Cloudflare tunnel URL and an API key.
+ * reaches the TTS worker on `127.0.0.1:17494` (Voicebox YK runs TTS and STT as separate processes; the
+ * main server on 17593 refuses `/tts/*`); a LiveKit Cloud worker needs the Cloudflare tunnel URL and an API key.
  *
  * Every reply (ws) or sentence (http) logs a `[voicebox …]` line to the worker's stdout.
  */
@@ -48,7 +49,7 @@ const IDLE_SOCKET_MS = 60_000;
 export type VoiceboxTransport = "ws" | "http";
 
 export interface VoiceboxTtsOptions {
-  /** Server origin, e.g. `http://127.0.0.1:17493` or the tunnel's `https://tts.<domain>`. */
+  /** TTS worker origin, e.g. `http://127.0.0.1:17494` or the tunnel's `https://tts.<domain>`. */
   url: string;
   /** Voicebox voice profile id. */
   profileId: string;
@@ -153,9 +154,12 @@ export class VoiceboxTTS extends tts.TTS {
       const fail = (error: Error) => {
         clearTimeout(timer);
         ws.off("message", onMessage);
+        ws.off("close", onClose);
         ws.close();
         reject(error);
       };
+      // The main server (not the TTS worker) accepts and closes at once with 1008 and the worker's URL.
+      const onClose = (code: number, reason: Buffer) => fail(new Error(`Voicebox closed before ready (${code}) ${reason.toString()}`.trim()));
       const onMessage = (data: WebSocket.RawData, isBinary: boolean) => {
         if (isBinary) return;
         const message = parse(data);
@@ -166,12 +170,14 @@ export class VoiceboxTTS extends tts.TTS {
           }
           clearTimeout(timer);
           ws.off("message", onMessage);
+          ws.off("close", onClose);
           resolve(ws);
         } else if (message.type === "error") {
           fail(new Error(`Voicebox refused start: ${message.message}`));
         }
       };
       ws.on("message", onMessage);
+      ws.once("close", onClose);
       ws.once("open", () =>
         ws.send(JSON.stringify({ type: "start", profile_id: profileId, language, model_size: modelSize, interval_ms: intervalMs })),
       );

@@ -49,18 +49,22 @@ export const VOICEBOX_VOICES: Readonly<Record<string, { name: string; profileId:
   "woman-2": { name: "Woman 2", profileId: VOICEBOX_WOMAN_2_PROFILE_ID },
   "men-1": { name: "Men 1", profileId: DEFAULT_VOICEBOX_PROFILE_ID },
 };
-export const DEFAULT_VOICEBOX_URL = "http://127.0.0.1:17493";
+/**
+ * The TTS worker of Voicebox YK on this Mac. Since 0.8.0 the app runs TTS and STT as separate processes,
+ * and the main server (17593) refuses `/tts/ws` while it has workers.
+ */
+export const DEFAULT_VOICEBOX_TTS_URL = "http://127.0.0.1:17494";
 
 const env = (name: string): string | undefined => process.env[name] || undefined;
 
 /**
  * Voicebox (local Qwen3-TTS voice clone). Nothing is required: every value has a default that works
  * with a local worker and the local app. A LiveKit Cloud worker cannot reach 127.0.0.1, so it needs
- * VOICEBOX_URL (the tunnel) and VOICEBOX_API_KEY — docs/2026-10-25-voicebox-custom-build-streaming-api.md
+ * VOICEBOX_TTS_URL (the tunnel to the TTS worker) and VOICEBOX_API_KEY — docs/2026-10-25-voicebox-custom-build-streaming-api.md
  * in the Voice-Agent project. `ws`: one `/tts/ws` session per reply; `http`: one `POST /tts/stream`
- * per sentence. `local: true` ignores VOICEBOX_URL and VOICEBOX_API_KEY and always uses this Mac's app
- * (VOICEBOX_LOCAL_URL, default 127.0.0.1): the Mac worker shares its `.env` with the Cloud worker's
- * secret sync, so VOICEBOX_URL there is the tunnel.
+ * per sentence. `local: true` ignores VOICEBOX_TTS_URL and VOICEBOX_API_KEY and always uses this Mac's TTS
+ * worker (VOICEBOX_LOCAL_TTS_URL, default 127.0.0.1:17494): the Mac worker shares its `.env` with the Cloud worker's
+ * secret sync, so VOICEBOX_TTS_URL there is the tunnel.
  */
 /** A voice name → its Voicebox id; an unknown name keeps the profile's own voice, and says so. */
 function chosenVoice(name: string | undefined): string | undefined {
@@ -83,7 +87,7 @@ function voiceboxProfile(
     accepts: ["voice", "model"],
     create: (options = {}) =>
       new VoiceboxTTS({
-        url: (local ? env("VOICEBOX_LOCAL_URL") : env("VOICEBOX_URL")) ?? DEFAULT_VOICEBOX_URL,
+        url: (local ? env("VOICEBOX_LOCAL_TTS_URL") : env("VOICEBOX_TTS_URL")) ?? DEFAULT_VOICEBOX_TTS_URL,
         profileId:
           chosenVoice(stringOption(options, "voice")) ?? voice?.profileId ?? env("VOICEBOX_PROFILE_ID") ?? DEFAULT_VOICEBOX_PROFILE_ID,
         apiKey: local ? undefined : env("VOICEBOX_API_KEY"),
